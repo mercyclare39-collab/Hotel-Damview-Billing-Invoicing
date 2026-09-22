@@ -1,0 +1,6 @@
+{
+  "name": "Hotel Damview Billing & Invoicing",
+  "description": "Offline-first billing, invoicing, and quotation management application for Hotel Damview with dynamic A4 PDF preview, client ledgers, and background Google Workspace sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-times {
+    font-family: 'Times New Roman', Times, 'Nimbus Roman No9 L', serif;
+  }
+}
+
+/* Exact A4 Print Simulation Styles */
+.a4-page-container {
+  width: 210mm;
+  min-height: 297mm;
+  padding: 12.7mm; /* Exact 0.5 inch (36pt) margins */
+  margin: 0 auto;
+  background: #ffffff;
+  box-sizing: border-box;
+  font-family: 'Times New Roman', Times, 'Nimbus Roman No9 L', serif;
+  font-size: 10pt;
+  line-height: 1.35;
+  color: #111827;
+}
+
+/* Right-aligned decimal table cells */
+.tabular-decimal {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Customized minimal neutral scrollbars that blend invisibly */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+
+/* Subtle Hairline High-Contrast Table Grids & Document Dividing Rules */
+.document-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  border: 1px solid #cbd5e1; /* Subtle slate-300 structural boundary */
+  border-radius: 2px;
+  background-color: #ffffff;
+}
+
+.document-table th {
+  border-bottom: 1px solid #cbd5e1;
+  border-right: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+  color: #0f172a;
+  font-weight: 700;
+  padding: 5px 8px;
+}
+
+.document-table th:last-child {
+  border-right: none;
+}
+
+.document-table td {
+  border-bottom: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  padding: 5px 8px;
+}
+
+.document-table td:last-child {
+  border-right: none;
+}
+
+.document-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Hairline Card & Summary Containers */
+.document-card {
+  border: 1px solid #cbd5e1;
+  border-radius: 2px;
+  background-color: #ffffff;
+}
+
+.document-divider {
+  border-color: #e2e8f0;
+}
+
+@media print {
+  body {
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only-container {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm;
+    margin: 0;
+    padding: 0;
+  }
+
+  .a4-page-container {
+    width: 210mm !important;
+    height: 297mm !important;
+    padding: 12.7mm !important; /* 0.5 inch */
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    page-break-after: always;
+  }
+
+  /* Precise hairline vector border preservation on print outputs */
+  .document-table {
+    border: 0.5pt solid #cbd5e1 !important;
+    border-collapse: separate !important;
+  }
+
+  .document-table th {
+    border-bottom: 0.5pt solid #cbd5e1 !important;
+    border-right: 0.5pt solid #e2e8f0 !important;
+    background-color: #f8fafc !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .document-table th:last-child {
+    border-right: none !important;
+  }
+
+  .document-table td {
+    border-bottom: 0.5pt solid #e2e8f0 !important;
+    border-right: 0.5pt solid #e2e8f0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .document-table td:last-child {
+    border-right: none !important;
+  }
+
+  .document-card {
+    border: 0.5pt solid #cbd5e1 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .document-divider {
+    border-color: #e2e8f0 !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+}
+
