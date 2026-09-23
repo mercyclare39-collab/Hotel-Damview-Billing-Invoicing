@@ -2,7 +2,6 @@ import { dbService } from './db';
 import { BillingDocument, Client, PaymentRecord, HotelProfile, LineItem, StatementRecord } from '../types';
 import { getPdfFileName } from '../utils/formatters';
 import { generateTestPdfDocument } from '../utils/pdfGenerator';
-import { driveArchiver } from './driveArchiver';
 import {
   autoCorrectIncomingDocument,
   autoCorrectIncomingClient,
@@ -1068,6 +1067,120 @@ class GoogleSyncManager {
   }
 
   /**
+   * Direct PDF base64 archive pipeline to Google Drive via Apps Script
+   */
+  async uploadPdfToDrive(options: {
+    pdfBase64: string;
+    fileName: string;
+    folderName?: string;
+  }): Promise<{
+    success: boolean;
+    driveUrl?: string;
+    driveFileId?: string;
+    fileName?: string;
+    byteLength?: number;
+    error?: string;
+  }> {
+    const profile = await dbService.getHotelProfile();
+    const url = profile.googleWebAppUrl;
+    const targetFolder = options.folderName || profile.googleDriveFolder || 'Hotel Damview Archives';
+
+    if (!url || !url.startsWith('http')) {
+      return {
+        success: false,
+        error: 'Google Apps Script Web App URL is not configured.',
+      };
+    }
+
+    if (!navigator.onLine) {
+      return {
+        success: false,
+        error: 'Offline mode active. Upload queued.',
+      };
+    }
+
+    try {
+      this.notifyListeners({ isSyncing: true, statusText: `Archiving ${options.fileName} to Google Drive...` });
+
+      const payload = {
+        action: 'ARCHIVE_PDF',
+        pdfBase64: options.pdfBase64,
+        fileName: options.fileName,
+        folderName: targetFolder,
+        timestamp: new Date().toISOString(),
+      };
+
+      const res = await this.postToScript(url, payload, 45000);
+
+      this.notifyListeners({
+        isSyncing: false,
+        statusText: res.success ? 'PDF Archived to Drive' : 'Drive Archiving Failed',
+      });
+
+      if (!res.success) {
+        return {
+          success: false,
+          error: res.error || 'Failed to archive PDF to Google Drive.',
+        };
+      }
+
+      const driveUrl = res.driveUrl || (res.pdfArchived && res.pdfArchived.url);
+      const driveFileId = res.driveFileId || (res.pdfArchived && res.pdfArchived.fileId);
+
+      return {
+        success: true,
+        driveUrl,
+        driveFileId,
+        fileName: res.fileName || options.fileName,
+        byteLength: res.byteLength,
+      };
+    } catch (err: any) {
+      this.notifyListeners({ isSyncing: false, statusText: 'Drive Upload Error' });
+      return {
+        success: false,
+        error: err?.message || 'Drive PDF Upload failed.',
+      };
+    }
+  }
+
+  /**
+   * Sync Hotel Profile in real time (App -> Google Sheets)
+   */
+  async syncProfile(newProfile: HotelProfile): Promise<{ success: boolean; error?: string }> {
+    const url = newProfile.googleWebAppUrl;
+    const payload = {
+      action: 'UPSERT_PROFILE',
+      profile: newProfile,
+      timestamp: new Date().toISOString(),
+    };
+
+    if (!url || !navigator.onLine) {
+      await dbService.addToSyncQueue({
+        action: 'UPSERT_PROFILE',
+        payload,
+      });
+      const queue = await dbService.getSyncQueue();
+      this.notifyListeners({ pendingCount: queue.length });
+      return { success: false, error: 'Offline or Web App URL missing. Queued for background sync.' };
+    }
+
+    try {
+      this.notifyListeners({ isSyncing: true, statusText: 'Updating Hotel Profile in Google Sheets...' });
+      const res = await this.postToScript(url, payload);
+      this.notifyListeners({ isSyncing: false, statusText: res.success ? 'Profile Synced' : 'Profile Sync Deferred' });
+      return { success: res.success, error: res.error };
+    } catch (err: any) {
+      await dbService.addToSyncQueue({
+        action: 'UPSERT_PROFILE',
+        payload,
+      });
+      const queue = await dbService.getSyncQueue();
+      this.notifyListeners({ isSyncing: false, pendingCount: queue.length });
+      return { success: false, error: err?.message || 'Network error syncing profile' };
+    }
+  }
+
+  /**
    * Sync a client record in real time (App -> Google Sheets)
    */
   async syncClient(client: Client): Promise<{ success: boolean; error?: string }> {
@@ -1806,7 +1919,7 @@ class GoogleSyncManager {
                 address: remoteClient.address?.trim() ? remoteClient.address.trim() : existing.address,
                 updatedAt: remoteClient.updatedAt || new Date().toISOString(),
               };
-              await dbService.saveClient(updatedClient, { skipRemoteSync: true });
+              await dbService.saveClient(updatedClient);
               pulledCount++;
               pullStats.clients++;
             }
@@ -1822,7 +1935,7 @@ class GoogleSyncManager {
               createdAt: remoteClient.createdAt || new Date().toISOString(),
               updatedAt: remoteClient.updatedAt || new Date().toISOString(),
             };
-            await dbService.saveClient(newClient, { skipRemoteSync: true });
+            await dbService.saveClient(newClient);
             pulledCount++;
             pullStats.clients++;
           }
@@ -1878,7 +1991,7 @@ class GoogleSyncManager {
             // Strict LWW enforcement: Only update local document if remote is strictly newer
             if (remoteUpdated > localUpdated + 1500) {
               const merged = safelyMergeDocumentWithDefensiveShields(existing, rDoc);
-              await dbService.saveDocument(merged, { skipRemoteSync: true });
+              await dbService.saveDocument(merged);
               pulledCount++;
               if (type === 'INVOICE') pullStats.invoices++;
               else if (type === 'QUOTATION') pullStats.quotations++;
@@ -1898,7 +2011,7 @@ class GoogleSyncManager {
                 status: newStatus as any,
                 updatedAt: new Date().toISOString(),
               };
-              await dbService.saveDocument(updated, { skipRemoteSync: true });
+              await dbService.saveDocument(updated);
               pulledCount++;
               if (type === 'INVOICE') pullStats.invoices++;
               else if (type === 'QUOTATION') pullStats.quotations++;
@@ -1952,7 +2065,7 @@ class GoogleSyncManager {
               driveFileUrl: rDoc.driveFileUrl || undefined,
               lastSyncStatus: 'synced',
             };
-            await dbService.saveDocument(newDoc, { skipRemoteSync: true });
+            await dbService.saveDocument(newDoc);
             pulledCount++;
             if (type === 'INVOICE') pullStats.invoices++;
             else if (type === 'QUOTATION') pullStats.quotations++;
@@ -2009,29 +2122,28 @@ class GoogleSyncManager {
               driveFileUrl: rPay.driveFileUrl || undefined,
               lastSyncStatus: 'synced',
             };
-            await dbService.savePayment(newPayment, { skipRemoteSync: true });
+            await dbService.savePayment(newPayment);
             pulledCount++;
             pullStats.payments++;
           }
         }
       }
 
-      // 4. MERGE PROFILE
+      // 4. MERGE PROFILE (Defensive: only fill in missing fields if local is unconfigured)
       if (remoteData.profile && Object.keys(remoteData.profile).length > 0) {
-        const rp = remoteData.profile;
-        const profileUpdates: Partial<HotelProfile> = {};
-        if (rp.name && rp.name.trim()) profileUpdates.name = rp.name.trim();
-        if (rp.tagline !== undefined) profileUpdates.tagline = rp.tagline;
-        if (rp.kraPin && rp.kraPin.trim()) profileUpdates.kraPin = rp.kraPin.trim();
-        if (rp.email && rp.email.trim()) profileUpdates.email = rp.email.trim();
-        if (rp.phone && rp.phone.trim()) profileUpdates.phone = rp.phone.trim();
-        if (rp.bankName && rp.bankName.trim()) profileUpdates.bankName = rp.bankName.trim();
-        if (rp.accountNumber && rp.accountNumber.trim()) profileUpdates.accountNumber = rp.accountNumber.trim();
-        if (rp.mpesaTillNumber && rp.mpesaTillNumber.trim()) profileUpdates.mpesaTillNumber = rp.mpesaTillNumber.trim();
-        if (rp.vatRate && !isNaN(Number(rp.vatRate))) profileUpdates.vatRate = Number(rp.vatRate);
+        const localProfile = await dbService.getHotelProfile();
+        const pendingProfileSync = syncQueue.some((q) => q.action === 'UPSERT_PROFILE');
+        if (!pendingProfileSync) {
+          const rp = remoteData.profile;
+          const profileUpdates: Partial<HotelProfile> = {};
+          if (localProfile.name === undefined && rp.name && rp.name.trim()) profileUpdates.name = rp.name.trim();
+          if (localProfile.kraPin === undefined && rp.kraPin && rp.kraPin.trim()) profileUpdates.kraPin = rp.kraPin.trim();
+          if (localProfile.email === undefined && rp.email && rp.email.trim()) profileUpdates.email = rp.email.trim();
+          if (localProfile.phone === undefined && rp.phone && rp.phone.trim()) profileUpdates.phone = rp.phone.trim();
 
-        if (Object.keys(profileUpdates).length > 0) {
-          await dbService.saveHotelProfile(profileUpdates, { skipRemoteSync: true });
+          if (Object.keys(profileUpdates).length > 0) {
+            await dbService.saveHotelProfile(profileUpdates);
+          }
         }
       }
 
@@ -2048,7 +2160,7 @@ class GoogleSyncManager {
       const now = new Date().toISOString();
       await dbService.saveHotelProfile({
         lastSyncTimestamp: now,
-      }, { skipRemoteSync: true });
+      });
 
       this.notifyListeners({
         isSyncing: false,
@@ -2107,9 +2219,15 @@ class GoogleSyncManager {
     try {
       this.notifyListeners({ isSyncing: true, statusText: 'Populating all 11 Google Sheet tabs with app data...' });
 
-      const rawClients = await dbService.getClients();
-      const rawDocuments = await dbService.getDocuments();
-      const rawPayments = await dbService.getPayments();
+      const [rawClients, rawDocuments, rawPayments, catalogue, posOrders, reservations, expenses] = await Promise.all([
+        dbService.getClients(),
+        dbService.getDocuments(),
+        dbService.getPayments(),
+        dbService.getCatalogueItems(),
+        dbService.getPOSOrders(),
+        dbService.getReservations(),
+        dbService.getExpenses(),
+      ]);
 
       const clients = rawClients.map(sanitizeClientForSync);
       const documents = rawDocuments.map(sanitizeDocumentForSync);
@@ -2121,11 +2239,62 @@ class GoogleSyncManager {
         clients,
         documents,
         payments,
+        catalogue,
+        posOrders,
+        reservations,
+        expenses,
         folderName: profile.googleDriveFolder || 'Hotel Damview Archives',
         timestamp: new Date().toISOString(),
       };
 
-      const res = await this.postToScript(url, payload, 60000);
+      let res = await this.postToScript(url, payload, 60000);
+
+      // Backwards-compatibility fallback for older deployed Apps Script Web App versions
+      if (!res.success && res.error && (res.error.includes('Unrecognized sync action') || res.error.includes('FULL_SYNC'))) {
+        this.notifyListeners({ isSyncing: true, statusText: 'Retrying sync with step-by-step compatibility mode...' });
+        
+        try {
+          // 1. Sync Profile
+          await this.postToScript(url, { action: 'UPSERT_PROFILE', profile }, 15000);
+
+          // 2. Sync Clients
+          for (const c of clients) {
+            await this.postToScript(url, { action: 'UPSERT_CLIENT', client: c }, 15000);
+          }
+
+          // 3. Sync Documents
+          for (const d of documents) {
+            await this.postToScript(url, { action: 'UPSERT_DOCUMENT', document: d, folderName: profile.googleDriveFolder || 'Hotel Damview Archives' }, 20000);
+          }
+
+          // 4. Sync Payments
+          for (const p of payments) {
+            await this.postToScript(url, { action: 'RECORD_PAYMENT', payment: p }, 15000);
+          }
+
+          // 5. Generate / Refresh Tabs
+          const genRes = await this.postToScript(url, { action: 'GENERATE_ALL_TABS' }, 30000);
+
+          if (genRes.success) {
+            res = {
+              success: true,
+              message: 'All 11 spreadsheet tabs populated via compatibility sync pipeline.',
+            };
+          } else {
+            res = {
+              success: false,
+              error: 'Your Google Apps Script deployment is running an older version of Code.gs. Please update Code.gs in Apps Script and click "Deploy" > "Manage deployments" > "Edit" > "New version".',
+              message: 'Apps Script update required: Please deploy the latest Code.gs script as "New version".',
+            };
+          }
+        } catch (fallbackErr: any) {
+          res = {
+            success: false,
+            error: 'Apps Script Web App needs to be updated with the latest Code.gs script. Deployment guide: Click "Deploy" > "Manage deployments" > "Edit" > "New version".',
+            message: fallbackErr.message || 'Outdated Apps Script Web App',
+          };
+        }
+      }
 
       this.notifyListeners({ isSyncing: false, statusText: res.success ? 'Full batch sync complete' : 'Full sync failed' });
       return {
@@ -2181,13 +2350,6 @@ class GoogleSyncManager {
       const pullResult = await this.pullFromGoogleSheets();
       const pulledCount = pullResult.itemsPulled || 0;
 
-      // Step 2b: Flush queued offline PDF exports to Google Drive
-      try {
-        await driveArchiver.flushOfflineQueue();
-      } catch (driveErr) {
-        console.warn('Background Drive offline queue flush warning:', driveErr);
-      }
-
       // Step 3: Record sync timestamp
       const now = new Date().toISOString();
       await dbService.saveHotelProfile({
@@ -2239,6 +2401,23 @@ class GoogleSyncManager {
    */
   async runVerificationSuite(): Promise<SyncVerificationResult> {
     return runEndToEndSyncVerification();
+  }
+
+  // --- Defensive Runtime Aliases for System Resilience ---
+  async upsertDocument(doc: BillingDocument, pdfBase64?: string): Promise<any> {
+    return this.syncDocument(doc, pdfBase64);
+  }
+  async saveDocument(doc: BillingDocument, pdfBase64?: string): Promise<any> {
+    return this.syncDocument(doc, pdfBase64);
+  }
+  async upsertClient(client: Client): Promise<any> {
+    return this.syncClient(client);
+  }
+  async upsertPayment(payment: PaymentRecord, pdfBase64?: string): Promise<any> {
+    return this.syncPayment(payment, pdfBase64);
+  }
+  async upsertProfile(profile: HotelProfile): Promise<any> {
+    return this.syncProfile(profile);
   }
 }
 

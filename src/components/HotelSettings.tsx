@@ -88,6 +88,10 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     loadCatalogue();
   }, []);
 
+  useEffect(() => {
+    setFormData({ ...profile });
+  }, [profile]);
+
   const handleOpenNewCatItem = () => {
     setEditingCatItem(null);
     setCatParticulars('');
@@ -893,9 +897,25 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
       {activeTab === 'accounts' && (
         <form onSubmit={handleSubmit} className="bg-white border border-stone-200 rounded p-6 shadow-xs space-y-5 text-xs">
           <fieldset disabled={!isUnlocked} className="space-y-5 disabled:opacity-80">
-          <div className="p-3 bg-amber-50/60 border border-amber-200 rounded text-amber-900">
-            <strong>Settlement Instructions:</strong> These account and M-Pesa details automatically populate the
-            remittance box on all Quotations, Proforma Invoices, and Invoices.
+          <div className="p-3 bg-stone-50 border border-stone-200 rounded text-stone-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <strong>Settlement Accounts Configuration:</strong> Optional bank and M-Pesa credentials stored securely in hotel settings for account reference.
+            </div>
+            {isUnlocked && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleInputChange('bankName', '');
+                  handleInputChange('bankBranch', '');
+                  handleInputChange('accountHolder', '');
+                  handleInputChange('accountNumber', '');
+                  handleInputChange('mpesaTillNumber', '');
+                }}
+                className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded shrink-0 text-[11px] transition-colors"
+              >
+                Clear All Account Credentials
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1503,7 +1523,11 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-stone-600">Native API Support:</span>
                   <span className="font-semibold text-stone-900">
-                    {localBackupService.isFileSystemAccessSupported() ? 'Supported (Chromium Engine)' : 'Unavailable in this browser'}
+                    {localBackupService.isFileSystemAccessSupported()
+                      ? 'Supported (Chromium Engine)'
+                      : localBackupService.isInEmbeddedFrame()
+                      ? 'Restricted in Preview Iframe (Browser Download Active)'
+                      : 'Unavailable in this browser'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">

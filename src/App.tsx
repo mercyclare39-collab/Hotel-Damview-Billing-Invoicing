@@ -395,8 +395,7 @@ export default function App() {
   const handleSaveProfile = async (newProfile: HotelProfile) => {
     setProfile(newProfile);
     await dbService.saveHotelProfile(newProfile);
-    await syncManager.syncBidirectional();
-    await refreshData();
+    await syncManager.syncProfile(newProfile);
   };
 
   // Summary counts for navigation badges

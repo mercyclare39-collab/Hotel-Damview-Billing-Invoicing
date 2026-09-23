@@ -33,17 +33,17 @@ interface PaymentModalProps {
 
 const DEFAULT_PROFILE: HotelProfile = {
   name: 'HOTEL DAMVIEW',
-  physicalLocation: 'Off Machakos-Wote Road, Adjacent to Maruba Dam, Machakos',
-  postalAddress: 'P.O. Box 1420 - 90100, Machakos, Kenya',
-  phone: '+254 722 890 123',
-  email: 'reservations@damviewhotel.co.ke',
-  kraPin: 'P051982741Z',
+  physicalLocation: 'MARIAKANI',
+  postalAddress: 'P.O. BOX 42491-80100, Mombasa, Kenya',
+  phone: '+25472524262',
+  email: 'hoteldamview@gmail.com',
+  kraPin: 'P051453023Q',
   logoBase64: '',
-  bankName: 'Kenya Commercial Bank (KCB)',
-  bankBranch: 'Machakos Branch',
-  accountHolder: 'Hotel Damview Ltd',
-  accountNumber: '1108923456',
-  mpesaTillNumber: '5421098',
+  bankName: '',
+  bankBranch: '',
+  accountHolder: '',
+  accountNumber: '',
+  mpesaTillNumber: '',
   vatRate: 16,
 };
 

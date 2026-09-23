@@ -60,7 +60,7 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
     };
 
     // Formatted phone & email line
-    const phoneEmail = `${profile.phone || '+254 722 890 123'} | ${profile.email || 'reservations@damviewhotel.co.ke'}`;
+    const phoneEmail = `${profile.phone || '+25472524262'} | ${profile.email || 'hoteldamview@gmail.com'}`;
 
     // Adaptive, content-based column width calculation:
     // 1. Item #: compact fixed width
@@ -148,10 +148,10 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
 
                 {/* Sub-details: Physical Location, Postal Address, Phone | Email, and KRA PIN */}
                 <div className="text-[11pt] text-stone-800 leading-snug space-y-0.5">
-                  <div>{profile.physicalLocation || 'Off Machakos-Wote Road, Adjacent to Maruba Dam, Machakos'}</div>
-                  <div>{profile.postalAddress || 'P.O. Box 1420 - 90100, Machakos, Kenya'}</div>
+                  <div>{profile.physicalLocation || 'MARIAKANI'}</div>
+                  <div>{profile.postalAddress || 'P.O. BOX 42491-80100, Mombasa, Kenya'}</div>
                   <div>{phoneEmail}</div>
-                  <div className="font-semibold tracking-wider">KRA PIN: {profile.kraPin || 'P051982741Z'}</div>
+                  <div className="font-semibold tracking-wider">KRA PIN: {profile.kraPin || 'P051453023Q'}</div>
                 </div>
               </div>
             </div>

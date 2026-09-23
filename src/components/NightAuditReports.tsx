@@ -312,7 +312,7 @@ export const NightAuditReports: React.FC<NightAuditReportsProps> = ({
 
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between text-stone-700">
-                  <span>M-Pesa Buy Goods (Till 5432100):</span>
+                  <span>M-Pesa Buy Goods Collections:</span>
                   <span className="font-mono font-semibold">Ksh {dailyMpesa.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-stone-700">

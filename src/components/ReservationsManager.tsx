@@ -317,7 +317,7 @@ export const ReservationsManager: React.FC<ReservationsManagerProps> = ({
       balanceDue: Math.max(0, grandTotal - res.amountPaid),
       status: res.amountPaid >= grandTotal ? 'Paid' : 'Sent',
       notes: `Generated from Reservation Folio: ${res.folioNumber}. Guest: ${res.guestName}. Special Notes: ${res.specialRequests || 'Standard check-out'}.`,
-      terms: 'Settlement due upon departure via M-Pesa Till 5432100 or Bank Transfer.',
+      terms: 'Settlement due upon departure via M-Pesa or Bank Transfer as per hotel accounts configuration.',
     });
   };
 

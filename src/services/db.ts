@@ -149,488 +149,40 @@ export const STANDARD_POS_MENU: POSOrderItem[] = [
 
 export const DEFAULT_HOTEL_PROFILE: HotelProfile = {
   name: 'HOTEL DAMVIEW',
-  tagline: 'Scenic Luxury, Conferences & Dining by Maruba Dam',
-  kraPin: 'P051982741Z',
-  email: 'reservations@damviewhotel.co.ke',
-  phone: '+254 722 890 123 / +254 733 456 789',
-  physicalLocation: 'Off Machakos-Wote Road, Adjacent to Maruba Dam, Machakos',
-  postalAddress: 'P.O. Box 1420 - 90100, Machakos, Kenya',
+  tagline: '',
+  kraPin: 'P051453023Q',
+  email: 'hoteldamview@gmail.com',
+  phone: '+25472524262',
+  physicalLocation: 'MARIAKANI',
+  postalAddress: 'P.O. BOX 42491-80100, Mombasa, Kenya',
   logoBase64: '',
-  bankName: 'Kenya Commercial Bank (KCB)',
-  bankBranch: 'Machakos Main Branch',
-  accountHolder: 'Hotel Damview Enterprises Ltd',
-  accountNumber: '1102983746',
-  mpesaTillNumber: '5432100',
+  bankName: '',
+  bankBranch: '',
+  accountHolder: '',
+  accountNumber: '',
+  mpesaTillNumber: '',
   vatRate: 16,
-  googleWebAppUrl: '',
+  googleWebAppUrl: 'https://script.google.com/macros/s/AKfycbydS-5XrObH66rYF6x_pm_zIKkgvwD720IqRR724ndaz3NhTMlFFgSQ9_UBa5nYWnVk/exec',
   googleDriveFolder: 'Hotel Damview Archives',
   googleSheetUrl: '',
-  googleDriveFolderUrl: '',
+  googleDriveFolderUrl: 'https://drive.google.com/drive/folders/19BU3YmTeQx7NMKwubVCm8N6nISzA8Hzn',
   googleSheetEmbedUrl: '',
   autoSyncEnabled: true,
 };
 
-const SAMPLE_CLIENTS: Client[] = [
-  {
-    id: 'cli-001',
-    name: 'Machakos County Executive Committee',
-    contactPerson: 'Director Mutua Musyoka',
-    email: 'treasury@machakosgovernment.co.ke',
-    phone: '+254 711 200 300',
-    kraPin: 'P051122334A',
-    address: 'County Headquarters, Mwatu wa Ngoma St, Machakos',
-    createdAt: '2026-08-10',
-    updatedAt: '2026-08-10T08:00:00.000Z',
-  },
-  {
-    id: 'cli-002',
-    name: 'Kenya Red Cross Society - Eastern Region',
-    contactPerson: 'Faith Ndanu Mwende',
-    email: 'eastern.operations@redcross.or.ke',
-    phone: '+254 722 455 677',
-    kraPin: 'P051998877B',
-    address: 'Regional Offices, Ngei Road, Machakos',
-    createdAt: '2026-08-15',
-    updatedAt: '2026-08-15T08:00:00.000Z',
-  },
-  {
-    id: 'cli-003',
-    name: 'Apex Agro-Logistics Ltd',
-    contactPerson: 'Peter Kariuki',
-    email: 'finance@apexagroke.com',
-    phone: '+254 733 899 001',
-    kraPin: 'P051443322C',
-    address: 'Mombasa Road Business Park, Suite 4B, Nairobi/Athi River',
-    createdAt: '2026-08-20',
-    updatedAt: '2026-08-20T08:00:00.000Z',
-  },
-];
+const SAMPLE_CLIENTS: Client[] = [];
 
-const SAMPLE_DOCUMENTS: BillingDocument[] = [
-  {
-    id: 'doc-q001',
-    documentType: 'QUOTATION',
-    documentNumber: 'QT-0001',
-    clientId: 'cli-001',
-    clientName: 'Machakos County Executive Committee',
-    clientKraPin: 'P051122334A',
-    clientAddress: 'County Headquarters, Mwatu wa Ngoma St, Machakos',
-    clientPhone: '+254 711 200 300',
-    clientEmail: 'treasury@machakosgovernment.co.ke',
-    issueDate: '2026-09-05',
-    validityDays: 30,
-    dueDate: '2026-10-05',
-    lineItems: [
-      {
-        id: 'li-1',
-        particulars: 'Executive Conference Hall (Day Package with Projector & PA)',
-        quantity: 1,
-        days: 3,
-        rate: 25000,
-        discount: 0,
-        amount: 75000,
-      },
-      {
-        id: 'li-2',
-        particulars: 'Full Day Delegate Package (Buffet Lunch, 2x Tea/Coffee & Snacks)',
-        quantity: 45,
-        days: 3,
-        rate: 2800,
-        discount: 5000,
-        amount: 373000,
-      },
-      {
-        id: 'li-3',
-        particulars: 'VIP Accommodation - Deluxe Lake View Suites (Bed & Breakfast)',
-        quantity: 5,
-        days: 3,
-        rate: 8500,
-        discount: 2500,
-        amount: 125000,
-      },
-    ],
-    subtotal: 573000,
-    vatAmount: 91680,
-    grandTotal: 664680,
-    amountPaid: 0,
-    balanceDue: 664680,
-    status: 'Sent',
-    notes: 'Conference rates include high-speed Wi-Fi, writing pads, pens, and 2 bottles of 500ml mineral water per delegate per day.',
-    terms: 'Payment terms: 50% commitment deposit upon LPO confirmation, balance payable on or before departure.',
-    createdAt: '2026-09-05T08:00:00.000Z',
-    updatedAt: '2026-09-05T08:00:00.000Z',
-  },
-  {
-    id: 'doc-pi001',
-    documentType: 'PROFORMA',
-    documentNumber: 'PI-0001',
-    clientId: 'cli-002',
-    clientName: 'Kenya Red Cross Society - Eastern Region',
-    clientKraPin: 'P051998877B',
-    clientAddress: 'Regional Offices, Ngei Road, Machakos',
-    clientPhone: '+254 722 455 677',
-    clientEmail: 'eastern.operations@redcross.or.ke',
-    issueDate: '2026-09-10',
-    validityDays: 14,
-    dueDate: '2026-09-24',
-    lineItems: [
-      {
-        id: 'li-4',
-        particulars: 'Emergency Preparedness Workshop Hall Rental (Maruba Garden Pavilion)',
-        quantity: 1,
-        days: 2,
-        rate: 18000,
-        discount: 0,
-        amount: 36000,
-      },
-      {
-        id: 'li-5',
-        particulars: 'Mid-Morning & Afternoon Tea with Assorted Traditional Snacks',
-        quantity: 30,
-        days: 2,
-        rate: 950,
-        discount: 1000,
-        amount: 56000,
-      },
-      {
-        id: 'li-6',
-        particulars: 'Chef Special Damview 3-Course Buffet Lunch + Soft Drink',
-        quantity: 30,
-        days: 2,
-        rate: 1650,
-        discount: 0,
-        amount: 99000,
-      },
-    ],
-    subtotal: 191000,
-    vatAmount: 30560,
-    grandTotal: 221560,
-    amountPaid: 100000,
-    balanceDue: 121560,
-    status: 'Sent',
-    notes: 'Includes breakout gazebo tents and emergency power generator backup.',
-    terms: 'Kindly quote Proforma Invoice number PI-0001 when remitting electronic bank transfer.',
-    createdAt: '2026-09-10T08:00:00.000Z',
-    updatedAt: '2026-09-11T08:00:00.000Z',
-  },
-  {
-    id: 'doc-inv001',
-    documentType: 'INVOICE',
-    documentNumber: 'INV-0001',
-    clientId: 'cli-003',
-    clientName: 'Apex Agro-Logistics Ltd',
-    clientKraPin: 'P051443322C',
-    clientAddress: 'Mombasa Road Business Park, Suite 4B, Nairobi/Athi River',
-    clientPhone: '+254 733 899 001',
-    clientEmail: 'finance@apexagroke.com',
-    issueDate: '2026-09-12',
-    validityDays: 14,
-    dueDate: '2026-09-26',
-    lineItems: [
-      {
-        id: 'li-7',
-        particulars: 'Quarterly Strategy Retreat - Damview Conference Boardroom',
-        quantity: 1,
-        days: 2,
-        rate: 20000,
-        discount: 0,
-        amount: 40000,
-      },
-      {
-        id: 'li-8',
-        particulars: 'Standard Room Accommodation (Single Occupancy, Half-Board)',
-        quantity: 8,
-        days: 2,
-        rate: 6500,
-        discount: 4000,
-        amount: 100000,
-      },
-      {
-        id: 'li-9',
-        particulars: 'Team Building Facilitation & Damview Grounds Access',
-        quantity: 1,
-        days: 1,
-        rate: 35000,
-        discount: 0,
-        amount: 35000,
-      },
-    ],
-    subtotal: 175000,
-    vatAmount: 28000,
-    grandTotal: 203000,
-    amountPaid: 203000,
-    balanceDue: 0,
-    status: 'Paid',
-    notes: 'Thank you for your valued partnership. All attendees expressed warm satisfaction.',
-    terms: 'Settled in full via KCB RTGS on 2026-09-14.',
-    createdAt: '2026-09-12T08:00:00.000Z',
-    updatedAt: '2026-09-14T08:00:00.000Z',
-  },
-  {
-    id: 'doc-inv002',
-    documentType: 'INVOICE',
-    documentNumber: 'INV-0002',
-    clientId: 'cli-002',
-    clientName: 'Kenya Red Cross Society - Eastern Region',
-    clientKraPin: 'P051998877B',
-    clientAddress: 'Regional Offices, Ngei Road, Machakos',
-    clientPhone: '+254 722 455 677',
-    clientEmail: 'eastern.operations@redcross.or.ke',
-    issueDate: '2026-09-15',
-    validityDays: 14,
-    dueDate: '2026-09-29',
-    lineItems: [
-      {
-        id: 'li-10',
-        particulars: 'Maruba Garden Pavilion Workshop Facility Hire',
-        quantity: 1,
-        days: 2,
-        rate: 18000,
-        discount: 0,
-        amount: 36000,
-      },
-      {
-        id: 'li-11',
-        particulars: 'Catering & Beverages - 30 Delegates (2 Days)',
-        quantity: 30,
-        days: 2,
-        rate: 2600,
-        discount: 0,
-        amount: 156000,
-      },
-    ],
-    subtotal: 192000,
-    vatAmount: 30720,
-    grandTotal: 222720,
-    amountPaid: 100000,
-    balanceDue: 122720,
-    status: 'Sent',
-    notes: 'Converted from Proforma PI-0001 upon service delivery.',
-    terms: 'Balance due within 14 calendar days.',
-    createdAt: '2026-09-15T08:00:00.000Z',
-    updatedAt: '2026-09-15T08:00:00.000Z',
-  },
-];
+const SAMPLE_DOCUMENTS: BillingDocument[] = [];
 
-const SAMPLE_PAYMENTS: PaymentRecord[] = [
-  {
-    id: 'pay-001',
-    receiptNumber: 'REC-0001',
-    documentId: 'doc-inv001',
-    documentNumber: 'INV-0001',
-    clientId: 'cli-003',
-    clientName: 'Apex Agro-Logistics Ltd',
-    date: '2026-09-14',
-    amount: 203000,
-    paymentMode: 'Bank Transfer',
-    referenceNote: 'KCB RTGS Ref: KCB992837190',
-    createdAt: '2026-09-14T08:00:00.000Z',
-  },
-  {
-    id: 'pay-002',
-    receiptNumber: 'REC-0002',
-    documentId: 'doc-inv002',
-    documentNumber: 'INV-0002',
-    clientId: 'cli-002',
-    clientName: 'Kenya Red Cross Society - Eastern Region',
-    date: '2026-09-16',
-    amount: 100000,
-    paymentMode: 'M-Pesa',
-    referenceNote: 'M-Pesa Buy Goods Code: QJC899120',
-    createdAt: '2026-09-16T08:00:00.000Z',
-  },
-];
+const SAMPLE_PAYMENTS: PaymentRecord[] = [];
 
-const SAMPLE_STATEMENTS: StatementRecord[] = [
-  {
-    id: 'stmt-001',
-    statementNumber: 'SOA-MAC-20260920',
-    clientId: 'cli-001',
-    clientName: 'Machakos County Executive Committee',
-    clientKraPin: 'P051122334A',
-    issueDate: '2026-09-20',
-    startDate: '2026-08-01',
-    endDate: '2026-09-20',
-    totalDebit: 448000,
-    totalCredit: 0,
-    closingBalance: 448000,
-    entriesCount: 1,
-    pdfGenerated: true,
-    driveFileUrl: 'https://drive.google.com/file/d/sample-stmt-001/view',
-    createdAt: '2026-09-20T08:00:00.000Z',
-  },
-  {
-    id: 'stmt-002',
-    statementNumber: 'SOA-KEN-20260918',
-    clientId: 'cli-002',
-    clientName: 'Kenya Red Cross Society - Eastern Region',
-    clientKraPin: 'P051998877B',
-    issueDate: '2026-09-18',
-    startDate: '2026-08-01',
-    endDate: '2026-09-18',
-    totalDebit: 222720,
-    totalCredit: 100000,
-    closingBalance: 122720,
-    entriesCount: 2,
-    pdfGenerated: true,
-    driveFileUrl: 'https://drive.google.com/file/d/sample-stmt-002/view',
-    createdAt: '2026-09-18T08:00:00.000Z',
-  },
-];
+const SAMPLE_STATEMENTS: StatementRecord[] = [];
 
-const SAMPLE_RESERVATIONS: Reservation[] = [
-  {
-    id: 'res-001',
-    folioNumber: 'FOL-2026-001',
-    guestName: 'Hon. Mutua Musyoka',
-    guestPhone: '+254 711 200 300',
-    guestEmail: 'treasury@machakosgovernment.co.ke',
-    guestKraPin: 'P051122334A',
-    clientId: 'cli-001',
-    clientName: 'Machakos County Executive Committee',
-    unitType: 'Hall',
-    unitName: 'Executive Conference Hall',
-    checkInDate: '2026-09-24',
-    checkOutDate: '2026-09-27',
-    ratePerNight: 25000,
-    nightsOrDays: 3,
-    totalAmount: 75000,
-    amountPaid: 75000,
-    balanceDue: 0,
-    status: 'Checked-In',
-    specialRequests: 'PA System, Projector, Wi-Fi high priority, 45 delegate layout',
-    createdAt: '2026-09-20T08:00:00.000Z',
-    updatedAt: '2026-09-23T08:00:00.000Z',
-  },
-  {
-    id: 'res-002',
-    folioNumber: 'FOL-2026-002',
-    guestName: 'Faith Ndanu Mwende',
-    guestPhone: '+254 722 455 677',
-    guestEmail: 'eastern.operations@redcross.or.ke',
-    guestKraPin: 'P051998877B',
-    clientId: 'cli-002',
-    clientName: 'Kenya Red Cross Society - Eastern Region',
-    unitType: 'Hall',
-    unitName: 'Maruba Garden Pavilion',
-    checkInDate: '2026-09-25',
-    checkOutDate: '2026-09-26',
-    ratePerNight: 35000,
-    nightsOrDays: 1,
-    totalAmount: 35000,
-    amountPaid: 35000,
-    balanceDue: 0,
-    status: 'Reserved',
-    specialRequests: 'Outdoor tent setup, cocktail tables, emergency response training mock zone',
-    createdAt: '2026-09-21T08:00:00.000Z',
-    updatedAt: '2026-09-21T08:00:00.000Z',
-  },
-  {
-    id: 'res-003',
-    folioNumber: 'FOL-2026-003',
-    guestName: 'Eng. Peter Kariuki',
-    guestPhone: '+254 733 899 001',
-    guestEmail: 'finance@apexagroke.com',
-    guestKraPin: 'P051443322C',
-    clientId: 'cli-003',
-    clientName: 'Apex Agro-Logistics Ltd',
-    unitType: 'Room',
-    unitName: 'VIP Suite 101 (Lake View)',
-    checkInDate: '2026-09-23',
-    checkOutDate: '2026-09-25',
-    ratePerNight: 8500,
-    nightsOrDays: 2,
-    totalAmount: 17000,
-    amountPaid: 17000,
-    balanceDue: 0,
-    status: 'Checked-In',
-    specialRequests: 'Quiet room facing Maruba Dam, extra workstation desk & iron box',
-    createdAt: '2026-09-22T08:00:00.000Z',
-    updatedAt: '2026-09-23T08:00:00.000Z',
-  },
-  {
-    id: 'res-004',
-    folioNumber: 'FOL-2026-004',
-    guestName: 'Dr. Sarah Wambui',
-    guestPhone: '+254 700 112 233',
-    guestEmail: 'swambui@consultant.ke',
-    unitType: 'Room',
-    unitName: 'Deluxe Room 204',
-    checkInDate: '2026-09-24',
-    checkOutDate: '2026-09-26',
-    ratePerNight: 7000,
-    nightsOrDays: 2,
-    totalAmount: 14000,
-    amountPaid: 0,
-    balanceDue: 14000,
-    status: 'Reserved',
-    specialRequests: 'Late check-in around 8 PM, airport pick-up transfer requested',
-    createdAt: '2026-09-23T08:00:00.000Z',
-    updatedAt: '2026-09-23T08:00:00.000Z',
-  },
-];
+const SAMPLE_RESERVATIONS: Reservation[] = [];
 
-const SAMPLE_POS_ORDERS: POSOrder[] = [
-  {
-    id: 'pos-ord-001',
-    orderNumber: 'POS-2026-001',
-    tableOrRoom: 'Terrace Table 6',
-    guestOrClientName: 'County Delegation (Dinner)',
-    items: [
-      { id: 'pos-m7', name: 'Wet/Dry Fry Goat Meat (Mbuzi Fry 1/2 Kg) with Ugali & Greens', category: 'Main Dishes', price: 950, quantity: 4, amount: 3800 },
-      { id: 'pos-m11', name: 'Fresh Passion / Mango / Tropical Cocktail Juice (500ml)', category: 'Beverages & Juices', price: 300, quantity: 4, amount: 1200 },
-      { id: 'pos-m15', name: 'Tusker Lager / Malt / Cider 500ml', category: 'Bar & Cocktails', price: 350, quantity: 6, amount: 2100 },
-    ],
-    subtotal: 7100,
-    vatAmount: 1136,
-    grandTotal: 8236,
-    paymentMode: 'M-Pesa',
-    status: 'Completed',
-    receiptNumber: 'REC-0004',
-    createdAt: '2026-09-23T04:30:00.000Z',
-  },
-  {
-    id: 'pos-ord-002',
-    orderNumber: 'POS-2026-002',
-    tableOrRoom: 'Room 101',
-    guestOrClientName: 'Eng. Peter Kariuki',
-    items: [
-      { id: 'pos-m10', name: 'Prime Beef Steak in Pepper Sauce with Roast Herb Potatoes', category: 'Main Dishes', price: 1050, quantity: 1, amount: 1050 },
-      { id: 'pos-m14', name: 'Special Dawa Tea (Ginger, Lemon, Honey & Mint)', category: 'Beverages & Juices', price: 350, quantity: 1, amount: 350 },
-    ],
-    subtotal: 1400,
-    vatAmount: 224,
-    grandTotal: 1624,
-    paymentMode: 'Room Charge',
-    status: 'Billed to Room',
-    createdAt: '2026-09-23T05:10:00.000Z',
-  },
-];
+const SAMPLE_POS_ORDERS: POSOrder[] = [];
 
-const SAMPLE_EXPENSES: ExpenseRecord[] = [
-  {
-    id: 'exp-001',
-    expenseNumber: 'EXP-2026-001',
-    category: 'Kitchen & Food Supplies',
-    description: 'Fresh vegetables, butchery goat meat & dairy supplies from Machakos Market',
-    amount: 24500,
-    date: '2026-09-22',
-    paidTo: 'Machakos Farmers Fresh Produce',
-    paymentMode: 'M-Pesa',
-    createdAt: '2026-09-22T08:00:00.000Z',
-  },
-  {
-    id: 'exp-002',
-    expenseNumber: 'EXP-2026-002',
-    category: 'Utilities (Water/Power)',
-    description: 'Kenya Power (KPLC) Prepaid Token Purchase for Hotel Damview Premises',
-    amount: 18000,
-    date: '2026-09-20',
-    paidTo: 'Kenya Power and Lighting Co.',
-    paymentMode: 'Bank Transfer',
-    createdAt: '2026-09-20T08:00:00.000Z',
-  },
-];
+const SAMPLE_EXPENSES: ExpenseRecord[] = [];
 
 class StorageEngine {
   private dbPromise: Promise<IDBDatabase> | null = null;
@@ -662,7 +214,7 @@ class StorageEngine {
     try {
       const savedProfile = localStorage.getItem('damview_profile');
       if (savedProfile) {
-        this.l1Profile = { ...DEFAULT_HOTEL_PROFILE, ...JSON.parse(savedProfile) };
+        this.l1Profile = this.reconcileProfile(JSON.parse(savedProfile));
       }
 
       const savedClients = localStorage.getItem('damview_clients');
@@ -869,7 +421,7 @@ class StorageEngine {
         const reqProf = tx.objectStore('hotel_profile').get('current');
         reqProf.onsuccess = () => {
           if (reqProf.result) {
-            this.l1Profile = { ...DEFAULT_HOTEL_PROFILE, ...reqProf.result };
+            this.l1Profile = this.reconcileProfile(reqProf.result);
             if (typeof window !== 'undefined' && window.localStorage) {
               try {
                 localStorage.setItem('damview_profile', JSON.stringify(this.l1Profile));
@@ -1120,10 +672,37 @@ class StorageEngine {
     });
   }
 
+  private reconcileProfile(raw?: Partial<HotelProfile> | null): HotelProfile {
+    if (!raw) return { ...DEFAULT_HOTEL_PROFILE };
+    return {
+      name: raw.name !== undefined ? raw.name : DEFAULT_HOTEL_PROFILE.name,
+      tagline: raw.tagline !== undefined ? raw.tagline : DEFAULT_HOTEL_PROFILE.tagline,
+      kraPin: raw.kraPin !== undefined ? raw.kraPin : DEFAULT_HOTEL_PROFILE.kraPin,
+      email: raw.email !== undefined ? raw.email : DEFAULT_HOTEL_PROFILE.email,
+      phone: raw.phone !== undefined ? raw.phone : DEFAULT_HOTEL_PROFILE.phone,
+      physicalLocation: raw.physicalLocation !== undefined ? raw.physicalLocation : DEFAULT_HOTEL_PROFILE.physicalLocation,
+      postalAddress: raw.postalAddress !== undefined ? raw.postalAddress : DEFAULT_HOTEL_PROFILE.postalAddress,
+      logoBase64: raw.logoBase64 !== undefined ? raw.logoBase64 : DEFAULT_HOTEL_PROFILE.logoBase64,
+      bankName: raw.bankName !== undefined ? raw.bankName : DEFAULT_HOTEL_PROFILE.bankName,
+      bankBranch: raw.bankBranch !== undefined ? raw.bankBranch : DEFAULT_HOTEL_PROFILE.bankBranch,
+      accountHolder: raw.accountHolder !== undefined ? raw.accountHolder : DEFAULT_HOTEL_PROFILE.accountHolder,
+      accountNumber: raw.accountNumber !== undefined ? raw.accountNumber : DEFAULT_HOTEL_PROFILE.accountNumber,
+      mpesaTillNumber: raw.mpesaTillNumber !== undefined ? raw.mpesaTillNumber : DEFAULT_HOTEL_PROFILE.mpesaTillNumber,
+      vatRate: typeof raw.vatRate === 'number' && !isNaN(raw.vatRate) ? raw.vatRate : DEFAULT_HOTEL_PROFILE.vatRate,
+      googleWebAppUrl: raw.googleWebAppUrl ? raw.googleWebAppUrl : DEFAULT_HOTEL_PROFILE.googleWebAppUrl,
+      googleDriveFolder: raw.googleDriveFolder !== undefined ? raw.googleDriveFolder : DEFAULT_HOTEL_PROFILE.googleDriveFolder,
+      googleSheetUrl: raw.googleSheetUrl !== undefined ? raw.googleSheetUrl : '',
+      googleDriveFolderUrl: raw.googleDriveFolderUrl ? raw.googleDriveFolderUrl : DEFAULT_HOTEL_PROFILE.googleDriveFolderUrl,
+      googleSheetEmbedUrl: raw.googleSheetEmbedUrl !== undefined ? raw.googleSheetEmbedUrl : '',
+      autoSyncEnabled: raw.autoSyncEnabled !== undefined ? raw.autoSyncEnabled : DEFAULT_HOTEL_PROFILE.autoSyncEnabled,
+      lastSyncTimestamp: raw.lastSyncTimestamp,
+    };
+  }
+
   // --- Hotel Profile ---
   async getHotelProfile(): Promise<HotelProfile> {
     if (this.l1Profile) {
-      return { ...this.l1Profile };
+      return this.reconcileProfile(this.l1Profile);
     }
     try {
       const db = await this.init();
@@ -1131,7 +710,7 @@ class StorageEngine {
         const tx = db.transaction('hotel_profile', 'readonly');
         const req = tx.objectStore('hotel_profile').get('current');
         req.onsuccess = () => {
-          const profile = req.result ? { ...DEFAULT_HOTEL_PROFILE, ...req.result } : DEFAULT_HOTEL_PROFILE;
+          const profile = this.reconcileProfile(req.result);
           this.l1Profile = profile;
           if (typeof window !== 'undefined' && window.localStorage) {
             try {
@@ -1141,7 +720,7 @@ class StorageEngine {
           resolve({ ...profile });
         };
         req.onerror = () => {
-          const fallback = DEFAULT_HOTEL_PROFILE;
+          const fallback = { ...DEFAULT_HOTEL_PROFILE };
           this.l1Profile = fallback;
           resolve({ ...fallback });
         };
@@ -1154,19 +733,19 @@ class StorageEngine {
   async saveHotelProfile(profile: Partial<HotelProfile>): Promise<void> {
     const existing = await this.getHotelProfile();
     const merged: HotelProfile = {
-      name: profile.name !== undefined ? (profile.name.trim() || existing.name) : existing.name,
+      name: profile.name !== undefined ? profile.name : existing.name,
       tagline: profile.tagline !== undefined ? profile.tagline : existing.tagline,
-      kraPin: profile.kraPin !== undefined ? (profile.kraPin.trim() || existing.kraPin) : existing.kraPin,
-      email: profile.email !== undefined ? (profile.email.trim() || existing.email) : existing.email,
-      phone: profile.phone !== undefined ? (profile.phone.trim() || existing.phone) : existing.phone,
-      physicalLocation: profile.physicalLocation !== undefined ? (profile.physicalLocation.trim() || existing.physicalLocation) : existing.physicalLocation,
-      postalAddress: profile.postalAddress !== undefined ? (profile.postalAddress.trim() || existing.postalAddress) : existing.postalAddress,
-      logoBase64: profile.logoBase64 !== undefined && profile.logoBase64 !== '' ? profile.logoBase64 : existing.logoBase64,
-      bankName: profile.bankName !== undefined ? (profile.bankName.trim() || existing.bankName) : existing.bankName,
-      bankBranch: profile.bankBranch !== undefined ? (profile.bankBranch.trim() || existing.bankBranch) : existing.bankBranch,
-      accountHolder: profile.accountHolder !== undefined ? (profile.accountHolder.trim() || existing.accountHolder) : existing.accountHolder,
-      accountNumber: profile.accountNumber !== undefined ? (profile.accountNumber.trim() || existing.accountNumber) : existing.accountNumber,
-      mpesaTillNumber: profile.mpesaTillNumber !== undefined ? (profile.mpesaTillNumber.trim() || existing.mpesaTillNumber) : existing.mpesaTillNumber,
+      kraPin: profile.kraPin !== undefined ? profile.kraPin : existing.kraPin,
+      email: profile.email !== undefined ? profile.email : existing.email,
+      phone: profile.phone !== undefined ? profile.phone : existing.phone,
+      physicalLocation: profile.physicalLocation !== undefined ? profile.physicalLocation : existing.physicalLocation,
+      postalAddress: profile.postalAddress !== undefined ? profile.postalAddress : existing.postalAddress,
+      logoBase64: profile.logoBase64 !== undefined ? profile.logoBase64 : existing.logoBase64,
+      bankName: profile.bankName !== undefined ? profile.bankName : existing.bankName,
+      bankBranch: profile.bankBranch !== undefined ? profile.bankBranch : existing.bankBranch,
+      accountHolder: profile.accountHolder !== undefined ? profile.accountHolder : existing.accountHolder,
+      accountNumber: profile.accountNumber !== undefined ? profile.accountNumber : existing.accountNumber,
+      mpesaTillNumber: profile.mpesaTillNumber !== undefined ? profile.mpesaTillNumber : existing.mpesaTillNumber,
       vatRate: typeof profile.vatRate === 'number' ? profile.vatRate : existing.vatRate,
       googleWebAppUrl: profile.googleWebAppUrl !== undefined ? profile.googleWebAppUrl : existing.googleWebAppUrl,
       googleDriveFolder: profile.googleDriveFolder !== undefined ? profile.googleDriveFolder : existing.googleDriveFolder,
@@ -2647,6 +2226,32 @@ class StorageEngine {
       } catch {}
     }
     return [];
+  }
+
+  // --- Defensive Runtime Alias Bindings for System Resilience ---
+  async upsertDocument(doc: BillingDocument): Promise<void> {
+    return this.saveDocument(doc);
+  }
+  async recordDocument(doc: BillingDocument): Promise<void> {
+    return this.saveDocument(doc);
+  }
+  async upsertClient(client: Client): Promise<void> {
+    return this.saveClient(client);
+  }
+  async upsertPayment(payment: PaymentRecord): Promise<any> {
+    return this.savePayment(payment);
+  }
+  async upsertHotelProfile(profile: Partial<HotelProfile>): Promise<void> {
+    return this.saveHotelProfile(profile);
+  }
+  async cascadeDeleteDocument(docId: string): Promise<void> {
+    return this.deleteDocument(docId);
+  }
+  async cascadeDeleteClient(clientId: string): Promise<void> {
+    return this.deleteClient(clientId);
+  }
+  async cascadeDeletePayment(paymentId: string): Promise<{ payment: PaymentRecord | null; updatedDoc?: BillingDocument | null }> {
+    return this.deletePayment(paymentId);
   }
 }
 

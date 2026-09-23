@@ -532,7 +532,7 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
               <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded text-[11px] text-emerald-900 space-y-0.5">
                 <div className="font-bold flex items-center gap-1">
                   <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>M-Pesa Buy Goods Till: 5432100</span>
+                  <span>M-Pesa Buy Goods Till: {profile.mpesaTillNumber || '(Configure in Hotel Settings)'}</span>
                 </div>
                 <p className="text-emerald-800">
                   Ask guest to pay <strong>Ksh {grandTotal.toLocaleString()}</strong> to Hotel Damview Till.

@@ -42,10 +42,26 @@ class LocalBackupService {
   private cachedHandle: any = null;
 
   /**
-   * Check if the native File System Access API is supported in the current browser.
+   * Check if the native File System Access API is supported and allowed in the current window context.
    */
   isFileSystemAccessSupported(): boolean {
-    return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+    if (typeof window === 'undefined') return false;
+    const hasApi = 'showDirectoryPicker' in window;
+    // Cross-origin iframes block showDirectoryPicker for browser security
+    const isTopWindow = window.self === window.top;
+    return hasApi && isTopWindow;
+  }
+
+  /**
+   * Check if the current context is inside an embedded preview iframe.
+   */
+  isInEmbeddedFrame(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
   }
 
   /**
@@ -158,10 +174,17 @@ class LocalBackupService {
    * Saves the granted handle into IndexedDB for persistent background backups.
    */
   async pickArchiveDirectory(): Promise<{ success: boolean; directoryName?: string; error?: string }> {
-    if (!this.isFileSystemAccessSupported()) {
+    if (this.isInEmbeddedFrame()) {
       return {
         success: false,
-        error: 'File System Access API is not supported in this browser. Fallback download mode is active.',
+        error: 'Browser Security Note: Direct folder picking is restricted inside embedded preview frames. Generated PDFs automatically save via seamless browser download to your designated folder ("Hotel Damview Archives"). When opened in a top-level tab, direct folder handle connection is active.',
+      };
+    }
+
+    if (!('showDirectoryPicker' in window)) {
+      return {
+        success: false,
+        error: 'File System Access API is not supported in this browser. Fallback automatic download mode is active.',
       };
     }
 
@@ -182,6 +205,12 @@ class LocalBackupService {
     } catch (err: any) {
       if (err.name === 'AbortError') {
         return { success: false, error: 'Directory selection cancelled.' };
+      }
+      if (err.name === 'SecurityError' || (err.message && (err.message.includes('sub frame') || err.message.includes('Cross origin')))) {
+        return {
+          success: false,
+          error: 'Browser Security Note: Direct file picker is restricted inside embedded preview frames. PDFs automatically save via standard browser download.',
+        };
       }
       return { success: false, error: err.message || 'Failed to select archive directory.' };
     }

@@ -98,8 +98,10 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
       phone = '254' + phone;
     }
 
+    const tillInfo = profile?.mpesaTillNumber ? `via M-Pesa Buy Goods Till ${profile.mpesaTillNumber}` : 'via M-Pesa or Bank Transfer';
+    const phoneInfo = profile?.phone || 'Hotel Damview';
     const message = encodeURIComponent(
-      `Dear ${item.clientName},\n\nPlease find your official ${item.docType} (${item.number}) from Hotel Damview.\nTotal Amount: Ksh ${item.amount.toLocaleString()}.\n\nFor queries or payments via M-Pesa Buy Goods Till 5432100, contact +254 711 200 300.\nThank you for choosing Hotel Damview.`
+      `Dear ${item.clientName},\n\nPlease find your official ${item.docType} (${item.number}) from Hotel Damview.\nTotal Amount: Ksh ${item.amount.toLocaleString()}.\n\nFor queries or payments ${tillInfo}, contact ${phoneInfo}.\nThank you for choosing Hotel Damview.`
     );
 
     const url = phone

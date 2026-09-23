@@ -490,34 +490,14 @@ function doPost(e) {
     }
 
     // 11. FULL BATCH SYNC (App -> Sheets)
-    if (action === "FULL_SYNC" || action === "RECORD_BATCH") {
+    if (action === "FULL_SYNC" || action === "RECORD_BATCH" || action === "PUSH_ALL_DATA") {
       try {
-        if (data.profile) upsertHotelProfile(ss, data.profile);
-        if (Array.isArray(data.clients)) {
-          for (var c = 0; c < data.clients.length; c++) {
-            upsertClient(ss, data.clients[c]);
-          }
-        }
-        if (Array.isArray(data.documents)) {
-          for (var d = 0; d < data.documents.length; d++) {
-            var docItem = data.documents[d];
-            upsertDocument(ss, docItem);
-            if (docItem.lineItems && Array.isArray(docItem.lineItems)) {
-              syncLineItemsBreakdown(ss, docItem);
-            }
-          }
-        }
-        if (Array.isArray(data.payments)) {
-          for (var p = 0; p < data.payments.length; p++) {
-            recordPayment(ss, data.payments[p]);
-          }
-        }
-
-        refreshAllAnalyticsTabs(ss);
-        logAudit(ss, "FULL_SYNC", "Full database batch sync applied to all 11 tabs", "SUCCESS", "", "");
+        var pushStats = processFullPushData(ss, data);
+        logAudit(ss, "FULL_SYNC", "Full database batch sync applied across all 16 ERP tabs", "SUCCESS", "", "");
         return responseJSON({
           success: true,
-          message: "Full database sync applied to all 11 spreadsheet tabs.",
+          message: "Full database sync applied across all 16 ERP tabs.",
+          stats: pushStats,
           tabs: getDiscoveredSheets(ss)
         });
       } catch (fullSyncErr) {
@@ -1725,6 +1705,170 @@ function getFullSpreadsheetData(ss) {
 // ============================================================================
 // 11. HOTEL PROFILE & CASCADE DELETION
 // ============================================================================
+
+function processFullPushData(ss, data) {
+  var stats = {
+    clients: 0,
+    documents: 0,
+    payments: 0,
+    catalogue: 0,
+    posOrders: 0,
+    reservations: 0,
+    expenses: 0
+  };
+
+  if (data.profile) {
+    upsertHotelProfile(ss, data.profile);
+  }
+
+  if (Array.isArray(data.clients)) {
+    for (var c = 0; c < data.clients.length; c++) {
+      upsertClient(ss, data.clients[c]);
+      stats.clients++;
+    }
+  }
+
+  if (Array.isArray(data.documents)) {
+    for (var d = 0; d < data.documents.length; d++) {
+      var docItem = data.documents[d];
+      upsertDocument(ss, docItem);
+      if (docItem.lineItems && Array.isArray(docItem.lineItems)) {
+        syncLineItemsBreakdown(ss, docItem);
+      }
+      stats.documents++;
+    }
+  }
+
+  if (Array.isArray(data.payments)) {
+    for (var p = 0; p < data.payments.length; p++) {
+      recordPayment(ss, data.payments[p]);
+      stats.payments++;
+    }
+  }
+
+  if (Array.isArray(data.catalogue)) {
+    for (var cat = 0; cat < data.catalogue.length; cat++) {
+      upsertCatalogueItem(ss, data.catalogue[cat]);
+      stats.catalogue++;
+    }
+  }
+
+  if (Array.isArray(data.posOrders)) {
+    for (var pos = 0; pos < data.posOrders.length; pos++) {
+      upsertPosOrder(ss, data.posOrders[pos]);
+      stats.posOrders++;
+    }
+  }
+
+  if (Array.isArray(data.reservations)) {
+    for (var res = 0; res < data.reservations.length; res++) {
+      upsertReservation(ss, data.reservations[res]);
+      stats.reservations++;
+    }
+  }
+
+  if (Array.isArray(data.expenses)) {
+    for (var exp = 0; exp < data.expenses.length; exp++) {
+      upsertExpense(ss, data.expenses[exp]);
+      stats.expenses++;
+    }
+  }
+
+  refreshAllAnalyticsTabs(ss);
+  return stats;
+}
+
+function upsertCatalogueItem(ss, item) {
+  var sheet = ss.getSheetByName("Particulars_Catalogue");
+  if (!sheet) return null;
+  var lookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.CATALOGUE);
+  var rowData = buildAlignedRowArray(sheet, CANONICAL_SCHEMAS.CATALOGUE, item, null, ss);
+
+  var idCol = lookup.getColumnIndex("id");
+  var targetId = String(item.id || item.particulars || "").trim().toLowerCase();
+
+  if (targetId && idCol > 0) {
+    var values = sheet.getDataRange().getValues();
+    for (var r = 1; r < values.length; r++) {
+      var rowId = String(values[r][idCol - 1] || "").trim().toLowerCase();
+      if (rowId === targetId) {
+        sheet.getRange(r + 1, 1, 1, rowData.length).setValues([rowData]);
+        return item;
+      }
+    }
+  }
+  sheet.appendRow(rowData);
+  return item;
+}
+
+function upsertPosOrder(ss, order) {
+  var sheet = ss.getSheetByName("POS_Orders");
+  if (!sheet) return null;
+  var lookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.POS_ORDER);
+  var rowData = buildAlignedRowArray(sheet, CANONICAL_SCHEMAS.POS_ORDER, order, null, ss);
+
+  var numCol = lookup.getColumnIndex("orderNumber");
+  var targetNum = String(order.orderNumber || order.id || "").trim().toLowerCase();
+
+  if (targetNum && numCol > 0) {
+    var values = sheet.getDataRange().getValues();
+    for (var r = 1; r < values.length; r++) {
+      var rowNum = String(values[r][numCol - 1] || "").trim().toLowerCase();
+      if (rowNum === targetNum) {
+        sheet.getRange(r + 1, 1, 1, rowData.length).setValues([rowData]);
+        return order;
+      }
+    }
+  }
+  sheet.appendRow(rowData);
+  return order;
+}
+
+function upsertReservation(ss, resObj) {
+  var sheet = ss.getSheetByName("Reservations");
+  if (!sheet) return null;
+  var lookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.RESERVATION);
+  var rowData = buildAlignedRowArray(sheet, CANONICAL_SCHEMAS.RESERVATION, resObj, null, ss);
+
+  var idCol = lookup.getColumnIndex("id");
+  var targetId = String(resObj.id || resObj.bookingNumber || "").trim().toLowerCase();
+
+  if (targetId && idCol > 0) {
+    var values = sheet.getDataRange().getValues();
+    for (var r = 1; r < values.length; r++) {
+      var rowId = String(values[r][idCol - 1] || "").trim().toLowerCase();
+      if (rowId === targetId) {
+        sheet.getRange(r + 1, 1, 1, rowData.length).setValues([rowData]);
+        return resObj;
+      }
+    }
+  }
+  sheet.appendRow(rowData);
+  return resObj;
+}
+
+function upsertExpense(ss, expObj) {
+  var sheet = ss.getSheetByName("Expenses");
+  if (!sheet) return null;
+  var lookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.EXPENSE);
+  var rowData = buildAlignedRowArray(sheet, CANONICAL_SCHEMAS.EXPENSE, expObj, null, ss);
+
+  var idCol = lookup.getColumnIndex("id");
+  var targetId = String(expObj.id || "").trim().toLowerCase();
+
+  if (targetId && idCol > 0) {
+    var values = sheet.getDataRange().getValues();
+    for (var r = 1; r < values.length; r++) {
+      var rowId = String(values[r][idCol - 1] || "").trim().toLowerCase();
+      if (rowId === targetId) {
+        sheet.getRange(r + 1, 1, 1, rowData.length).setValues([rowData]);
+        return expObj;
+      }
+    }
+  }
+  sheet.appendRow(rowData);
+  return expObj;
+}
 
 function upsertHotelProfile(ss, profile) {
   if (!profile) return null;
