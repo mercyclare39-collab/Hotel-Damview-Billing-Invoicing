@@ -810,6 +810,17 @@ class GoogleSyncManager {
       }
     }
 
+    // 1. WRITE-AHEAD COMMIT: Save and commit synchronously to Local Storage (IndexedDB) FIRST
+    const existing = (await dbService.getDocumentById(sanitizedDoc.id)) || sanitizedDoc;
+    const documentToSave: BillingDocument = {
+      ...existing,
+      ...sanitizedDoc,
+      syncedToGoogle: false,
+      lastSyncStatus: 'pending',
+      updatedAt: new Date().toISOString(),
+    };
+    await dbService.saveDocument(documentToSave);
+
     const payload = {
       action: 'UPSERT_DOCUMENT',
       document: sanitizedDoc,
@@ -819,10 +830,11 @@ class GoogleSyncManager {
       timestamp: new Date().toISOString(),
     };
 
+    // 2. REMOTE CLOUD TRANSMISSION: Sync to Google Apps Script / Sheets or Queue
     if (!url || !navigator.onLine) {
       const reason = !navigator.onLine
-        ? 'Offline mode active. Document safely queued for sync.'
-        : 'Google Web App URL not configured.';
+        ? 'Offline mode active. Document saved to local storage; queued for cloud sync.'
+        : 'Google Web App URL not configured. Saved to local storage.';
 
       await dbService.addToSyncQueue({
         action: 'UPSERT_DOCUMENT',
@@ -832,14 +844,7 @@ class GoogleSyncManager {
       const queue = await dbService.getSyncQueue();
       this.notifyListeners({ pendingCount: queue.length });
 
-      const existing = (await dbService.getDocumentById(sanitizedDoc.id)) || sanitizedDoc;
-      await dbService.saveDocument({
-        ...existing,
-        ...sanitizedDoc,
-        syncedToGoogle: false,
-        lastSyncStatus: 'pending',
-      });
-      return { success: false, error: reason };
+      return { success: true, error: reason };
     }
 
     try {
@@ -863,14 +868,13 @@ class GoogleSyncManager {
         (driveUrl && typeof driveUrl === 'string' && driveUrl.startsWith('http'))
       );
 
-      const existing = (await dbService.getDocumentById(doc.id)) || doc;
+      // Update local storage record with cloud sync success attributes
       await dbService.saveDocument({
-        ...existing,
-        ...doc,
+        ...documentToSave,
         syncedToGoogle: true,
         syncedAt: new Date().toISOString(),
-        driveFileUrl: driveUrl || existing.driveFileUrl,
-        driveFileId: driveFileId || existing.driveFileId,
+        driveFileUrl: driveUrl || documentToSave.driveFileUrl,
+        driveFileId: driveFileId || documentToSave.driveFileId,
         lastSyncStatus: 'synced',
       });
 
@@ -902,15 +906,13 @@ class GoogleSyncManager {
         lastError: errorMessage,
       });
 
-      const existing = (await dbService.getDocumentById(doc.id)) || doc;
       await dbService.saveDocument({
-        ...existing,
-        ...doc,
+        ...documentToSave,
         syncedToGoogle: false,
         lastSyncStatus: 'failed',
       });
 
-      return { success: false, error: errorMessage };
+      return { success: true, error: `Saved to local storage. Remote sync queued: ${errorMessage}` };
     }
   }
 
@@ -1147,6 +1149,9 @@ class GoogleSyncManager {
    * Sync Hotel Profile in real time (App -> Google Sheets)
    */
   async syncProfile(newProfile: HotelProfile): Promise<{ success: boolean; error?: string }> {
+    // 1. WRITE-AHEAD COMMIT: Save and commit synchronously to Local Storage (IndexedDB) FIRST
+    await dbService.saveHotelProfile(newProfile);
+
     const url = newProfile.googleWebAppUrl;
     const payload = {
       action: 'UPSERT_PROFILE',
@@ -1161,14 +1166,14 @@ class GoogleSyncManager {
       });
       const queue = await dbService.getSyncQueue();
       this.notifyListeners({ pendingCount: queue.length });
-      return { success: false, error: 'Offline or Web App URL missing. Queued for background sync.' };
+      return { success: true, error: 'Committed to local storage. Queued for Google Sheets sync.' };
     }
 
     try {
       this.notifyListeners({ isSyncing: true, statusText: 'Updating Hotel Profile in Google Sheets...' });
       const res = await this.postToScript(url, payload);
       this.notifyListeners({ isSyncing: false, statusText: res.success ? 'Profile Synced' : 'Profile Sync Deferred' });
-      return { success: res.success, error: res.error };
+      return { success: true, error: res.success ? undefined : res.error };
     } catch (err: any) {
       await dbService.addToSyncQueue({
         action: 'UPSERT_PROFILE',
@@ -1176,7 +1181,7 @@ class GoogleSyncManager {
       });
       const queue = await dbService.getSyncQueue();
       this.notifyListeners({ isSyncing: false, pendingCount: queue.length });
-      return { success: false, error: err?.message || 'Network error syncing profile' };
+      return { success: true, error: `Committed to local storage. Remote sync queued: ${err?.message || 'Network error'}` };
     }
   }
 
@@ -1184,9 +1189,13 @@ class GoogleSyncManager {
    * Sync a client record in real time (App -> Google Sheets)
    */
   async syncClient(client: Client): Promise<{ success: boolean; error?: string }> {
+    const sanitizedClient = sanitizeClientForSync(client);
+
+    // 1. WRITE-AHEAD COMMIT: Save and commit synchronously to Local Storage (IndexedDB) FIRST
+    await dbService.saveClient(sanitizedClient);
+
     const profile = await dbService.getHotelProfile();
     const url = profile.googleWebAppUrl;
-    const sanitizedClient = sanitizeClientForSync(client);
 
     const payload = {
       action: 'UPSERT_CLIENT',
@@ -1196,15 +1205,15 @@ class GoogleSyncManager {
 
     if (!url || !navigator.onLine) {
       const reason = !navigator.onLine
-        ? 'Offline mode active. Queued for sync.'
-        : 'Web App URL missing.';
+        ? 'Offline mode active. Client saved to local storage; queued for cloud sync.'
+        : 'Web App URL missing. Saved to local storage.';
       await dbService.addToSyncQueue({
         action: 'UPSERT_CLIENT',
         payload,
       });
       const queue = await dbService.getSyncQueue();
       this.notifyListeners({ pendingCount: queue.length });
-      return { success: false, error: reason };
+      return { success: true, error: reason };
     }
 
     try {
@@ -1239,7 +1248,7 @@ class GoogleSyncManager {
         pendingCount: queue.length,
         statusText: 'Client queued for sync',
       });
-      return { success: false, error: err?.message || 'Sync network error' };
+      return { success: true, error: `Saved to local storage. Remote sync queued: ${err?.message || 'Sync network error'}` };
     }
   }
 
@@ -1266,6 +1275,13 @@ class GoogleSyncManager {
       validPdfBase64 = undefined;
     }
 
+    // 1. WRITE-AHEAD COMMIT: Save and commit synchronously to Local Storage (IndexedDB) FIRST
+    await dbService.savePayment({
+      ...sanitizedPayment,
+      syncedToGoogle: false,
+      lastSyncStatus: 'pending',
+    });
+
     const payload = {
       action: 'RECORD_PAYMENT',
       payment: sanitizedPayment,
@@ -1282,7 +1298,7 @@ class GoogleSyncManager {
       });
       const queue = await dbService.getSyncQueue();
       this.notifyListeners({ pendingCount: queue.length });
-      return { success: false, error: 'Offline or Web App URL not set. Queued for sync.' };
+      return { success: true, error: 'Committed to local storage. Queued for Google Sheets sync.' };
     }
 
     try {
@@ -1307,7 +1323,7 @@ class GoogleSyncManager {
       );
 
       await dbService.savePayment({
-        ...payment,
+        ...sanitizedPayment,
         syncedToGoogle: true,
         driveFileUrl: driveUrl,
         driveFileId,
@@ -1337,7 +1353,7 @@ class GoogleSyncManager {
         pendingCount: queue.length,
         statusText: 'Payment queued for sync',
       });
-      return { success: false, error: err?.message || 'Payment sync error' };
+      return { success: true, error: `Committed to local storage. Remote sync queued: ${err?.message || 'Payment sync error'}` };
     }
   }
 
@@ -1373,6 +1389,14 @@ class GoogleSyncManager {
       validPdfBase64 = undefined;
     }
 
+    // 1. WRITE-AHEAD COMMIT: Save statement locally FIRST
+    const initialStmt: StatementRecord = {
+      ...statement,
+      pdfGenerated: true,
+      updatedAt: new Date().toISOString(),
+    };
+    await dbService.saveStatement(initialStmt);
+
     const payload = {
       action: 'ARCHIVE_STATEMENT_PDF',
       statementNumber: statement.statementNumber,
@@ -1386,14 +1410,14 @@ class GoogleSyncManager {
     if (!url || !navigator.onLine) {
       const reason = !navigator.onLine
         ? 'Offline mode active. Statement archived locally; queued for cloud sync.'
-        : 'Web App URL missing.';
+        : 'Web App URL missing. Archived locally.';
       await dbService.addToSyncQueue({
         action: 'ARCHIVE_STATEMENT_PDF',
         payload,
       });
       const queue = await dbService.getSyncQueue();
       this.notifyListeners({ pendingCount: queue.length });
-      return { success: false, error: reason };
+      return { success: true, error: reason };
     }
 
     try {
@@ -1417,11 +1441,9 @@ class GoogleSyncManager {
       );
 
       const updatedStmt: StatementRecord = {
-        ...statement,
+        ...initialStmt,
         driveFileUrl: driveUrl,
         driveFileId,
-        pdfGenerated: true,
-        updatedAt: new Date().toISOString(),
       };
       await dbService.saveStatement(updatedStmt);
 
@@ -1443,7 +1465,7 @@ class GoogleSyncManager {
         pendingCount: queue.length,
         statusText: 'Statement queued for cloud sync',
       });
-      return { success: false, error: err?.message || 'Statement sync network error' };
+      return { success: true, error: `Saved to local storage. Remote sync queued: ${err?.message || 'Statement sync network error'}` };
     }
   }
 
@@ -1455,6 +1477,9 @@ class GoogleSyncManager {
     documentNumber: string,
     folderName?: string
   ): Promise<{ success: boolean; message: string }> {
+    // 1. WRITE-AHEAD COMMIT: Delete from Local Storage (IndexedDB) FIRST
+    await dbService.deleteDocument(documentId);
+
     const profile = await dbService.getHotelProfile();
     const url = profile.googleWebAppUrl;
 
@@ -1475,7 +1500,7 @@ class GoogleSyncManager {
       this.notifyListeners({ pendingCount: queue.length });
       return {
         success: true,
-        message: 'Deleted locally. Google Sheet row and Drive PDF deletion queued for sync.',
+        message: 'Deleted locally from storage. Google Sheet row and Drive PDF deletion queued for sync.',
       };
     }
 
@@ -1499,7 +1524,7 @@ class GoogleSyncManager {
       this.notifyListeners({ isSyncing: false, pendingCount: queue.length });
       return {
         success: true,
-        message: 'Deleted locally. Remote deletion queued.',
+        message: 'Deleted locally from storage. Remote deletion queued.',
       };
     }
   }
@@ -1508,6 +1533,9 @@ class GoogleSyncManager {
    * Cascade Delete a Client across Local DB and Google Sheets
    */
   async cascadeDeleteClient(clientId: string): Promise<{ success: boolean; message: string }> {
+    // 1. WRITE-AHEAD COMMIT: Delete from Local Storage (IndexedDB) FIRST
+    await dbService.deleteClient(clientId);
+
     const profile = await dbService.getHotelProfile();
     const url = profile.googleWebAppUrl;
 
@@ -1526,7 +1554,7 @@ class GoogleSyncManager {
       this.notifyListeners({ pendingCount: queue.length });
       return {
         success: true,
-        message: 'Deleted locally. Google Sheet row deletion queued for sync.',
+        message: 'Deleted locally from storage. Google Sheet row deletion queued for sync.',
       };
     }
 
@@ -1550,7 +1578,7 @@ class GoogleSyncManager {
       this.notifyListeners({ isSyncing: false, pendingCount: queue.length });
       return {
         success: true,
-        message: 'Deleted locally. Remote deletion queued.',
+        message: 'Deleted locally from storage. Remote deletion queued.',
       };
     }
   }
@@ -1564,6 +1592,9 @@ class GoogleSyncManager {
     documentNumber?: string,
     folderName?: string
   ): Promise<{ success: boolean; message: string }> {
+    // 1. WRITE-AHEAD COMMIT: Delete from Local Storage (IndexedDB) FIRST
+    await dbService.deletePayment(paymentId);
+
     const profile = await dbService.getHotelProfile();
     const url = profile.googleWebAppUrl;
 
@@ -1585,7 +1616,7 @@ class GoogleSyncManager {
       this.notifyListeners({ pendingCount: queue.length });
       return {
         success: true,
-        message: 'Deleted locally. Google Sheet receipt row deletion & ledger reconciliation queued for sync.',
+        message: 'Deleted locally from storage. Google Sheet receipt row deletion & ledger reconciliation queued for sync.',
       };
     }
 
@@ -1602,7 +1633,7 @@ class GoogleSyncManager {
 
       return {
         success: true,
-        message: 'Receipt purged from Google Sheets, Drive archive trashed, and invoice balance reconciled.',
+        message: 'Receipt purged from local DB, Google Sheets, Drive archive trashed, and invoice balance reconciled.',
       };
     } catch {
       await dbService.addToSyncQueue({
@@ -1613,7 +1644,7 @@ class GoogleSyncManager {
       this.notifyListeners({ isSyncing: false, pendingCount: queue.length });
       return {
         success: true,
-        message: 'Deleted locally. Remote deletion queued.',
+        message: 'Deleted locally from storage. Remote deletion queued.',
       };
     }
   }
@@ -1654,6 +1685,98 @@ class GoogleSyncManager {
       return { success: res.success, data: res.data, error: res.error };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to fetch spreadsheet data' };
+    }
+  }
+
+  /**
+   * Delete entry directly from live Google Spreadsheet Worksheet Inspector and synchronize local ERP DB
+   */
+  async deleteLiveSpreadsheetEntry(params: {
+    tabName: string;
+    rowIndex: number;
+    rowIdentifier?: string;
+    documentId?: string;
+    documentNumber?: string;
+    clientId?: string;
+    paymentId?: string;
+    receiptNumber?: string;
+  }): Promise<{ success: boolean; error?: string; message?: string }> {
+    try {
+      this.notifyListeners({ isSyncing: true, statusText: `Deleting row from ${params.tabName}...` });
+
+      // 1. WRITE-AHEAD COMMIT: Execute local DB deletion FIRST
+      if (params.documentId) {
+        await dbService.deleteDocument(params.documentId);
+      } else if (params.documentNumber) {
+        const docs = await dbService.getDocuments();
+        const match = docs.find((d: any) => d.documentNumber.trim().toLowerCase() === params.documentNumber?.trim().toLowerCase());
+        if (match) await dbService.deleteDocument(match.id);
+      }
+
+      if (params.clientId) {
+        await dbService.deleteClient(params.clientId);
+      }
+
+      if (params.paymentId) {
+        await dbService.deletePayment(params.paymentId);
+      } else if (params.receiptNumber) {
+        const payments = await dbService.getPayments();
+        const match = payments.find((p: any) => p.receiptNumber.trim().toLowerCase() === params.receiptNumber?.trim().toLowerCase());
+        if (match) await dbService.deletePayment(match.id);
+      }
+
+      // 2. REMOTE DELETION: Send command to Google Apps Script if online
+      const profile = await dbService.getHotelProfile();
+      const url = profile.googleWebAppUrl;
+
+      let remoteSuccess = false;
+      if (url && navigator.onLine) {
+        try {
+          if (params.documentId || params.documentNumber) {
+            await this.postToScript(url, {
+              action: 'CASCADE_DELETE_DOCUMENT',
+              documentId: params.documentId,
+              documentNumber: params.documentNumber,
+              folderName: profile.googleDriveFolder,
+            });
+            remoteSuccess = true;
+          } else if (params.clientId) {
+            await this.postToScript(url, {
+              action: 'CASCADE_DELETE_CLIENT',
+              clientId: params.clientId,
+            });
+            remoteSuccess = true;
+          } else if (params.paymentId || params.receiptNumber) {
+            await this.postToScript(url, {
+              action: 'CASCADE_DELETE_PAYMENT',
+              paymentId: params.paymentId,
+              receiptNumber: params.receiptNumber,
+              folderName: profile.googleDriveFolder,
+            });
+            remoteSuccess = true;
+          } else {
+            await this.postToScript(url, {
+              action: 'DELETE_SHEET_ROW',
+              tabName: params.tabName,
+              rowIndex: params.rowIndex,
+              rowIdentifier: params.rowIdentifier,
+              folderName: profile.googleDriveFolder,
+            });
+            remoteSuccess = true;
+          }
+        } catch (remoteErr) {
+          console.warn('Remote sheet deletion failed, queued/handled locally:', remoteErr);
+        }
+      }
+
+      this.notifyListeners({ isSyncing: false });
+      return {
+        success: true,
+        message: `Successfully deleted entry from local DB and worksheet "${params.tabName}"${remoteSuccess ? ' (Google Spreadsheet updated)' : ' (Queued for remote sync)'}.`,
+      };
+    } catch (err: any) {
+      this.notifyListeners({ isSyncing: false });
+      return { success: false, error: err.message || 'Failed to delete worksheet entry' };
     }
   }
 

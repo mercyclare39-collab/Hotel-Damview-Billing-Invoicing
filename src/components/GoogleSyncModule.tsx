@@ -214,6 +214,20 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
   const [liveSheetFilter, setLiveSheetFilter] = useState('');
   const [showEmbeddedIframe, setShowEmbeddedIframe] = useState(false);
 
+  // Live Worksheet Entry Deletion State
+  const [liveEntryToDelete, setLiveEntryToDelete] = useState<{
+    tabName: string;
+    rowIndex: number;
+    rowData: any[];
+    rowIdentifier: string;
+    docId?: string;
+    docNum?: string;
+    clientId?: string;
+    paymentId?: string;
+    recNum?: string;
+  } | null>(null);
+  const [isDeletingLiveEntry, setIsDeletingLiveEntry] = useState(false);
+
   // Script copy state
   const [copiedScript, setCopiedScript] = useState(false);
 
@@ -791,6 +805,106 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     }
   };
 
+  // 7. Request Deletion of Entry in Live Worksheet Inspector
+  const handleRequestDeleteLiveRow = (row: any[], rIdx: number) => {
+    if (!activeDiscoveredSheet) return;
+    const headers = activeDiscoveredSheet.headers || [];
+    let rowIdentifier = '';
+    let docId = '';
+    let docNum = '';
+    let clientId = '';
+    let paymentId = '';
+    let recNum = '';
+
+    headers.forEach((h, cIdx) => {
+      const hLower = String(h || '').toLowerCase();
+      const val = String(row[cIdx] || '').trim();
+      if (!val) return;
+
+      if (hLower.includes('doc id') || hLower === 'id' || hLower.includes('document id')) {
+        if (!docId && val.startsWith('doc-')) docId = val;
+        if (!clientId && val.startsWith('cl-')) clientId = val;
+        if (!paymentId && val.startsWith('pay-')) paymentId = val;
+        if (!rowIdentifier) rowIdentifier = val;
+      }
+      if (hLower.includes('invoice #') || hLower.includes('quotation #') || hLower.includes('proforma #') || hLower.includes('doc #')) {
+        docNum = val;
+        if (!rowIdentifier) rowIdentifier = val;
+      }
+      if (hLower.includes('client id')) {
+        clientId = val;
+        if (!rowIdentifier) rowIdentifier = val;
+      }
+      if (hLower.includes('receipt #') || hLower.includes('rec #')) {
+        recNum = val;
+        if (!rowIdentifier) rowIdentifier = val;
+      }
+      if (hLower.includes('payment id')) {
+        paymentId = val;
+        if (!rowIdentifier) rowIdentifier = val;
+      }
+    });
+
+    if (!rowIdentifier && row.length > 0) {
+      rowIdentifier = String(row[0] || `Row ${rIdx + 1}`);
+    }
+
+    setLiveEntryToDelete({
+      tabName: selectedDiscoveredTab,
+      rowIndex: rIdx,
+      rowData: row,
+      rowIdentifier,
+      docId,
+      docNum,
+      clientId,
+      paymentId,
+      recNum,
+    });
+  };
+
+  // 8. Confirm Deletion of Entry from Live Google Spreadsheet & Local DB
+  const handleConfirmDeleteLiveEntry = async () => {
+    if (!liveEntryToDelete) return;
+    setIsDeletingLiveEntry(true);
+    try {
+      const res = await syncManager.deleteLiveSpreadsheetEntry({
+        tabName: liveEntryToDelete.tabName,
+        rowIndex: liveEntryToDelete.rowIndex,
+        rowIdentifier: liveEntryToDelete.rowIdentifier,
+        documentId: liveEntryToDelete.docId,
+        documentNumber: liveEntryToDelete.docNum,
+        clientId: liveEntryToDelete.clientId,
+        paymentId: liveEntryToDelete.paymentId,
+        receiptNumber: liveEntryToDelete.recNum,
+      });
+
+      if (res.success) {
+        setSyncFeedback({
+          type: 'success',
+          message: res.message || 'Live worksheet entry deleted successfully.',
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        await loadData();
+        await loadLiveSheetData();
+        setLiveEntryToDelete(null);
+      } else {
+        setSyncFeedback({
+          type: 'error',
+          message: res.error || 'Failed to delete entry from Google Spreadsheet.',
+          timestamp: new Date().toLocaleTimeString(),
+        });
+      }
+    } catch (err: any) {
+      setSyncFeedback({
+        type: 'error',
+        message: err.message || 'Error deleting entry.',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    } finally {
+      setIsDeletingLiveEntry(false);
+    }
+  };
+
   // Live Sheet active tab columns and rows
   const activeDiscoveredSheet = useMemo<DiscoveredTab | null>(() => {
     if (!liveSheetData || !liveSheetData.discoveredTabs) return null;
@@ -1355,12 +1469,15 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                             ) : (
                               <th className="py-2.5 px-3">Columns</th>
                             )}
+                            <th className="py-2.5 px-3 text-right whitespace-nowrap sticky right-0 bg-stone-900 shadow-xs">
+                              Actions
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-stone-200 font-mono">
                           {(filteredLiveRows?.length || 0) > 0 ? (
                             filteredLiveRows.map((row, rIdx) => (
-                              <tr key={rIdx} className="hover:bg-stone-50 transition-colors">
+                              <tr key={rIdx} className="hover:bg-stone-50 transition-colors group">
                                 {row.map((cell, cIdx) => {
                                   const cellStr = String(cell ?? '');
                                   const isDriveUrl = cellStr.startsWith('http') && cellStr.includes('drive.google.com');
@@ -1385,12 +1502,23 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                                     </td>
                                   );
                                 })}
+                                <td className="py-2 px-3 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-stone-50 transition-colors">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRequestDeleteLiveRow(row, rIdx)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded text-[11px] font-semibold transition-colors border border-rose-200 cursor-pointer shadow-xs"
+                                    title="Delete entry from live Google Sheet and synchronize local ERP"
+                                  >
+                                    <Trash2 className="w-3 h-3 text-rose-600" />
+                                    <span>Delete</span>
+                                  </button>
+                                </td>
                               </tr>
                             ))
                           ) : (
                             <tr>
                               <td
-                                colSpan={activeDiscoveredSheet?.headers?.length || 1}
+                                colSpan={(activeDiscoveredSheet?.headers?.length || 1) + 1}
                                 className="py-8 text-center text-stone-400 font-sans"
                               >
                                 {isLoadingLiveSheet
@@ -2484,6 +2612,96 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live Worksheet Entry Deletion Confirmation Modal */}
+      {liveEntryToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-fade-in"
+          onClick={() => setLiveEntryToDelete(null)}
+        >
+          <div
+            className="bg-white rounded-xl border border-rose-200 shadow-2xl max-w-lg w-full flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-rose-100 bg-rose-50/80 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
+                  <AlertTriangle className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-rose-950">
+                    Delete Live Spreadsheet Entry?
+                  </h3>
+                  <p className="text-[11px] text-rose-700 font-medium">
+                    Worksheet Tab: <span className="font-bold">{liveEntryToDelete.tabName}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLiveEntryToDelete(null)}
+                className="p-1 text-stone-400 hover:text-stone-700 rounded hover:bg-stone-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs text-stone-700">
+              <div className="bg-stone-50 p-3 rounded-lg border border-stone-200 space-y-2">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-stone-500 font-semibold">Row Index:</span>
+                  <span className="font-mono font-bold text-stone-900">Row #{liveEntryToDelete.rowIndex + 1}</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-stone-500 font-semibold">Row Identifier:</span>
+                  <span className="font-mono font-bold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                    {liveEntryToDelete.rowIdentifier}
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800 space-y-1">
+                <span className="font-bold flex items-center gap-1.5 text-amber-900">
+                  <Info className="w-3.5 h-3.5 text-amber-600" />
+                  Synchronized Deletion Policy
+                </span>
+                <p className="leading-snug">
+                  This action will delete the row permanently from your active Google Spreadsheet worksheet (<b>{liveEntryToDelete.tabName}</b>) via Google Apps Script and purge corresponding records from your local ERP database.
+                </p>
+              </div>
+
+              <div className="max-h-32 overflow-y-auto bg-stone-900 text-stone-200 font-mono text-[10px] p-2.5 rounded border border-stone-800">
+                <span className="text-amber-400 block mb-1 font-sans font-bold text-[10px]">Captured Row Data Preview:</span>
+                {liveEntryToDelete.rowData.slice(0, 8).map((cell, idx) => (
+                  <div key={idx} className="truncate">
+                    <span className="text-stone-500">Col {idx + 1}:</span> {String(cell ?? '—')}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-3.5 border-t border-stone-200 bg-stone-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setLiveEntryToDelete(null)}
+                disabled={isDeletingLiveEntry}
+                className="px-4 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold rounded text-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteLiveEntry}
+                disabled={isDeletingLiveEntry}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded text-xs transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 className={`w-3.5 h-3.5 ${isDeletingLiveEntry ? 'animate-bounce' : ''}`} />
+                <span>{isDeletingLiveEntry ? 'Deleting from Sheet...' : 'Confirm Live Deletion'}</span>
+              </button>
             </div>
           </div>
         </div>

@@ -124,52 +124,66 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN METADATA GRID (Side-by-Side Tables) */}
-            <div className="grid grid-cols-2 gap-3 mb-4 text-[11pt]">
-              {/* Left: Client Account Details */}
-              <div className="document-card p-2.5 bg-white flex flex-col justify-between shadow-none">
-                <div className="font-bold uppercase text-[11pt] tracking-wider text-stone-800 border-b border-[#cbd5e1] pb-1 mb-1.5">
-                  STATEMENT TO
-                </div>
-                <div className="grid grid-rows-3 divide-y divide-[#e2e8f0]">
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Client Name:</span>
-                    <span className="font-bold text-stone-900 text-right">{client?.name || 'Selected Client'}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">KRA PIN:</span>
-                    <span className="text-stone-800 text-right tracking-wider">{client?.kraPin || 'N/A'}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Physical Address:</span>
-                    <span className="text-stone-800 text-right truncate max-w-[200px]">{client?.address || 'N/A'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right: Statement Specifications */}
-              <div className="document-card p-2.5 bg-white flex flex-col justify-between shadow-none">
-                <div className="font-bold uppercase text-[11pt] tracking-wider text-stone-800 border-b border-[#cbd5e1] pb-1 mb-1.5">
-                  DOCUMENT PARTICULARS
-                </div>
-                <div className="grid grid-rows-3 divide-y divide-[#e2e8f0]">
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Statement No:</span>
-                    <span className="font-bold text-stone-900 text-right">{statementNumber}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Issue Date:</span>
-                    <span className="text-stone-800 text-right">{issueDate ? formatDate(issueDate) : formatDate()}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Period Covered:</span>
-                    <span className="text-stone-800 text-right font-medium">
-                      {formatDate(startDate)} to {formatDate(endDate)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {/* 3. PARALLEL TWO-COLUMN METADATA GRID (Unified Structural Table Architecture) */}
+            <table className="document-table sync-meta-table mb-4 text-[11pt] w-full" style={{ tableLayout: 'fixed' }}>
+              <thead>
+                <tr className="bg-stone-100 border-b border-stone-800 text-stone-900">
+                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5 border-r border-stone-800">
+                    STATEMENT TO
+                  </th>
+                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5">
+                    DOCUMENT PARTICULARS
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e2e8f0]">
+                {/* Row 1: Client Name vs Statement No */}
+                <tr className="sync-row">
+                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
+                    Client Name:
+                  </td>
+                  <td className="w-[32%] font-bold text-stone-900 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
+                    {client?.name || 'Selected Client'}
+                  </td>
+                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
+                    Statement No:
+                  </td>
+                  <td className="w-[32%] font-bold text-stone-900 py-1.5 px-2.5 align-top font-mono">
+                    {statementNumber}
+                  </td>
+                </tr>
+                {/* Row 2: KRA PIN vs Issue Date */}
+                <tr className="sync-row">
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    KRA PIN:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top tracking-wider font-mono">
+                    {client?.kraPin || 'N/A'}
+                  </td>
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Issue Date:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 align-top">
+                    {issueDate ? formatDate(issueDate) : formatDate()}
+                  </td>
+                </tr>
+                {/* Row 3: Physical Address vs Period Covered */}
+                <tr className="sync-row">
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Physical Address:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
+                    {client?.address || 'N/A'}
+                  </td>
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Period Covered:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 align-top font-medium">
+                    {formatDate(startDate)} to {formatDate(endDate)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
 
             {/* 4. LEDGER TABLE: Dynamic Table Layout Engine */}
             <div className="mb-4 w-full">

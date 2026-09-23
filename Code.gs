@@ -518,6 +518,19 @@ function doPost(e) {
       return responseJSON({ success: true, report: cleanReport });
     }
 
+    // 14. UNIVERSAL SHEET ROW DELETION (Live Worksheet Inspector Direct Entry Removal)
+    if (action === "DELETE_SHEET_ROW" || action === "DELETE_WORKSHEET_ROW" || action === "DELETE_ENTRY") {
+      try {
+        var delSheetResult = deleteSheetRow(ss, data.tabName, data.rowIndex, data.rowIdentifier, data.folderName);
+        refreshAllAnalyticsTabs(ss);
+        logAudit(ss, "DELETE_SHEET_ROW", "Deleted row from tab '" + (data.tabName || "Sheet") + "' (Identifier: " + (data.rowIdentifier || "Row " + data.rowIndex) + ")", "SUCCESS", "", "");
+        return responseJSON({ success: true, result: delSheetResult });
+      } catch (delRowErr) {
+        logAudit(ss, "DELETE_SHEET_ROW", "Delete row error: " + delRowErr.toString(), "FAILURE", "", "");
+        return responseJSON({ success: false, error: delRowErr.toString() });
+      }
+    }
+
     return responseJSON({ success: false, error: "Unrecognized sync action: " + action });
 
   } catch (globalError) {
@@ -2337,6 +2350,44 @@ function logAudit(ss, action, description, status, driveUrl, fileId) {
   } catch (err) {
     Logger.log("Audit log failed: " + err.toString());
   }
+}
+
+function deleteSheetRow(ss, tabName, rowIndex, rowIdentifier, folderName) {
+  if (!tabName) throw new Error("Missing tabName parameter");
+  var sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error("Worksheet tab '" + tabName + "' not found in spreadsheet");
+
+  var data = sheet.getDataRange().getValues();
+  var deletedRows = 0;
+  var targetId = rowIdentifier ? String(rowIdentifier).trim().toLowerCase() : "";
+
+  // 1. If rowIdentifier is provided, search matching rows
+  if (targetId) {
+    for (var r = data.length - 1; r >= 1; r--) {
+      var rowStr = data[r].join(" ").toLowerCase();
+      if (rowStr.indexOf(targetId) !== -1) {
+        sheet.deleteRow(r + 1);
+        deletedRows++;
+      }
+    }
+  }
+
+  // 2. Fallback to 1-based row index if provided and no row was deleted by identifier
+  if (deletedRows === 0 && typeof rowIndex === "number" && rowIndex >= 0 && rowIndex < data.length - 1) {
+    sheet.deleteRow(rowIndex + 2); // +2 because row 1 is header and data[0] is header
+    deletedRows++;
+  }
+
+  // 3. Cascade cleanup if document, client, or payment tab
+  if (tabName === "Invoices" || tabName === "Quotations" || tabName === "Proformas") {
+    if (targetId) cascadeDeleteDocument(ss, "", targetId, folderName);
+  } else if (tabName === "Clients") {
+    if (targetId) cascadeDeleteClient(ss, targetId, "", "");
+  } else if (tabName === "Receipts") {
+    if (targetId) cascadeDeletePayment(ss, targetId, "", "", folderName);
+  }
+
+  return { success: true, tabName: tabName, rowsRemoved: deletedRows };
 }
 
 function responseJSON(obj) {

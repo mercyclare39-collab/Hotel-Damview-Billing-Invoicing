@@ -163,58 +163,66 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN METADATA GRID (Side-by-Side Tables) */}
-            <div className="grid grid-cols-2 gap-3 mb-4 text-[11pt]">
-              {/* LEFT TABLE: Dynamic Title Based on Document Type */}
-              <div className="document-card p-2.5 bg-white flex flex-col justify-between shadow-none">
-                <div className="font-bold uppercase text-[11pt] tracking-wider text-stone-800 border-b border-[#cbd5e1] pb-1 mb-1.5">
-                  {clientBoxTitle}
-                </div>
-                <div className="grid grid-rows-3 divide-y divide-[#e2e8f0]">
-                  {/* Row 1: Client Name */}
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Client Name:</span>
-                    <span className="font-bold text-stone-900 text-right">{doc.clientName || 'Cash / Walk-In Customer'}</span>
-                  </div>
-                  {/* Row 2: KRA PIN */}
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">KRA PIN:</span>
-                    <span className="text-stone-800 text-right tracking-wider">{doc.clientKraPin || 'N/A'}</span>
-                  </div>
-                  {/* Row 3: Physical Address */}
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Physical Address:</span>
-                    <span className="text-stone-800 text-right truncate max-w-[200px]">{doc.clientAddress || 'N/A'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* RIGHT TABLE: DOCUMENT PARTICULARS */}
-              <div className="document-card p-2.5 bg-white flex flex-col justify-between shadow-none">
-                <div className="font-bold uppercase text-[11pt] tracking-wider text-stone-800 border-b border-[#cbd5e1] pb-1 mb-1.5">
-                  DOCUMENT PARTICULARS
-                </div>
-                <div className="grid grid-rows-3 divide-y divide-[#e2e8f0]">
-                  {/* Row 1: Document Number */}
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">
-                      {isQuotation ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:'}
-                    </span>
-                    <span className="font-bold text-stone-950 text-right">{doc.documentNumber || 'DRAFT'}</span>
-                  </div>
-                  {/* Row 2: Date */}
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Date:</span>
-                    <span className="text-stone-800 text-right">{formatDate(doc.issueDate)}</span>
-                  </div>
-                  {/* Row 3: Due Date */}
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Due Date:</span>
-                    <span className="text-stone-800 text-right font-medium">{formatDate(doc.dueDate)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {/* 3. PARALLEL TWO-COLUMN METADATA GRID (Unified Structural Table Architecture) */}
+            <table className="document-table sync-meta-table mb-4 text-[11pt] w-full" style={{ tableLayout: 'fixed' }}>
+              <thead>
+                <tr className="bg-stone-100 border-b border-stone-800 text-stone-900">
+                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5 border-r border-stone-800">
+                    {clientBoxTitle}
+                  </th>
+                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5">
+                    DOCUMENT PARTICULARS
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e2e8f0]">
+                {/* Row 1: Client Name vs Document Number */}
+                <tr className="sync-row">
+                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
+                    Client Name:
+                  </td>
+                  <td className="w-[32%] font-bold text-stone-900 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
+                    {doc.clientName || 'Cash / Walk-In Customer'}
+                  </td>
+                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
+                    {isQuotation ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:'}
+                  </td>
+                  <td className="w-[32%] font-bold text-stone-950 py-1.5 px-2.5 align-top font-mono">
+                    {doc.documentNumber || 'DRAFT'}
+                  </td>
+                </tr>
+                {/* Row 2: KRA PIN vs Date */}
+                <tr className="sync-row">
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    KRA PIN:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top tracking-wider font-mono">
+                    {doc.clientKraPin || 'N/A'}
+                  </td>
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Date:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 align-top">
+                    {formatDate(doc.issueDate)}
+                  </td>
+                </tr>
+                {/* Row 3: Physical Address vs Due Date */}
+                <tr className="sync-row">
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Physical Address:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
+                    {doc.clientAddress || 'N/A'}
+                  </td>
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Due Date:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 align-top font-medium">
+                    {formatDate(doc.dueDate)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
 
             {/* 4. TRANSACTION LINE-ITEM GRID: Adaptive Dynamic Column Widths */}
             <div className="mb-4 w-full">
@@ -323,62 +331,107 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
               </table>
             </div>
 
-            {/* 5. FINANCIAL SUMMARY BLOCK */}
-            <div className="flex justify-end mb-4">
-              <div className="w-80">
-                <table className="document-table text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-                  <tbody>
-                    {/* Dedicated Discount row with distinct italic typography */}
-                    {docDiscount > 0 && (
-                      <tr className="bg-emerald-50/30">
-                        <td className="px-2.5 py-1 font-semibold text-emerald-800 italic">Discount:</td>
-                        <td className="px-2.5 py-1 text-right text-emerald-700 font-semibold">
-                          {renderAlignedCurrency(-docDiscount)}
-                        </td>
-                      </tr>
-                    )}
+            {/* 5. FINANCIAL SUMMARY & SETTLEMENT ACCOUNTS GRID (Unified Structural Layout) */}
+            <div className="mb-4 w-full">
+              <table className="document-table text-[11pt] w-full" style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}>
+                <thead>
+                  <tr className="bg-stone-100 border-b border-stone-800 text-stone-900">
+                    <th className="w-[52%] text-left uppercase font-bold py-1.5 px-2.5 border-r border-stone-800 text-[10.5pt] tracking-wider">
+                      PAYMENT SETTLEMENT & BANK INSTRUCTIONS
+                    </th>
+                    <th className="w-[48%] text-left uppercase font-bold py-1.5 px-2.5 text-[10.5pt] tracking-wider">
+                      FINANCIAL SUMMARY & TAX BREAKDOWN
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="sync-row">
+                    <td className="p-2.5 border-r-2 border-stone-800 align-top bg-stone-50/30">
+                      <div className="text-[10pt] text-stone-800 leading-tight space-y-1">
+                        <div className="font-bold text-stone-900 border-b border-stone-200 pb-0.5 uppercase tracking-wide text-[9.5pt]">
+                          Bank Remittance Details
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-1">
+                          <span className="font-semibold text-stone-600">Bank:</span>
+                          <span className="font-medium text-stone-900 truncate">{profile.bankName || 'KCB Bank Kenya'}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-1">
+                          <span className="font-semibold text-stone-600">Branch:</span>
+                          <span className="text-stone-800 truncate">{profile.bankBranch || 'Machakos Branch'}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-1">
+                          <span className="font-semibold text-stone-600">Account Name:</span>
+                          <span className="font-medium text-stone-900 truncate">{profile.accountHolder || profile.name || 'Hotel Damview'}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-1">
+                          <span className="font-semibold text-stone-600">Account No:</span>
+                          <span className="font-mono font-bold text-stone-900">{profile.accountNumber || '1102983746'}</span>
+                        </div>
+                        {profile.mpesaTillNumber && (
+                          <div className="grid grid-cols-2 gap-x-1 pt-1 border-t border-stone-200/80">
+                            <span className="font-semibold text-emerald-800">M-Pesa Buy Goods Till:</span>
+                            <span className="font-mono font-bold text-emerald-900">{profile.mpesaTillNumber}</span>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-0 align-top">
+                      <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
+                        <tbody className="divide-y divide-[#e2e8f0]">
+                          {/* Dedicated Discount row with distinct italic typography */}
+                          {docDiscount > 0 && (
+                            <tr className="bg-emerald-50/30">
+                              <td className="px-2.5 py-1 font-semibold text-emerald-800 italic">Discount:</td>
+                              <td className="px-2.5 py-1 text-right text-emerald-700 font-semibold">
+                                {renderAlignedCurrency(-docDiscount)}
+                              </td>
+                            </tr>
+                          )}
 
-                    <tr>
-                      <td className="px-2.5 py-1 text-stone-600 font-medium">Subtotal:</td>
-                      <td className="px-2.5 py-1 text-right text-stone-700 font-medium">
-                        {renderAlignedCurrency(doc.subtotal)}
-                      </td>
-                    </tr>
+                          <tr>
+                            <td className="px-2.5 py-1 text-stone-600 font-medium">Subtotal:</td>
+                            <td className="px-2.5 py-1 text-right text-stone-700 font-medium">
+                              {renderAlignedCurrency(doc.subtotal)}
+                            </td>
+                          </tr>
 
-                    <tr>
-                      <td className="px-2.5 py-1 text-stone-600 font-medium uppercase tracking-wide">
-                        VAT (16%):
-                      </td>
-                      <td className="px-2.5 py-1 text-right text-stone-600 font-normal">
-                        {renderAlignedCurrency(doc.vatAmount)}
-                      </td>
-                    </tr>
-                    <tr className="bg-[#f1f5f9] text-[12.5pt] font-extrabold" style={{ borderTop: '1px solid #cbd5e1' }}>
-                      <td className="px-2.5 py-1.5 text-stone-950 font-bold uppercase tracking-tight">Grand Total:</td>
-                      <td className="px-2.5 py-1.5 text-right text-stone-950 font-black">
-                        {renderAlignedCurrency(doc.grandTotal, true)}
-                      </td>
-                    </tr>
+                          <tr>
+                            <td className="px-2.5 py-1 text-stone-600 font-medium uppercase tracking-wide">
+                              VAT ({profile.vatRate || 16}%):
+                            </td>
+                            <td className="px-2.5 py-1 text-right text-stone-600 font-normal">
+                              {renderAlignedCurrency(doc.vatAmount)}
+                            </td>
+                          </tr>
+                          <tr className="bg-[#f1f5f9] text-[12.5pt] font-extrabold" style={{ borderTop: '1px solid #cbd5e1' }}>
+                            <td className="px-2.5 py-1.5 text-stone-950 font-bold uppercase tracking-tight">Grand Total:</td>
+                            <td className="px-2.5 py-1.5 text-right text-stone-950 font-black">
+                              {renderAlignedCurrency(doc.grandTotal, true)}
+                            </td>
+                          </tr>
 
-                    {(isInvoice || isProforma) && (
-                      <>
-                        <tr className="bg-stone-50/40">
-                          <td className="px-2.5 py-1 text-emerald-800 font-medium">Amount Settled:</td>
-                          <td className="px-2.5 py-1 text-right text-emerald-700 font-semibold">
-                            {renderAlignedCurrency(doc.amountPaid || 0)}
-                          </td>
-                        </tr>
-                        <tr className="bg-rose-50/70 text-[12pt]">
-                          <td className="px-2.5 py-1.5 text-rose-950 font-bold uppercase tracking-tight">Balance Due:</td>
-                          <td className="px-2.5 py-1.5 text-right text-rose-900 font-black">
-                            {renderAlignedCurrency(doc.balanceDue !== undefined ? doc.balanceDue : doc.grandTotal, true)}
-                          </td>
-                        </tr>
-                      </>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                          {(isInvoice || isProforma) && (
+                            <>
+                              <tr className="bg-stone-50/40">
+                                <td className="px-2.5 py-1 text-emerald-800 font-medium">Amount Settled:</td>
+                                <td className="px-2.5 py-1 text-right text-emerald-700 font-semibold">
+                                  {renderAlignedCurrency(doc.amountPaid || 0)}
+                                </td>
+                              </tr>
+                              <tr className="bg-rose-50/70 text-[12pt]">
+                                <td className="px-2.5 py-1.5 text-rose-950 font-bold uppercase tracking-tight">Balance Due:</td>
+                                <td className="px-2.5 py-1.5 text-right text-rose-900 font-black">
+                                  {renderAlignedCurrency(doc.balanceDue !== undefined ? doc.balanceDue : doc.grandTotal, true)}
+                                </td>
+                              </tr>
+                            </>
+                          )}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 

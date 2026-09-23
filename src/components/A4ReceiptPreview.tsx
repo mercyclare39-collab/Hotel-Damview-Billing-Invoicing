@@ -82,50 +82,66 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN METADATA GRID */}
-            <div className="grid grid-cols-2 gap-3 mb-4 text-[11pt]">
-              {/* LEFT: RECEIVED FROM / CLIENT DETAILS */}
-              <div className="document-card p-2.5 bg-white flex flex-col justify-between shadow-none">
-                <div className="font-bold uppercase text-[11pt] tracking-wider text-stone-800 border-b border-[#cbd5e1] pb-1 mb-1.5">
-                  RECEIVED FROM
-                </div>
-                <div className="grid grid-rows-3 divide-y divide-[#e2e8f0]">
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Client Name:</span>
-                    <span className="font-bold text-stone-900 text-right">{payment.clientName || 'Walk-In Guest'}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Client ID / Ref:</span>
-                    <span className="text-stone-800 text-right tracking-wider font-mono">{payment.clientId || 'N/A'}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Invoice Settled:</span>
-                    <span className="font-bold text-stone-900 text-right font-mono">{payment.documentNumber || 'Direct Payment'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* RIGHT: RECEIPT PARTICULARS */}
-              <div className="document-card p-2.5 bg-white flex flex-col justify-between shadow-none">
-                <div className="font-bold uppercase text-[11pt] tracking-wider text-stone-800 border-b border-[#cbd5e1] pb-1 mb-1.5">
-                  RECEIPT PARTICULARS
-                </div>
-                <div className="grid grid-rows-3 divide-y divide-[#e2e8f0]">
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Receipt No:</span>
-                    <span className="font-bold text-stone-950 text-right font-mono">{payment.receiptNumber || 'REC-DRAFT'}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Date:</span>
-                    <span className="text-stone-800 text-right">{formatDate(payment.date)}</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 min-h-[26px]">
-                    <span className="font-semibold text-stone-700 text-left shrink-0 pr-2">Payment Method:</span>
-                    <span className="font-semibold text-stone-900 text-right">{payment.paymentMode}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {/* 3. PARALLEL TWO-COLUMN METADATA GRID (Unified Structural Table Architecture) */}
+            <table className="document-table sync-meta-table mb-4 text-[11pt] w-full" style={{ tableLayout: 'fixed' }}>
+              <thead>
+                <tr className="bg-stone-100 border-b border-stone-800 text-stone-900">
+                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5 border-r border-stone-800">
+                    RECEIVED FROM
+                  </th>
+                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5">
+                    RECEIPT PARTICULARS
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e2e8f0]">
+                {/* Row 1: Client Name vs Receipt Number */}
+                <tr className="sync-row">
+                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
+                    Client Name:
+                  </td>
+                  <td className="w-[32%] font-bold text-stone-900 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
+                    {payment.clientName || 'Walk-In Guest'}
+                  </td>
+                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
+                    Receipt No:
+                  </td>
+                  <td className="w-[32%] font-bold text-stone-950 py-1.5 px-2.5 align-top font-mono">
+                    {payment.receiptNumber || 'REC-DRAFT'}
+                  </td>
+                </tr>
+                {/* Row 2: Client ID vs Date */}
+                <tr className="sync-row">
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Client ID / Ref:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top tracking-wider font-mono">
+                    {payment.clientId || 'N/A'}
+                  </td>
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Date:
+                  </td>
+                  <td className="text-stone-800 py-1.5 px-2.5 align-top">
+                    {formatDate(payment.date)}
+                  </td>
+                </tr>
+                {/* Row 3: Invoice Settled vs Payment Method */}
+                <tr className="sync-row">
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Invoice Settled:
+                  </td>
+                  <td className="font-bold text-stone-900 py-1.5 px-2.5 border-r-2 border-stone-800 align-top font-mono break-words">
+                    {payment.documentNumber || 'Direct Payment'}
+                  </td>
+                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
+                    Payment Method:
+                  </td>
+                  <td className="font-semibold text-stone-900 py-1.5 px-2.5 align-top">
+                    {payment.paymentMode}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
 
             {/* 4. DYNAMIC SETTLEMENT TABLE: Hairline high-contrast borders */}
             <div className="mb-4 w-full">
