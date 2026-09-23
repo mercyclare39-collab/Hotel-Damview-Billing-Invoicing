@@ -5,6 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
+    base: '/Hotel-Damview-Billing-Invoicing/',
     plugins: [
       react(),
       tailwindcss(),
@@ -19,7 +20,7 @@ export default defineConfig(() => {
           'pwa-maskable-512x512.png',
         ],
         manifest: {
-          id: '/',
+          id: '/Hotel-Damview-Billing-Invoicing/',
           name: 'Hotel Damview Billing & Invoicing Suite',
           short_name: 'Damview ERP',
           description:
@@ -28,23 +29,23 @@ export default defineConfig(() => {
           background_color: '#1c1917',
           display: 'standalone',
           orientation: 'any',
-          start_url: '/',
-          scope: '/',
+          start_url: '/Hotel-Damview-Billing-Invoicing/',
+          scope: '/Hotel-Damview-Billing-Invoicing/',
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: 'pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png',
+              src: 'pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-maskable-512x512.png',
+              src: 'pwa-maskable-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
@@ -58,7 +59,7 @@ export default defineConfig(() => {
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
-          navigateFallback: '/index.html',
+          navigateFallback: '/Hotel-Damview-Billing-Invoicing/index.html',
           navigateFallbackDenylist: [/^\/api\//, /^\/health/, /^\/_healthz/],
           runtimeCaching: [
             {
