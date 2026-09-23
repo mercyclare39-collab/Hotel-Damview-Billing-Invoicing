@@ -16,6 +16,7 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
 } from 'lucide-react';
 import { BillingDocument, DocumentType, DocumentStatus, HotelProfile } from '../types';
 import { formatKsh, formatDate } from '../utils/formatters';
@@ -259,6 +260,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                 <th className="py-2.5 px-3 text-right">Grand Total (Ksh)</th>
                 <th className="py-2.5 px-3 text-right">Balance Due (Ksh)</th>
                 <th className="py-2.5 px-3 text-center">Status</th>
+                <th className="py-2.5 px-3 text-center">Drive PDF Link</th>
                 <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -268,7 +270,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                   <tr key={doc.id} className="hover:bg-stone-50/80 transition-colors">
                     <td className="py-2.5 px-3">{getTypeBadge(doc.documentType)}</td>
                     <td className="py-2.5 px-3 font-mono font-bold text-stone-900">
-                      {doc.documentNumber}
+                      <div>{doc.documentNumber}</div>
                       {doc.relatedDocNumber && (
                         <div className="text-[10px] text-stone-400 font-normal">
                           From: {doc.relatedDocNumber}
@@ -300,6 +302,28 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                       )}
                     </td>
                     <td className="py-2.5 px-3 text-center">{getStatusBadge(doc.status)}</td>
+                    <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                      {doc.driveFileUrl ? (
+                        <a
+                          href={doc.driveFileUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors shadow-2xs group"
+                          title="Open official PDF archived in Google Drive"
+                        >
+                          <ExternalLink className="w-3 h-3 text-emerald-700 group-hover:text-emerald-900" />
+                          <span>View in Drive</span>
+                        </a>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-stone-500 bg-stone-100 border border-stone-200"
+                          title={doc.syncedToGoogle ? 'Synced to Google Sheet; Drive PDF upload pending' : 'Saved in offline local database; pending Google sync'}
+                        >
+                          <Clock className="w-2.5 h-2.5 text-stone-400" />
+                          <span>{doc.syncedToGoogle ? 'Drive Pending' : 'Pending Sync'}</span>
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2.5 px-3 text-right">
                       <div className="inline-flex items-center justify-end gap-1">
                         {/* Preview */}
@@ -369,11 +393,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                         {/* Delete */}
                         <button
                           type="button"
-                          onClick={() => {
-                            if (window.confirm(`Delete document ${doc.documentNumber}?`)) {
-                              onDeleteDocument(doc.id);
-                            }
-                          }}
+                          onClick={() => onDeleteDocument(doc.id)}
                           className="p-1 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded"
                           title="Delete Document"
                         >
@@ -385,7 +405,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-stone-400 italic">
+                  <td colSpan={10} className="py-12 text-center text-stone-400 italic">
                     No documents found matching the search or filters.
                   </td>
                 </tr>

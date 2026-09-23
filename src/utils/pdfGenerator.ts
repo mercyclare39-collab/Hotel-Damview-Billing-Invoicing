@@ -1,6 +1,7 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { getPdfFileName } from './formatters';
+import { getPdfFileName, formatKsh } from './formatters';
+import { BillingDocument, HotelProfile } from '../types';
 
 export interface GeneratePdfResult {
   blob: Blob;
@@ -26,8 +27,6 @@ export function validatePdfBlob(blob: Blob | null | undefined, base64?: string):
 
   const byteLength = blob.size;
 
-  // A genuine rendered A4 document with text and hairline tables is typically > 15KB.
-  // Anything below 2,000 bytes indicates a blank or corrupt PDF shell.
   if (byteLength < 2000) {
     return {
       isValid: false,
@@ -73,23 +72,20 @@ export async function generatePdfFromElement(
 ): Promise<GeneratePdfResult> {
   const fileName = getPdfFileName(documentNumber, clientName, issueDate);
 
-  // High quality rendering options
   const canvas = await html2canvas(element, {
-    scale: 2, // 2x scale for crisp, print-grade vector-like text rendering
+    scale: 2,
     useCORS: true,
     logging: false,
     backgroundColor: '#ffffff',
-    windowWidth: 794, // Standard A4 width in px at 96 DPI
+    windowWidth: 794,
   });
 
-  // Basic canvas sanity check
   if (canvas.width <= 0 || canvas.height <= 0) {
     throw new Error('Canvas rendering engine returned zero dimensions.');
   }
 
   const imgData = canvas.toDataURL('image/jpeg', 0.98);
 
-  // A4 dimensions in mm: 210 x 297
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -97,14 +93,12 @@ export async function generatePdfFromElement(
     compress: true,
   });
 
-  const pdfWidth = pdf.internal.pageSize.getWidth(); // 210mm
-  const pdfHeight = pdf.internal.pageSize.getHeight(); // 297mm
+  const pdfWidth = pdf.internal.pageSize.getWidth();
+  const pdfHeight = pdf.internal.pageSize.getHeight();
 
-  // Calculate image height maintaining aspect ratio
   const imgWidth = pdfWidth;
   const imgHeight = (canvas.height * pdfWidth) / canvas.width;
 
-  // Render on page
   pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, Math.min(pdfHeight, imgHeight));
 
   if (options?.download) {
@@ -114,7 +108,6 @@ export async function generatePdfFromElement(
   const blob = pdf.output('blob');
   const base64 = pdf.output('datauristring');
 
-  // Verify blob integrity prior to handoff
   const validation = validatePdfBlob(blob, base64);
   if (!validation.isValid) {
     console.error('PDF pre-upload validation warning:', validation.error);
@@ -152,27 +145,27 @@ export function generateTestPdfDocument(options?: {
   });
 
   // Background Header Banner
-  pdf.setFillColor(28, 25, 23); // #1c1917 stone-900
+  pdf.setFillColor(28, 25, 23);
   pdf.rect(0, 0, 210, 42, 'F');
 
   // Gold accent line
-  pdf.setFillColor(234, 179, 8); // #eab308 amber-500
+  pdf.setFillColor(234, 179, 8);
   pdf.rect(0, 42, 210, 2, 'F');
 
   // Header Titles
-  pdf.setTextColor(254, 240, 138); // #fef08a
+  pdf.setTextColor(254, 240, 138);
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(18);
   pdf.text(hotelName.toUpperCase(), 15, 18);
 
-  pdf.setTextColor(214, 211, 209); // stone-300
+  pdf.setTextColor(214, 211, 209);
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9);
   pdf.text('CENTRALIZED ERP & GOOGLE WORKSPACE ARCHIVING TEST BENCH', 15, 26);
   pdf.text(`Timestamp: ${timestamp} EAT | Target Folder: ${targetFolder}`, 15, 33);
 
   // Status Badge
-  pdf.setFillColor(34, 197, 94); // emerald-500
+  pdf.setFillColor(34, 197, 94);
   pdf.roundedRect(150, 12, 45, 18, 2, 2, 'F');
   pdf.setTextColor(255, 255, 255);
   pdf.setFont('helvetica', 'bold');
@@ -190,7 +183,7 @@ export function generateTestPdfDocument(options?: {
 
   pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(9.5);
-  pdf.setTextColor(87, 83, 78); // stone-600
+  pdf.setTextColor(87, 83, 78);
   pdf.text(
     'This test document confirms bidirectional byte stream transfer between Hotel Damview ERP and Google Drive.',
     15,
@@ -198,7 +191,7 @@ export function generateTestPdfDocument(options?: {
   );
 
   // Diagnostic Info Box
-  pdf.setFillColor(245, 245, 244); // stone-100
+  pdf.setFillColor(245, 245, 244);
   pdf.setDrawColor(229, 231, 235);
   pdf.roundedRect(15, 70, 180, 45, 2, 2, 'FD');
 
@@ -254,7 +247,7 @@ export function generateTestPdfDocument(options?: {
     pdf.text(row[1], 30, yPos);
     pdf.text(row[2], 110, yPos);
     pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(22, 101, 52); // emerald-800
+    pdf.setTextColor(22, 101, 52);
     pdf.text(row[3], 165, yPos);
 
     yPos += 7.5;
@@ -292,6 +285,40 @@ export function generateTestPdfDocument(options?: {
     fileName,
     byteLength: blob.size,
   };
+}
+
+/**
+ * Builds formatted WhatsApp billing link and pre-filled message text
+ */
+export function getWhatsAppShareUrl(
+  doc: BillingDocument,
+  profile: HotelProfile,
+  phoneNumber?: string
+): string {
+  const docTypeLabel =
+    doc.documentType === 'INVOICE'
+      ? 'Tax Invoice'
+      : doc.documentType === 'QUOTATION'
+      ? 'Quotation'
+      : 'Proforma Invoice';
+
+  const bankDetails = profile.bankName
+    ? `\n🏦 Bank: ${profile.bankName} | Acc: ${profile.accountNumber || ''}`
+    : '';
+  const mpesaDetails = profile.mpesaTillNumber
+    ? `\n📱 M-Pesa Till: ${profile.mpesaTillNumber}`
+    : '';
+
+  const message = `*${profile.name.toUpperCase()}*\n${docTypeLabel} Ref: *${doc.documentNumber}*\nClient: ${doc.clientName}\nDate: ${doc.issueDate}\n\n*Total Amount:* ${formatKsh(doc.grandTotal)}\n*Amount Paid:* ${formatKsh(doc.amountPaid || 0)}\n*Balance Due:* *${formatKsh(doc.balanceDue || 0)}*${bankDetails}${mpesaDetails}\n\nThank you for choosing ${profile.name}!`;
+
+  const cleanPhone = (phoneNumber || doc.clientPhone || '').replace(/\D/g, '');
+  const targetPhone = cleanPhone.startsWith('0')
+    ? `254${cleanPhone.slice(1)}`
+    : cleanPhone.startsWith('254')
+    ? cleanPhone
+    : cleanPhone;
+
+  return `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`;
 }
 
 /**

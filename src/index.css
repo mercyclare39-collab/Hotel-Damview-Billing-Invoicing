@@ -64,6 +64,21 @@
   color: #0f172a;
   font-weight: 700;
   padding: 5px 8px;
+  text-align: center; /* Center-align all table column headers uniformly by default */
+}
+
+/* Enforce strict left alignment for Particulars / Description column headers */
+.document-table th.col-particulars,
+.document-table th.col-description,
+.document-table th[data-col="particulars"],
+.document-table th[data-col="description"],
+.document-table th.text-left {
+  text-align: left !important;
+}
+
+.document-table th.col-center,
+.document-table th.text-center {
+  text-align: center !important;
 }
 
 .document-table th:last-child {
@@ -138,6 +153,15 @@
     background-color: #f8fafc !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    text-align: center !important;
+  }
+
+  .document-table th.col-particulars,
+  .document-table th.col-description,
+  .document-table th[data-col="particulars"],
+  .document-table th[data-col="description"],
+  .document-table th.text-left {
+    text-align: left !important;
   }
 
   .document-table th:last-child {

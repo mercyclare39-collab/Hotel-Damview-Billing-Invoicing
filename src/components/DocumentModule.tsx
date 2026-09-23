@@ -25,10 +25,13 @@ import {
   TrendingUp,
   DollarSign,
   Filter,
+  FileSpreadsheet,
+  MessageSquare,
+  ExternalLink,
 } from 'lucide-react';
 import { BillingDocument, DocumentType, DocumentStatus, Client, HotelProfile } from '../types';
 import { formatKsh, formatDate, calculateDueDate } from '../utils/formatters';
-import { generatePdfFromElement, shareDocumentPdf } from '../utils/pdfGenerator';
+import { generatePdfFromElement, shareDocumentPdf, getWhatsAppShareUrl } from '../utils/pdfGenerator';
 import { DocumentEditor } from './DocumentEditor';
 import { A4DocumentPreview } from './A4DocumentPreview';
 
@@ -38,6 +41,7 @@ interface DocumentModuleProps {
   clients: Client[];
   profile: HotelProfile;
   editingDocument: BillingDocument | null;
+  initialSubTab?: 'new' | 'journal' | 'special';
   onSaveDocument: (doc: BillingDocument) => void;
   onDeleteDocument: (docId: string) => void;
   onRecordPayment: (doc: BillingDocument) => void;
@@ -54,6 +58,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   clients,
   profile,
   editingDocument,
+  initialSubTab,
   onSaveDocument,
   onDeleteDocument,
   onRecordPayment,
@@ -65,10 +70,16 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
 }) => {
   // Sub-tabs: 'new' (Editor), 'journal' (List), 'special' (Expired for Quotes, Converted for Proformas, Unpaid for Invoices)
   const [activeSubTab, setActiveSubTab] = useState<'new' | 'journal' | 'special'>(
-    editingDocument ? 'new' : 'journal'
+    initialSubTab || (editingDocument ? 'new' : 'journal')
   );
 
-  // Direct deep-action routing: Immediately switch to 'new' editor tab when editingDocument changes
+  // Direct deep-action routing: Immediately switch tab when initialSubTab or editingDocument changes
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
+
   useEffect(() => {
     if (editingDocument) {
       setActiveSubTab('new');
@@ -88,10 +99,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   // Today string for expiry comparisons
   const todayStr = useMemo(() => formatDate(), []);
 
-  // Filter for special sub-tab:
-  // Quotations: Expired or Archived
-  // Proformas: Converted (has relatedDocId or is marked converted)
-  // Invoices: Unpaid or Overdue (balanceDue > 0)
+  // Filter for special sub-tab
   const specialDocs = useMemo(() => {
     if (moduleType === 'QUOTATION') {
       return moduleDocs.filter((d) => {
@@ -100,7 +108,6 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
       });
     } else if (moduleType === 'PROFORMA') {
       return moduleDocs.filter((d) => {
-        // Converted proformas or ones with related invoices
         const hasConverted = documents.some(
           (inv) => inv.documentType === 'INVOICE' && (inv.relatedDocId === d.id || inv.relatedDocNumber === d.documentNumber)
         );
@@ -122,80 +129,125 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
         const matchNum = doc.documentNumber.toLowerCase().includes(q);
         const matchClient = doc.clientName.toLowerCase().includes(q);
         const matchPin = (doc.clientKraPin || '').toLowerCase().includes(q);
-        return matchNum || matchClient || matchPin;
+        const matchItems = doc.lineItems?.some((item) =>
+          item.particulars.toLowerCase().includes(q)
+        ) || false;
+        if (!matchNum && !matchClient && !matchPin && !matchItems) return false;
       }
       return true;
     });
   }, [activeSubTab, specialDocs, moduleDocs, statusFilter, searchQuery]);
 
-  // Summary Metrics calculations
+  // Export Filtered Journal to CSV
+  const handleExportCsv = () => {
+    if (filteredJournalDocs.length === 0) {
+      alert('No documents to export in the current view.');
+      return;
+    }
+
+    const headers = [
+      'Document Number',
+      'Document Type',
+      'Client Name',
+      'Client Phone',
+      'Client KRA PIN',
+      'Issue Date',
+      'Due / Expiry Date',
+      'Subtotal (KES)',
+      'VAT 16% (KES)',
+      'Grand Total (KES)',
+      'Amount Paid (KES)',
+      'Balance Due (KES)',
+      'Status',
+    ];
+
+    const rows = filteredJournalDocs.map((doc) => [
+      `"${doc.documentNumber}"`,
+      `"${doc.documentType}"`,
+      `"${(doc.clientName || '').replace(/"/g, '""')}"`,
+      `"${(doc.clientPhone || '').replace(/"/g, '""')}"`,
+      `"${doc.clientKraPin || ''}"`,
+      `"${doc.issueDate}"`,
+      `"${doc.dueDate || ''}"`,
+      doc.subtotal.toFixed(2),
+      doc.vatAmount.toFixed(2),
+      doc.grandTotal.toFixed(2),
+      (doc.amountPaid || 0).toFixed(2),
+      (doc.balanceDue || 0).toFixed(2),
+      `"${doc.status}"`,
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `${profile.name.replace(/\s+/g, '_')}_${moduleType}_Journal_${formatDate()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Top metric card values
   const metrics = useMemo(() => {
     const totalCount = moduleDocs.length;
     const totalValue = moduleDocs.reduce((acc, d) => acc + d.grandTotal, 0);
 
     if (moduleType === 'QUOTATION') {
-      const activeQuotes = moduleDocs.filter(
-        (d) => (!d.dueDate || d.dueDate >= todayStr) && d.status !== 'Paid' && !d.isArchived
-      );
-      const activeValue = activeQuotes.reduce((acc, d) => acc + d.grandTotal, 0);
-      const expiredCount = moduleDocs.filter(
-        (d) => (d.dueDate && d.dueDate < todayStr && d.status !== 'Paid') || d.isArchived
-      ).length;
+      const activeCount = moduleDocs.filter((d) => d.status !== 'Paid').length;
+      const expiredCount = specialDocs.length;
       return {
         card1Title: 'Total Quotations',
-        card1Val: totalCount,
+        card1Val: totalCount.toString(),
         card1Sub: 'All historical proposals',
-        card2Title: 'Active Pipeline',
-        card2Val: formatKsh(activeValue),
-        card2Sub: `${activeQuotes.length} valid quotations`,
-        card3Title: 'Expired / Archived',
-        card3Val: expiredCount,
-        card3Sub: 'Requires renewal or review',
+        card2Title: 'Active Estimates',
+        card2Val: formatKsh(totalValue),
+        card2Sub: `${activeCount} pending acceptance`,
+        card3Title: 'Expired / Lapsed',
+        card3Val: expiredCount.toString(),
+        card3Sub: 'Requires re-negotiation',
       };
     } else if (moduleType === 'PROFORMA') {
       const convertedCount = specialDocs.length;
-      const pendingProformas = moduleDocs.filter(
-        (d) => !specialDocs.some((sd) => sd.id === d.id)
-      );
-      const pendingValue = pendingProformas.reduce((acc, d) => acc + d.grandTotal, 0);
+      const unbilledValue = moduleDocs
+        .filter((d) => !specialDocs.includes(d))
+        .reduce((acc, d) => acc + d.grandTotal, 0);
       return {
-        card1Title: 'Total Proformas',
-        card1Val: totalCount,
-        card1Sub: 'Advance billing requests',
-        card2Title: 'Pending Commitment',
-        card2Val: formatKsh(pendingValue),
-        card2Sub: `${pendingProformas.length} awaiting finalization`,
-        card3Title: 'Converted to Invoice',
-        card3Val: convertedCount,
-        card3Sub: totalCount > 0 ? `${Math.round((convertedCount / totalCount) * 100)}% conversion rate` : '0%',
+        card1Title: 'Proformas Issued',
+        card1Val: totalCount.toString(),
+        card1Sub: 'Advance billing vouchers',
+        card2Title: 'Pending Invoicing',
+        card2Val: formatKsh(unbilledValue),
+        card2Sub: 'Awaiting final delivery',
+        card3Title: 'Converted to Tax Invoice',
+        card3Val: convertedCount.toString(),
+        card3Sub: 'Fulfilled & billed',
       };
     } else {
       // INVOICE
       const totalPaid = moduleDocs.reduce((acc, d) => acc + (d.amountPaid || 0), 0);
-      const totalAR = moduleDocs.reduce((acc, d) => acc + (d.balanceDue || 0), 0);
-      const overdueCount = moduleDocs.filter((d) => d.status === 'Overdue').length;
+      const totalReceivables = moduleDocs.reduce((acc, d) => acc + (d.balanceDue || 0), 0);
       return {
-        card1Title: 'Total Invoiced',
+        card1Title: 'Billed Revenue',
         card1Val: formatKsh(totalValue),
-        card1Sub: `${totalCount} invoices`,
-        card2Title: 'Settled Payments',
+        card1Sub: `${totalCount} Tax Invoices (16% VAT)`,
+        card2Title: 'Collected Revenue',
         card2Val: formatKsh(totalPaid),
-        card2Sub: totalValue > 0 ? `${Math.round((totalPaid / totalValue) * 100)}% collected` : '0%',
-        card3Title: 'Outstanding Receivables',
-        card3Val: formatKsh(totalAR),
-        card3Sub: overdueCount > 0 ? `${overdueCount} overdue invoices!` : 'All current',
+        card2Sub: 'Settled bank/cash/M-Pesa',
+        card3Title: 'Accounts Receivable',
+        card3Val: formatKsh(totalReceivables),
+        card3Sub: `${specialDocs.length} outstanding invoices`,
       };
     }
-  }, [moduleDocs, moduleType, todayStr, specialDocs]);
+  }, [moduleDocs, moduleType, specialDocs]);
 
-  // Titles and Sub-Tab Labels
+  // Tab configurations
   const config = useMemo(() => {
     switch (moduleType) {
       case 'QUOTATION':
         return {
-          title: 'Quotations Management',
-          description: 'Create, track, and convert hospitality & conference price quotations for Hotel Damview guests.',
-          icon: FileText,
+          title: 'Quotations & Estimates',
+          description: 'Create and track pricing proposals and event estimates for corporate clients and guests.',
+          icon: FileClock,
           newTabLabel: editingDocument ? `Editing Quote: ${editingDocument.documentNumber}` : 'New Quotation',
           journalTabLabel: 'Quotations Journal',
           specialTabLabel: 'Expired / Archived',
@@ -306,7 +358,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
         );
       case 'Overdue':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-300">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
             <AlertTriangle className="w-3 h-3" />
             Overdue
           </span>
@@ -321,30 +373,52 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* MODULE HEADER BAR */}
-      <div className="no-print bg-white border-b border-stone-200 px-6 py-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-stone-900 tracking-tight flex items-center gap-2">
-              <Icon className="w-5 h-5 text-amber-700" />
-              {config.title}
-            </h1>
-            <p className="text-xs text-stone-600 mt-0.5">{config.description}</p>
+    <div className="flex flex-col h-full bg-stone-100 text-stone-900 overflow-hidden">
+      {/* MODULE HEADER & SUB-TABS */}
+      <div className="no-print bg-stone-900 text-white border-b border-stone-800 shrink-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 pb-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Icon className="w-5 h-5 text-amber-400" />
+                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white font-serif">
+                  {config.title}
+                </h1>
+              </div>
+              <p className="text-xs text-stone-400 mt-0.5 hidden sm:block">
+                {config.description}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  onStartNewDocument(moduleType);
+                  setActiveSubTab('new');
+                }}
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                <span>Create {moduleType === 'QUOTATION' ? 'Quote' : moduleType === 'PROFORMA' ? 'Proforma' : 'Invoice'}</span>
+              </button>
+            </div>
           </div>
 
-          {/* Sub-Module Navigation Tabs */}
-          <div className="inline-flex rounded-lg p-1 bg-stone-100 border border-stone-200 text-xs font-semibold self-start md:self-auto">
+          {/* Sub Navigation Tabs */}
+          <div className="flex items-center space-x-1 border-t border-stone-800 pt-2 text-xs font-semibold overflow-x-auto">
             <button
               type="button"
               onClick={() => {
-                onStartNewDocument(moduleType);
+                if (!editingDocument) {
+                  onStartNewDocument(moduleType);
+                }
                 setActiveSubTab('new');
               }}
-              className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all ${
+              className={`px-3 py-2 border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                 activeSubTab === 'new'
-                  ? 'bg-stone-900 text-amber-400 shadow-xs'
-                  : 'text-stone-700 hover:text-stone-900 hover:bg-stone-200/60'
+                  ? 'border-amber-400 text-amber-400 font-bold bg-stone-800/40'
+                  : 'border-transparent text-stone-400 hover:text-white hover:bg-stone-800/20'
               }`}
             >
               <Plus className="w-3.5 h-3.5" />
@@ -354,14 +428,15 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             <button
               type="button"
               onClick={() => setActiveSubTab('journal')}
-              className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all ${
+              className={`px-3 py-2 border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                 activeSubTab === 'journal'
-                  ? 'bg-stone-900 text-amber-400 shadow-xs'
-                  : 'text-stone-700 hover:text-stone-900 hover:bg-stone-200/60'
+                  ? 'border-amber-400 text-amber-400 font-bold bg-stone-800/40'
+                  : 'border-transparent text-stone-400 hover:text-white hover:bg-stone-800/20'
               }`}
             >
+              <FileText className="w-3.5 h-3.5" />
               <span>{config.journalTabLabel}</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-stone-200 text-stone-800">
+              <span className="text-[10px] px-1.5 py-0.2 bg-stone-800 rounded-full text-stone-300 ml-1">
                 {moduleDocs.length}
               </span>
             </button>
@@ -369,12 +444,13 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             <button
               type="button"
               onClick={() => setActiveSubTab('special')}
-              className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all ${
+              className={`px-3 py-2 border-b-2 transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
                 activeSubTab === 'special'
-                  ? 'bg-stone-900 text-amber-400 shadow-xs'
-                  : 'text-stone-700 hover:text-stone-900 hover:bg-stone-200/60'
+                  ? 'border-amber-400 text-amber-400 font-bold bg-stone-800/40'
+                  : 'border-transparent text-stone-400 hover:text-white hover:bg-stone-800/20'
               }`}
             >
+              <Filter className="w-3.5 h-3.5" />
               <span>{config.specialTabLabel}</span>
               {config.specialCount > 0 && (
                 <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${config.specialBadgeColor}`}>
@@ -410,7 +486,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
         </div>
       ) : (
         /* 2 & 3. JOURNAL OR SPECIAL FILTER TAB */
-        <div className="flex-1 overflow-y-auto p-6 space-y-5 bg-stone-100">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 bg-stone-100">
           {/* Top 3 Metric Summary Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs">
@@ -432,7 +508,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             </div>
           </div>
 
-          {/* Search & Status Filters */}
+          {/* Search, Status Filters & CSV Export */}
           <div className="bg-white border border-stone-200 rounded-lg p-3 shadow-xs flex flex-wrap items-center justify-between gap-3">
             <div className="relative flex-1 min-w-[240px]">
               <Search className="w-4 h-4 text-stone-400 absolute left-3 top-2.5" />
@@ -445,7 +521,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               />
             </div>
 
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex items-center gap-2 text-xs flex-wrap">
               <span className="text-stone-500 font-medium flex items-center gap-1">
                 <Filter className="w-3.5 h-3.5" /> Status:
               </span>
@@ -454,7 +530,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                   key={s}
                   type="button"
                   onClick={() => setStatusFilter(s)}
-                  className={`px-2.5 py-1 rounded font-medium transition-colors ${
+                  className={`px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
                     statusFilter === s
                       ? 'bg-stone-900 text-amber-400'
                       : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
@@ -463,6 +539,19 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                   {s}
                 </button>
               ))}
+
+              <div className="h-4 w-px bg-stone-300 mx-1" />
+
+              {/* CSV Ledger Export Button */}
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                className="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium rounded border border-stone-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Export filtered list to Excel/CSV spreadsheet"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Export CSV</span>
+              </button>
             </div>
           </div>
 
@@ -478,80 +567,104 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                     <th className="py-2.5 px-3">{moduleType === 'QUOTATION' ? 'Valid Until' : 'Due Date'}</th>
                     <th className="py-2.5 px-3 text-right">Grand Total</th>
                     {moduleType === 'INVOICE' && (
-                      <th className="py-2.5 px-3 text-right">Balance Due</th>
+                      <>
+                        <th className="py-2.5 px-3 text-right">Paid</th>
+                        <th className="py-2.5 px-3 text-right">Balance Due</th>
+                      </>
                     )}
                     <th className="py-2.5 px-3 text-center">Status</th>
-                    <th className="py-2.5 px-3 text-right">Actions</th>
+                    <th className="py-2.5 px-3 text-center">Drive PDF Link</th>
+                    <th className="py-2.5 px-3 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-200">
                   {filteredJournalDocs.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-10 text-stone-500">
-                        <Icon className="w-8 h-8 mx-auto mb-2 text-stone-400 opacity-60" />
-                        <p className="font-semibold text-sm">No {config.title} found</p>
-                        <p className="text-xs text-stone-400 mt-1">
-                          {searchQuery
-                            ? 'Try clearing your search query'
-                            : `Click "${config.newTabLabel}" above to create the first one.`}
-                        </p>
+                      <td
+                        colSpan={moduleType === 'INVOICE' ? 10 : 8}
+                        className="py-12 text-center text-stone-500"
+                      >
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <Icon className="w-8 h-8 text-stone-300 stroke-[1.5]" />
+                          <p className="text-sm font-medium text-stone-600">No {config.title.toLowerCase()} found</p>
+                          <p className="text-xs text-stone-400">
+                            {searchQuery ? 'Try adjusting your search criteria.' : `Click "+ Create" above to issue your first ${moduleType.toLowerCase()}.`}
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
                     filteredJournalDocs.map((doc) => (
                       <tr key={doc.id} className="hover:bg-amber-50/40 transition-colors">
-                        <td className="py-2.5 px-3 font-mono font-bold text-stone-900">
+                        <td className="py-2.5 px-3 font-mono font-bold text-stone-900 whitespace-nowrap">
                           {doc.documentNumber}
-                          {doc.relatedDocNumber && (
-                            <div className="text-[10px] font-sans text-stone-500 font-normal">
-                              Ref: {doc.relatedDocNumber}
+                        </td>
+                        <td className="py-2.5 px-3 font-medium text-stone-800">
+                          <div className="truncate max-w-[200px]" title={doc.clientName}>
+                            {doc.clientName}
+                          </div>
+                          {doc.clientAddress && (
+                            <div className="text-[10px] text-stone-500 truncate max-w-[200px]">
+                              {doc.clientAddress}
                             </div>
                           )}
                         </td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-semibold text-stone-900">{doc.clientName}</div>
-                          {doc.clientKraPin && (
-                            <div className="text-[10px] text-stone-500 font-mono">
-                              PIN: {doc.clientKraPin}
-                            </div>
-                          )}
+                        <td className="py-2.5 px-3 text-stone-600 whitespace-nowrap">
+                          {formatDate(doc.issueDate)}
                         </td>
-                        <td className="py-2.5 px-3 text-stone-600">{doc.issueDate}</td>
-                        <td className="py-2.5 px-3 text-stone-600">{doc.dueDate || '-'}</td>
-                        <td className="py-2.5 px-3 text-right font-semibold text-stone-900 tabular-decimal">
+                        <td className="py-2.5 px-3 text-stone-600 whitespace-nowrap">
+                          {doc.dueDate ? formatDate(doc.dueDate) : '-'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-semibold text-stone-900 whitespace-nowrap tabular-decimals">
                           {formatKsh(doc.grandTotal)}
                         </td>
                         {moduleType === 'INVOICE' && (
-                          <td
-                            className={`py-2.5 px-3 text-right font-bold tabular-decimal ${
-                              (doc.balanceDue || 0) > 0 ? 'text-rose-700' : 'text-emerald-700'
-                            }`}
-                          >
-                            {formatKsh(doc.balanceDue || 0)}
-                          </td>
+                          <>
+                            <td className="py-2.5 px-3 text-right text-emerald-700 font-medium whitespace-nowrap tabular-decimals">
+                              {formatKsh(doc.amountPaid || 0)}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold whitespace-nowrap tabular-decimals">
+                              <span className={(doc.balanceDue || 0) > 0 ? 'text-rose-700' : 'text-stone-400'}>
+                                {formatKsh(doc.balanceDue || 0)}
+                              </span>
+                            </td>
+                          </>
                         )}
-                        <td className="py-2.5 px-3 text-center">{getStatusBadge(doc.status)}</td>
-                        <td className="py-2.5 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {/* Fast PDF Preview */}
+                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                          {getStatusBadge(doc.status)}
+                        </td>
+                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                          {doc.driveFileUrl ? (
+                            <a
+                              href={doc.driveFileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors shadow-2xs group"
+                              title="Open official PDF archived in Google Drive"
+                            >
+                              <ExternalLink className="w-3 h-3 text-emerald-700 group-hover:text-emerald-900" />
+                              <span>View in Drive</span>
+                            </a>
+                          ) : (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-stone-500 bg-stone-100 border border-stone-200"
+                              title={doc.syncedToGoogle ? 'Synced to Google Sheet; Drive PDF upload pending' : 'Saved in offline local database; pending Google sync'}
+                            >
+                              <Clock className="w-2.5 h-2.5 text-stone-400" />
+                              <span>{doc.syncedToGoogle ? 'Drive Pending' : 'Pending Sync'}</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1">
+                            {/* View / Print Preview */}
                             <button
                               type="button"
                               onClick={() => setSelectedDocForPreview(doc)}
-                              className="p-1 rounded text-stone-600 hover:text-stone-900 hover:bg-stone-100"
-                              title="Live A4 Preview"
+                              className="p-1 rounded text-stone-600 hover:text-stone-900 hover:bg-stone-200 cursor-pointer"
+                              title="Preview A4 Document"
                             >
                               <Eye className="w-4 h-4" />
-                            </button>
-
-                            {/* Download PDF */}
-                            <button
-                              type="button"
-                              onClick={() => handleQuickDownload(doc)}
-                              disabled={isGeneratingPdf}
-                              className="p-1 rounded text-stone-600 hover:text-stone-900 hover:bg-stone-100 disabled:opacity-40"
-                              title="Download PDF"
-                            >
-                              <Download className="w-4 h-4" />
                             </button>
 
                             {/* Edit */}
@@ -561,41 +674,40 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                                 onStartEditDocument(doc);
                                 setActiveSubTab('new');
                               }}
-                              className="p-1 rounded text-stone-600 hover:text-amber-800 hover:bg-stone-100"
+                              className="p-1 rounded text-stone-600 hover:text-amber-800 hover:bg-amber-100 cursor-pointer"
                               title="Edit Document"
                             >
                               <Edit className="w-4 h-4" />
                             </button>
 
-                            {/* Quotation Lifecycle Conversions */}
-                            {moduleType === 'QUOTATION' && (
-                              <>
-                                <button
-                                  type="button"
-                                  onClick={() => onConvertDocument(doc, 'PROFORMA')}
-                                  className="p-1 rounded text-sky-700 hover:bg-sky-100"
-                                  title="Convert to Proforma Invoice"
-                                >
-                                  <ArrowRightLeft className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => onConvertDocument(doc, 'INVOICE')}
-                                  className="p-1 rounded text-emerald-700 hover:bg-emerald-100"
-                                  title="Convert to Invoice"
-                                >
-                                  <ArrowUpRight className="w-4 h-4" />
-                                </button>
-                              </>
-                            )}
+                            {/* WhatsApp Share Link */}
+                            <a
+                              href={getWhatsAppShareUrl(doc, profile)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1 rounded text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100 cursor-pointer"
+                              title="Share summary via WhatsApp"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                            </a>
+
+                            {/* Download PDF */}
+                            <button
+                              type="button"
+                              onClick={() => handleQuickDownload(doc)}
+                              className="p-1 rounded text-stone-600 hover:text-stone-900 hover:bg-stone-200 cursor-pointer"
+                              title="Download PDF"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
 
                             {/* Proforma Lifecycle Conversion */}
                             {moduleType === 'PROFORMA' && (
                               <button
                                 type="button"
                                 onClick={() => onConvertDocument(doc, 'INVOICE')}
-                                className="p-1 rounded text-emerald-700 hover:bg-emerald-100"
-                                title="Convert to Invoice"
+                                className="p-1 rounded text-emerald-700 hover:bg-emerald-100 cursor-pointer"
+                                title="Convert to Tax Invoice"
                               >
                                 <ArrowRightLeft className="w-4 h-4" />
                               </button>
@@ -606,7 +718,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onRecordPayment(doc)}
-                                className="px-2 py-0.5 rounded bg-emerald-800 hover:bg-emerald-700 text-white text-[10px] font-bold flex items-center gap-1 shadow-2xs"
+                                className="px-2 py-0.5 rounded bg-emerald-800 hover:bg-emerald-700 text-white text-[10px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
                                 title="Record Settlement"
                               >
                                 <CreditCard className="w-3 h-3" />
@@ -622,7 +734,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                                   onDeleteDocument(doc.id);
                                 }
                               }}
-                              className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-stone-100"
+                              className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-stone-100 cursor-pointer"
                               title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -648,11 +760,23 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               {selectedDocForPreview.documentType}: {selectedDocForPreview.documentNumber} - {selectedDocForPreview.clientName}
             </h3>
             <div className="flex items-center gap-2">
+              {/* WhatsApp Share Direct Button */}
+              <a
+                href={getWhatsAppShareUrl(selectedDocForPreview, profile)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                title="Send invoice statement to client WhatsApp"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">WhatsApp</span>
+              </a>
+
               <button
                 type="button"
                 onClick={() => handleQuickDownload(selectedDocForPreview)}
                 disabled={isGeneratingPdf}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs flex items-center gap-1 shadow-xs transition-colors"
+                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
@@ -660,7 +784,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               <button
                 type="button"
                 onClick={() => handleQuickPrint(selectedDocForPreview)}
-                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-white font-medium rounded text-xs flex items-center gap-1 border border-stone-700 transition-colors"
+                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-white font-medium rounded text-xs flex items-center gap-1 border border-stone-700 transition-colors cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print</span>
@@ -669,7 +793,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                 type="button"
                 onClick={() => handleQuickShare(selectedDocForPreview)}
                 disabled={isGeneratingPdf}
-                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-amber-300 font-medium rounded text-xs flex items-center gap-1 border border-stone-700 transition-colors"
+                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-amber-300 font-medium rounded text-xs flex items-center gap-1 border border-stone-700 transition-colors cursor-pointer"
               >
                 <Share2 className="w-3.5 h-3.5" />
                 <span>Share</span>
@@ -677,8 +801,8 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedDocForPreview(null)}
-                className="p-1 text-stone-400 hover:text-white rounded hover:bg-stone-800 transition-colors ml-1"
-                title="Close"
+                className="p-1 text-stone-400 hover:text-white rounded hover:bg-stone-800 transition-colors ml-1 cursor-pointer"
+                title="Close Preview"
               >
                 <X className="w-5 h-5" />
               </button>

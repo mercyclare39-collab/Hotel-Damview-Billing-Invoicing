@@ -13,6 +13,7 @@ import {
   Calendar,
   CreditCard,
   Building,
+  BookOpen,
 } from 'lucide-react';
 import { BillingDocument, Client, PaymentRecord, HotelProfile } from '../types';
 import { formatKsh, formatDate } from '../utils/formatters';
@@ -27,6 +28,7 @@ interface DashboardProps {
   onNavigateToClients: () => void;
   onNavigateToJournal: () => void;
   onNavigateToStatement: () => void;
+  onRecordPayment: () => void;
   onEditDocument?: (doc: BillingDocument) => void;
 }
 
@@ -39,6 +41,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onNavigateToClients,
   onNavigateToJournal,
   onNavigateToStatement,
+  onRecordPayment,
   onEditDocument,
 }) => {
   // Current month & year
@@ -138,28 +141,58 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </p>
         </div>
 
-        {/* Quick Shortcuts */}
+        {/* Standardized Direct Workspace Action Triggers */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => onNavigateToNewDoc('QUOTATION')}
-            className="px-3 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded flex items-center gap-1.5 border border-stone-700 transition-colors"
+            className="px-3 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded flex items-center gap-1.5 border border-stone-700 transition-colors shadow-2xs"
+            title="Create and open new Quotation form"
           >
-            <Plus className="w-3.5 h-3.5 text-amber-400" />
+            <Plus className="w-3.5 h-3.5 text-blue-400" />
             New Quotation
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigateToNewDoc('PROFORMA')}
+            className="px-3 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded flex items-center gap-1.5 border border-stone-700 transition-colors shadow-2xs"
+            title="Create and open new Proforma Invoice form"
+          >
+            <Plus className="w-3.5 h-3.5 text-purple-400" />
+            New Proforma
           </button>
           <button
             type="button"
             onClick={() => onNavigateToNewDoc('INVOICE')}
             className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-stone-950 text-xs font-bold rounded flex items-center gap-1.5 shadow-sm transition-colors"
+            title="Create and open new Tax Invoice form (16% VAT)"
           >
             <Plus className="w-3.5 h-3.5 text-stone-950" />
             New Invoice
           </button>
           <button
             type="button"
+            onClick={onRecordPayment}
+            className="px-3 py-2 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 text-xs font-semibold rounded flex items-center gap-1.5 border border-emerald-700/60 transition-colors shadow-2xs"
+            title="Record guest or corporate payment settlement"
+          >
+            <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+            Record Payment
+          </button>
+          <button
+            type="button"
+            onClick={onNavigateToStatement}
+            className="px-3 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded flex items-center gap-1.5 border border-stone-700 transition-colors shadow-2xs"
+            title="Generate client Statement of Account"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+            Statement of Account
+          </button>
+          <button
+            type="button"
             onClick={onNavigateToClients}
-            className="px-3 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded flex items-center gap-1.5 border border-stone-700 transition-colors"
+            className="px-3 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-semibold rounded flex items-center gap-1.5 border border-stone-700 transition-colors shadow-2xs"
+            title="Register new corporate or private client"
           >
             <Users className="w-3.5 h-3.5 text-stone-400" />
             Register Client

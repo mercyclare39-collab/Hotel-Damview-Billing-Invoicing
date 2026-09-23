@@ -48,6 +48,8 @@ import {
   Eye,
   X,
 } from 'lucide-react';
+import { A4DocumentPreview } from './A4DocumentPreview';
+import { A4ReceiptPreview } from './A4ReceiptPreview';
 
 interface GoogleSyncModuleProps {
   profile?: HotelProfile;
@@ -87,8 +89,26 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
   // Active sub-tab
   const [activeTab, setActiveTab] = useState<
-    'Invoices' | 'Quotations' | 'Proformas' | 'Clients' | 'Receipts' | 'LiveSheets' | 'Queue' | 'Audit' | 'Config' | 'Script'
-  >('Invoices');
+    'LiveSheets' | 'Queue' | 'Audit' | 'Config' | 'Script'
+  >('LiveSheets');
+
+  // Google Drive File Browser & Previewer state
+  const [driveFilterType, setDriveFilterType] = useState<'ALL' | 'INVOICE' | 'QUOTATION' | 'PROFORMA' | 'RECEIPT'>('ALL');
+  const [driveStatusFilter, setDriveStatusFilter] = useState<'ALL' | 'ARCHIVED' | 'PENDING'>('ALL');
+  const [drivePreviewFile, setDrivePreviewFile] = useState<{
+    id: string;
+    documentNumber: string;
+    clientName: string;
+    type: 'INVOICE' | 'QUOTATION' | 'PROFORMA' | 'RECEIPT';
+    date: string;
+    amount: number;
+    driveFileUrl?: string;
+    driveFileId?: string;
+    doc?: BillingDocument;
+    payment?: PaymentRecord;
+  } | null>(null);
+  const [archivingItemId, setArchivingItemId] = useState<string | null>(null);
+  const [copiedDriveLink, setCopiedDriveLink] = useState<string | null>(null);
 
   // Audit Log state
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -636,6 +656,56 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     }
   };
 
+  // 5b. Pull All Remote Records from Google Sheets (Manual Pull & Merge)
+  const [isPullingData, setIsPullingData] = useState(false);
+  const handlePullFromSheets = async () => {
+    if (!isOnline || !profile?.googleWebAppUrl) {
+      setSyncFeedback({
+        type: 'error',
+        message: 'Network offline or Google Web App URL missing.',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      return;
+    }
+
+    setIsPullingData(true);
+    try {
+      const res = await syncManager.pullFromGoogleSheets({ force: true });
+      if (res.success) {
+        await loadData();
+        await loadLiveSheetData();
+
+        const stats = res.stats;
+        const details = stats
+          ? `(${stats.invoices} invoices, ${stats.quotations} quotations, ${stats.proformas} proformas, ${stats.clients} clients, ${stats.payments} receipts)`
+          : '';
+
+        setSyncFeedback({
+          type: 'success',
+          message:
+            res.itemsPulled > 0
+              ? `Successfully pulled and merged ${res.itemsPulled} record(s) from Google Sheets ${details}.`
+              : 'Pull completed: Local database is already completely in sync with Google Sheets.',
+          timestamp: new Date().toLocaleTimeString(),
+        });
+      } else {
+        setSyncFeedback({
+          type: 'error',
+          message: res.error || 'Pull from Google Sheets failed.',
+          timestamp: new Date().toLocaleTimeString(),
+        });
+      }
+    } catch (err: any) {
+      setSyncFeedback({
+        type: 'error',
+        message: err.message || 'Pull from Google Sheets encountered an error.',
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    } finally {
+      setIsPullingData(false);
+    }
+  };
+
   // 6. Fetch Live Sheet Data for Live Preview
   const loadLiveSheetData = async () => {
     if (!profile?.googleWebAppUrl || !isOnline) return;
@@ -740,6 +810,122 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     );
   }, [activeDiscoveredSheet, liveSheetFilter]);
 
+  // Google Drive File Registry & Memoized Browser Entries
+  const driveFiles = useMemo(() => {
+    const list: Array<{
+      id: string;
+      documentNumber: string;
+      clientName: string;
+      type: 'INVOICE' | 'QUOTATION' | 'PROFORMA' | 'RECEIPT';
+      date: string;
+      amount: number;
+      driveFileUrl?: string;
+      driveFileId?: string;
+      status: 'Archived' | 'Pending Archival';
+      doc?: BillingDocument;
+      payment?: PaymentRecord;
+    }> = [];
+
+    documents.forEach((d) => {
+      list.push({
+        id: d.id,
+        documentNumber: d.documentNumber,
+        clientName: d.clientName,
+        type: d.documentType,
+        date: d.issueDate,
+        amount: d.grandTotal,
+        driveFileUrl: d.driveFileUrl,
+        driveFileId: d.driveFileId,
+        status: d.driveFileUrl ? 'Archived' : 'Pending Archival',
+        doc: d,
+      });
+    });
+
+    payments.forEach((p) => {
+      list.push({
+        id: p.id,
+        documentNumber: p.receiptNumber,
+        clientName: p.clientName,
+        type: 'RECEIPT',
+        date: p.date,
+        amount: p.amount,
+        driveFileUrl: p.driveFileUrl,
+        driveFileId: p.driveFileId,
+        status: p.driveFileUrl ? 'Archived' : 'Pending Archival',
+        payment: p,
+      });
+    });
+
+    return list.sort((a, b) => b.date.localeCompare(a.date));
+  }, [documents, payments]);
+
+  const filteredDriveFiles = useMemo(() => {
+    return driveFiles.filter((f) => {
+      if (driveFilterType !== 'ALL' && f.type !== driveFilterType) return false;
+      if (driveStatusFilter === 'ARCHIVED' && !f.driveFileUrl) return false;
+      if (driveStatusFilter === 'PENDING' && f.driveFileUrl) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim().toLowerCase();
+        const inNum = f.documentNumber.toLowerCase().includes(q);
+        const inClient = f.clientName.toLowerCase().includes(q);
+        if (!inNum && !inClient) return false;
+      }
+      return true;
+    });
+  }, [driveFiles, driveFilterType, driveStatusFilter, searchTerm]);
+
+  const handleArchiveFileNow = async (fileItem: typeof driveFiles[0]) => {
+    setArchivingItemId(fileItem.id);
+    try {
+      if (fileItem.doc) {
+        const res = await syncManager.archiveDocumentPdf(fileItem.doc);
+        if (res.success && res.driveUrl) {
+          setSyncFeedback({
+            type: 'success',
+            message: `Successfully archived ${fileItem.documentNumber} to Google Drive!`,
+            timestamp: new Date().toLocaleTimeString(),
+          });
+        } else {
+          setSyncFeedback({
+            type: 'info',
+            message: `Archival queued or completed with URL: ${res.driveUrl || 'Pending'}`,
+            timestamp: new Date().toLocaleTimeString(),
+          });
+        }
+      } else if (fileItem.payment) {
+        const res = await syncManager.archiveReceiptPdf(fileItem.payment);
+        if (res.success && res.driveUrl) {
+          setSyncFeedback({
+            type: 'success',
+            message: `Successfully archived ${fileItem.documentNumber} to Google Drive!`,
+            timestamp: new Date().toLocaleTimeString(),
+          });
+        } else {
+          setSyncFeedback({
+            type: 'info',
+            message: `Archival queued or completed with URL: ${res.driveUrl || 'Pending'}`,
+            timestamp: new Date().toLocaleTimeString(),
+          });
+        }
+      }
+      await loadData();
+    } catch (err: any) {
+      setSyncFeedback({
+        type: 'error',
+        message: `Failed to archive: ${err.message}`,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    } finally {
+      setArchivingItemId(null);
+    }
+  };
+
+  const handleCopyDriveLink = (url: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiedDriveLink(url);
+    setTimeout(() => setCopiedDriveLink(null), 2500);
+  };
+
   return (
     <div className="space-y-4 max-w-7xl mx-auto pb-12 animate-fade-in text-stone-900">
       {/* 1. HEADER TELEMETRY & CONTROLS BANNER */}
@@ -763,10 +949,10 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                 {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
                 {isOnline ? 'Online' : 'Offline'}
               </span>
-              {syncQueue.length > 0 && (
+              {(syncQueue?.length || 0) > 0 && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-950/80 text-amber-300 border border-amber-800/50">
                   <UploadCloud className="w-3 h-3" />
-                  {syncQueue.length} Queued
+                  {syncQueue?.length || 0} Queued
                 </span>
               )}
             </div>
@@ -817,7 +1003,18 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               title="Push all local documents, clients, receipts, and profile to populate all 11 tabs"
             >
               <UploadCloud className={`w-3.5 h-3.5 ${isFullPushing ? 'animate-spin' : ''}`} />
-              <span>{isFullPushing ? 'Pushing Data...' : 'Populate All Tabs'}</span>
+              <span>{isFullPushing ? 'Pushing Data...' : 'Push to Sheets'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePullFromSheets}
+              disabled={isPullingData || !isOnline}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/90 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/70 rounded text-xs font-semibold transition-colors disabled:opacity-50 shadow-xs cursor-pointer"
+              title="Pull latest invoices, quotations, clients, and payments from Google Sheets into local storage"
+            >
+              <DownloadCloud className={`w-3.5 h-3.5 ${isPullingData ? 'animate-bounce text-emerald-300' : ''}`} />
+              <span>{isPullingData ? 'Pulling Data...' : 'Pull from Sheets'}</span>
             </button>
 
             <button
@@ -958,29 +1155,24 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
       <div className="flex items-center justify-between gap-2 border-b border-stone-200 pb-1 flex-wrap">
         <div className="flex items-center gap-1 overflow-x-auto py-1">
           {[
-            { id: 'Invoices', label: 'Invoices', count: invoices.length, icon: FileText },
-            { id: 'Quotations', label: 'Quotations', count: quotations.length, icon: FileText },
-            { id: 'Proformas', label: 'Proformas', count: proformas.length, icon: FileText },
-            { id: 'Clients', label: 'Clients', count: clients.length, icon: UserCheck },
-            { id: 'Receipts', label: 'Receipts', count: payments.length, icon: Receipt },
             {
               id: 'LiveSheets',
               label: 'Live Sheets Preview',
               icon: Sparkles,
-              badge: liveSheetData ? `${liveSheetData.discoveredTabs.length} tabs` : undefined,
+              badge: liveSheetData?.discoveredTabs ? `${liveSheetData.discoveredTabs.length} tabs` : undefined,
             },
             {
               id: 'Queue',
-              label: 'Offline Queue',
-              count: syncQueue.length,
+              label: 'Offline Sync Queue',
+              count: syncQueue?.length || 0,
               icon: UploadCloud,
-              highlight: syncQueue.length > 0,
+              highlight: (syncQueue?.length || 0) > 0,
             },
             {
               id: 'Audit',
-              label: 'Audit Trail',
+              label: 'Audit Trail & Verification',
               icon: History,
-              count: auditLogs.length,
+              count: auditLogs?.length || 0,
             },
             { id: 'Config', label: 'Webhook & Credentials', icon: Settings },
             { id: 'Script', label: 'Code.gs Script', icon: Code },
@@ -1021,448 +1213,11 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
             );
           })}
         </div>
-
-        {/* Table Search Input */}
-        {activeTab !== 'Script' && activeTab !== 'Queue' && activeTab !== 'LiveSheets' && (
-          <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
-            <input
-              type="text"
-              placeholder={`Search ${activeTab.toLowerCase()}...`}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-white border border-stone-300 rounded text-xs text-stone-900 focus:outline-hidden focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
-            />
-          </div>
-        )}
       </div>
 
       {/* 3. TAB CONTENT VIEWS */}
       <div className="space-y-4">
-        {/* INVOICES WORKSHEET TABLE */}
-        {activeTab === 'Invoices' && (
-          <div className="bg-white border border-stone-200 rounded-lg shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-stone-600">
-                <thead className="bg-stone-900 text-stone-100 uppercase text-[10px] font-semibold tracking-wider">
-                  <tr>
-                    <th className="py-2.5 px-3">Invoice #</th>
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Client</th>
-                    <th className="py-2.5 px-3">KRA PIN</th>
-                    <th className="py-2.5 px-3 text-right">Grand Total (Ksh)</th>
-                    <th className="py-2.5 px-3 text-right">Paid</th>
-                    <th className="py-2.5 px-3 text-right">Balance</th>
-                    <th className="py-2.5 px-3 text-center">Status</th>
-                    <th className="py-2.5 px-3 text-center">Drive PDF</th>
-                    <th className="py-2.5 px-3 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-200 font-mono">
-                  {filteredInvoices.length > 0 ? (
-                    filteredInvoices.map((inv) => (
-                      <tr key={inv.id} className="hover:bg-stone-50 transition-colors">
-                        <td className="py-2 px-3 font-semibold text-stone-900">
-                          {inv.documentNumber}
-                        </td>
-                        <td className="py-2 px-3 font-sans">{inv.issueDate}</td>
-                        <td className="py-2 px-3 font-sans font-medium text-stone-800">
-                          {inv.clientName}
-                        </td>
-                        <td className="py-2 px-3">{inv.clientKraPin || '—'}</td>
-                        <td className="py-2 px-3 text-right font-semibold text-stone-900">
-                          {inv.grandTotal.toLocaleString()}
-                        </td>
-                        <td className="py-2 px-3 text-right text-emerald-700">
-                          {(inv.amountPaid || 0).toLocaleString()}
-                        </td>
-                        <td className="py-2 px-3 text-right text-rose-700 font-semibold">
-                          {(inv.balanceDue ?? inv.grandTotal).toLocaleString()}
-                        </td>
-                        <td className="py-2 px-3 text-center font-sans">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
-                              inv.status === 'Paid'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : inv.status === 'Sent'
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-stone-100 text-stone-800'
-                            }`}
-                          >
-                            {inv.status}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          {inv.driveFileUrl ? (
-                            <a
-                              href={inv.driveFileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 underline font-sans"
-                            >
-                              <span>Drive PDF</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            <span className="text-stone-400 font-sans text-[11px]">Pending sync</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setItemToDelete({
-                                type: 'document',
-                                id: inv.id,
-                                number: inv.documentNumber,
-                                name: inv.clientName,
-                              })
-                            }
-                            className="p-1 text-stone-400 hover:text-rose-600 rounded"
-                            title="Cascade Delete Document"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={10} className="py-8 text-center text-stone-400 font-sans">
-                        No invoices found matching query.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
-        {/* QUOTATIONS WORKSHEET TABLE */}
-        {activeTab === 'Quotations' && (
-          <div className="bg-white border border-stone-200 rounded-lg shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-stone-600">
-                <thead className="bg-stone-900 text-stone-100 uppercase text-[10px] font-semibold tracking-wider">
-                  <tr>
-                    <th className="py-2.5 px-3">Quotation #</th>
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Valid Until</th>
-                    <th className="py-2.5 px-3">Client</th>
-                    <th className="py-2.5 px-3">KRA PIN</th>
-                    <th className="py-2.5 px-3 text-right">Grand Total (Ksh)</th>
-                    <th className="py-2.5 px-3 text-center">Status</th>
-                    <th className="py-2.5 px-3 text-center">Drive PDF</th>
-                    <th className="py-2.5 px-3 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-200 font-mono">
-                  {filteredQuotations.length > 0 ? (
-                    filteredQuotations.map((quo) => (
-                      <tr key={quo.id} className="hover:bg-stone-50 transition-colors">
-                        <td className="py-2 px-3 font-semibold text-stone-900">
-                          {quo.documentNumber}
-                        </td>
-                        <td className="py-2 px-3 font-sans">{quo.issueDate}</td>
-                        <td className="py-2 px-3 font-sans">{quo.dueDate}</td>
-                        <td className="py-2 px-3 font-sans font-medium text-stone-800">
-                          {quo.clientName}
-                        </td>
-                        <td className="py-2 px-3">{quo.clientKraPin || '—'}</td>
-                        <td className="py-2 px-3 text-right font-semibold text-stone-900">
-                          {quo.grandTotal.toLocaleString()}
-                        </td>
-                        <td className="py-2 px-3 text-center font-sans">
-                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-800">
-                            {quo.status}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          {quo.driveFileUrl ? (
-                            <a
-                              href={quo.driveFileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 underline font-sans"
-                            >
-                              <span>Drive PDF</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            <span className="text-stone-400 font-sans text-[11px]">Pending sync</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setItemToDelete({
-                                type: 'document',
-                                id: quo.id,
-                                number: quo.documentNumber,
-                                name: quo.clientName,
-                              })
-                            }
-                            className="p-1 text-stone-400 hover:text-rose-600 rounded"
-                            title="Cascade Delete Quotation"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={9} className="py-8 text-center text-stone-400 font-sans">
-                        No quotations found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* PROFORMAS WORKSHEET TABLE */}
-        {activeTab === 'Proformas' && (
-          <div className="bg-white border border-stone-200 rounded-lg shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-stone-600">
-                <thead className="bg-stone-900 text-stone-100 uppercase text-[10px] font-semibold tracking-wider">
-                  <tr>
-                    <th className="py-2.5 px-3">Proforma #</th>
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Due Date</th>
-                    <th className="py-2.5 px-3">Client</th>
-                    <th className="py-2.5 px-3">KRA PIN</th>
-                    <th className="py-2.5 px-3 text-right">Grand Total (Ksh)</th>
-                    <th className="py-2.5 px-3 text-center">Status</th>
-                    <th className="py-2.5 px-3 text-center">Drive PDF</th>
-                    <th className="py-2.5 px-3 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-200 font-mono">
-                  {filteredProformas.length > 0 ? (
-                    filteredProformas.map((pro) => (
-                      <tr key={pro.id} className="hover:bg-stone-50 transition-colors">
-                        <td className="py-2 px-3 font-semibold text-stone-900">
-                          {pro.documentNumber}
-                        </td>
-                        <td className="py-2 px-3 font-sans">{pro.issueDate}</td>
-                        <td className="py-2 px-3 font-sans">{pro.dueDate}</td>
-                        <td className="py-2 px-3 font-sans font-medium text-stone-800">
-                          {pro.clientName}
-                        </td>
-                        <td className="py-2 px-3">{pro.clientKraPin || '—'}</td>
-                        <td className="py-2 px-3 text-right font-semibold text-stone-900">
-                          {pro.grandTotal.toLocaleString()}
-                        </td>
-                        <td className="py-2 px-3 text-center font-sans">
-                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-800">
-                            {pro.status}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          {pro.driveFileUrl ? (
-                            <a
-                              href={pro.driveFileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 underline font-sans"
-                            >
-                              <span>Drive PDF</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            <span className="text-stone-400 font-sans text-[11px]">Pending sync</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setItemToDelete({
-                                type: 'document',
-                                id: pro.id,
-                                number: pro.documentNumber,
-                                name: pro.clientName,
-                              })
-                            }
-                            className="p-1 text-stone-400 hover:text-rose-600 rounded"
-                            title="Cascade Delete Proforma"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={9} className="py-8 text-center text-stone-400 font-sans">
-                        No proformas found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* CLIENTS WORKSHEET TABLE */}
-        {activeTab === 'Clients' && (
-          <div className="bg-white border border-stone-200 rounded-lg shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-stone-600">
-                <thead className="bg-stone-900 text-stone-100 uppercase text-[10px] font-semibold tracking-wider">
-                  <tr>
-                    <th className="py-2.5 px-3">Client ID</th>
-                    <th className="py-2.5 px-3">Company / Guest Name</th>
-                    <th className="py-2.5 px-3">Contact Person</th>
-                    <th className="py-2.5 px-3">KRA PIN</th>
-                    <th className="py-2.5 px-3">Email</th>
-                    <th className="py-2.5 px-3">Phone</th>
-                    <th className="py-2.5 px-3">Address</th>
-                    <th className="py-2.5 px-3 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-200">
-                  {filteredClients.length > 0 ? (
-                    filteredClients.map((cli) => (
-                      <tr key={cli.id} className="hover:bg-stone-50 transition-colors">
-                        <td className="py-2 px-3 font-mono text-stone-500 text-[11px]">{cli.id}</td>
-                        <td className="py-2 px-3 font-semibold text-stone-900">{cli.name}</td>
-                        <td className="py-2 px-3 text-stone-700">{cli.contactPerson || '—'}</td>
-                        <td className="py-2 px-3 font-mono">{cli.kraPin || '—'}</td>
-                        <td className="py-2 px-3">{cli.email || '—'}</td>
-                        <td className="py-2 px-3">{cli.phone || '—'}</td>
-                        <td className="py-2 px-3 text-stone-500 max-w-xs truncate">
-                          {cli.address || '—'}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setItemToDelete({
-                                type: 'client',
-                                id: cli.id,
-                                name: cli.name,
-                              })
-                            }
-                            className="p-1 text-stone-400 hover:text-rose-600 rounded"
-                            title="Cascade Delete Client"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-stone-400">
-                        No clients found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* RECEIPTS / PAYMENTS WORKSHEET TABLE */}
-        {activeTab === 'Receipts' && (
-          <div className="bg-white border border-stone-200 rounded-lg shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-stone-600">
-                <thead className="bg-stone-900 text-stone-100 uppercase text-[10px] font-semibold tracking-wider">
-                  <tr>
-                    <th className="py-2.5 px-3">Receipt #</th>
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Client</th>
-                    <th className="py-2.5 px-3">Settled Doc #</th>
-                    <th className="py-2.5 px-3">Payment Mode</th>
-                    <th className="py-2.5 px-3 text-right">Amount (Ksh)</th>
-                    <th className="py-2.5 px-3">Ref Note</th>
-                    <th className="py-2.5 px-3 text-center">Drive PDF</th>
-                    <th className="py-2.5 px-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-200 font-mono">
-                  {filteredPayments.length > 0 ? (
-                    filteredPayments.map((pay) => (
-                      <tr key={pay.id} className="hover:bg-stone-50 transition-colors">
-                        <td className="py-2 px-3 font-semibold text-stone-900">
-                          {pay.receiptNumber}
-                        </td>
-                        <td className="py-2 px-3 font-sans">{pay.date}</td>
-                        <td className="py-2 px-3 font-sans font-medium text-stone-800">
-                          {pay.clientName}
-                        </td>
-                        <td className="py-2 px-3 font-sans text-stone-700">
-                          {pay.documentNumber || 'Direct Settlement'}
-                        </td>
-                        <td className="py-2 px-3 font-sans">
-                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-800">
-                            {pay.paymentMode}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-right font-semibold text-emerald-700">
-                          {pay.amount.toLocaleString()}
-                        </td>
-                        <td className="py-2 px-3 font-sans text-stone-500 text-[11px]">
-                          {pay.referenceNote || '—'}
-                        </td>
-                        <td className="py-2 px-3 text-center">
-                          {pay.driveFileUrl ? (
-                            <a
-                              href={pay.driveFileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] text-amber-700 hover:text-amber-900 underline font-sans"
-                            >
-                              <span>Drive PDF</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            <span className="text-stone-400 font-sans text-[11px]">Pending sync</span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-right font-sans">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setItemToDelete({
-                                type: 'receipt',
-                                id: pay.id,
-                                number: pay.receiptNumber,
-                                documentNumber: pay.documentNumber,
-                                name: `Receipt ${pay.receiptNumber} (${pay.clientName})`,
-                                amount: pay.amount,
-                              })
-                            }
-                            className="p-1 text-stone-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors"
-                            title="Delete Receipt & Cascade Remove from Google Sheets"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={9} className="py-8 text-center text-stone-400 font-sans">
-                        No receipts found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
         {/* 4. LIVE SHEETS PREVIEW & TAB DISCOVERY */}
         {activeTab === 'LiveSheets' && (
@@ -1479,6 +1234,17 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePullFromSheets}
+                  disabled={isPullingData || !isOnline}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+                  title="Import and merge all records from this spreadsheet into your local ERP database"
+                >
+                  <DownloadCloud className={`w-3.5 h-3.5 ${isPullingData ? 'animate-bounce text-emerald-200' : ''}`} />
+                  <span>{isPullingData ? 'Pulling...' : 'Pull to Local DB'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={loadLiveSheetData}
@@ -1561,7 +1327,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                       <div className="text-xs text-stone-600">
                         Viewing{' '}
                         <strong className="text-stone-900">{selectedDiscoveredTab}</strong> (
-                        {filteredLiveRows.length} rows loaded from Google Spreadsheet)
+                        {filteredLiveRows?.length || 0} rows loaded from Google Spreadsheet)
                       </div>
                       <div className="relative w-full sm:w-64">
                         <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
@@ -1592,7 +1358,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-stone-200 font-mono">
-                          {filteredLiveRows.length > 0 ? (
+                          {(filteredLiveRows?.length || 0) > 0 ? (
                             filteredLiveRows.map((row, rIdx) => (
                               <tr key={rIdx} className="hover:bg-stone-50 transition-colors">
                                 {row.map((cell, cIdx) => {
@@ -1624,7 +1390,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                           ) : (
                             <tr>
                               <td
-                                colSpan={activeDiscoveredSheet?.headers.length || 1}
+                                colSpan={activeDiscoveredSheet?.headers?.length || 1}
                                 className="py-8 text-center text-stone-400 font-sans"
                               >
                                 {isLoadingLiveSheet
@@ -1668,14 +1434,14 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               <div>
                 <h3 className="text-sm font-bold text-stone-900 flex items-center gap-2">
                   <UploadCloud className="w-4 h-4 text-amber-600" />
-                  Offline Synchronization Mutation Queue ({syncQueue.length})
+                  Offline Synchronization Mutation Queue ({syncQueue?.length || 0})
                 </h3>
                 <p className="text-xs text-stone-500">
                   Transactions created while offline or during temporary network interruptions are safely buffered in local IndexedDB.
                 </p>
               </div>
 
-              {syncQueue.length > 0 && (
+              {(syncQueue?.length || 0) > 0 && (
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -1710,7 +1476,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               )}
             </div>
 
-            {syncQueue.length > 0 ? (
+            {(syncQueue?.length || 0) > 0 ? (
               <div className="space-y-2">
                 {syncQueue.map((item) => (
                   <div
@@ -1899,7 +1665,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               </div>
             )}
 
-            {filteredAuditLogs.length > 0 ? (
+            {(filteredAuditLogs?.length || 0) > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-stone-600">
                   <thead className="bg-stone-900 text-stone-100 uppercase text-[10px] font-semibold tracking-wider">
@@ -1914,14 +1680,19 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                   </thead>
                   <tbody className="divide-y divide-stone-200 font-mono">
                     {filteredAuditLogs.map((log) => {
-                      const actionStyles = {
+                      const actionStyles: Record<string, string> = {
                         CREATE: 'bg-emerald-100 text-emerald-800 border-emerald-300',
                         UPDATE: 'bg-sky-100 text-sky-800 border-sky-300',
                         DELETE: 'bg-rose-100 text-rose-800 border-rose-300',
                         SELF_HEALED: 'bg-purple-100 text-purple-800 border-purple-300',
                         MUTATION_GUARDED: 'bg-amber-100 text-amber-800 border-amber-300',
                         MERGED: 'bg-slate-100 text-slate-800 border-slate-300',
-                      }[log.action] || 'bg-stone-100 text-stone-800 border-stone-300';
+                        ERROR: 'bg-rose-100 text-rose-800 border-rose-300',
+                        WARNING: 'bg-amber-100 text-amber-800 border-amber-300',
+                        RECONCILE: 'bg-blue-100 text-blue-800 border-blue-300',
+                        SYNC: 'bg-teal-100 text-teal-800 border-teal-300',
+                      };
+                      const actionBadgeClass = actionStyles[log.action] || 'bg-stone-100 text-stone-800 border-stone-300';
 
                       return (
                         <tr key={log.id} className="hover:bg-stone-50 transition-colors">
@@ -1929,7 +1700,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                             {new Date(log.timestamp).toLocaleString()}
                           </td>
                           <td className="py-2.5 px-3 font-sans whitespace-nowrap">
-                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${actionStyles}`}>
+                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${actionBadgeClass}`}>
                               {log.action}
                             </span>
                           </td>
@@ -2066,7 +1837,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                     </span>
                   </div>
                 )}
-                {configForm.googleWebAppUrl.trim().length > 0 &&
+                {(configForm?.googleWebAppUrl?.trim()?.length || 0) > 0 &&
                   !configForm.googleWebAppUrl.includes('docs.google.com') &&
                   !configForm.googleWebAppUrl.includes('/exec') && (
                     <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800 text-xs flex items-center gap-1.5">
@@ -2603,6 +2374,116 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               >
                 Close Snapshot
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live Google Drive File Previewer Modal */}
+      {drivePreviewFile && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-stone-950/80 backdrop-blur-xs animate-fade-in"
+          onClick={() => setDrivePreviewFile(null)}
+        >
+          <div
+            className="bg-white rounded-xl border border-stone-300 shadow-2xl max-w-4xl w-full h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-3.5 border-b border-stone-200 bg-stone-50 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="p-1.5 bg-blue-100 text-blue-700 rounded">
+                  <FolderOpen className="w-4 h-4" />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-stone-900 truncate flex items-center gap-2">
+                    <span>{drivePreviewFile.documentNumber}</span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-stone-200 text-stone-800 uppercase">
+                      {drivePreviewFile.type}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-stone-500 truncate">
+                    {drivePreviewFile.clientName} &bull; {drivePreviewFile.date} &bull; {drivePreviewFile.amount.toLocaleString()} Ksh
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {drivePreviewFile.driveFileUrl && (
+                  <>
+                    <a
+                      href={drivePreviewFile.driveFileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded transition-colors"
+                    >
+                      <span>Open in Drive</span>
+                      <ExternalLink className="w-3 h-3 text-blue-600" />
+                    </a>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyDriveLink(drivePreviewFile.driveFileUrl!)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded transition-colors"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>{copiedDriveLink === drivePreviewFile.driveFileUrl ? 'Copied!' : 'Copy Link'}</span>
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setDrivePreviewFile(null)}
+                  className="p-1 text-stone-400 hover:text-stone-700 rounded hover:bg-stone-200 transition-colors ml-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Embedded Drive Iframe or Vector Preview */}
+            <div className="flex-1 bg-stone-100 overflow-auto p-4 flex justify-center items-start">
+              {drivePreviewFile.driveFileId ? (
+                <div className="w-full h-full min-h-[500px] bg-white rounded-lg shadow-inner overflow-hidden border border-stone-300">
+                  <iframe
+                    src={`https://drive.google.com/file/d/${drivePreviewFile.driveFileId}/preview`}
+                    title={`Google Drive Preview: ${drivePreviewFile.documentNumber}`}
+                    className="w-full h-full border-0"
+                    allow="autoplay"
+                  />
+                </div>
+              ) : drivePreviewFile.driveFileUrl && drivePreviewFile.driveFileUrl.includes('drive.google.com') ? (
+                <div className="w-full h-full min-h-[500px] bg-white rounded-lg shadow-inner overflow-hidden border border-stone-300">
+                  <iframe
+                    src={drivePreviewFile.driveFileUrl.replace(/\/view(\?.*)?$/, '/preview')}
+                    title={`Google Drive Preview: ${drivePreviewFile.documentNumber}`}
+                    className="w-full h-full border-0"
+                    allow="autoplay"
+                  />
+                </div>
+              ) : (
+                /* Fallback to local vector A4 preview if not yet uploaded to Drive or offline */
+                <div className="bg-white shadow-2xl p-6 rounded-lg max-w-3xl w-full">
+                  <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800 flex items-center justify-between">
+                    <span>This document has not yet been archived to Google Drive, or Drive file ID is pending. Viewing local document preview.</span>
+                    <button
+                      type="button"
+                      onClick={() => handleArchiveFileNow(drivePreviewFile as any)}
+                      disabled={archivingItemId === drivePreviewFile.id || !isOnline}
+                      className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs transition-colors shrink-0 ml-2"
+                    >
+                      {archivingItemId === drivePreviewFile.id ? 'Archiving...' : 'Archive to Drive Now'}
+                    </button>
+                  </div>
+                  {drivePreviewFile.doc && profile && (
+                    <A4DocumentPreview document={drivePreviewFile.doc} profile={profile} scale={1} />
+                  )}
+                  {drivePreviewFile.payment && profile && (
+                    <A4ReceiptPreview payment={drivePreviewFile.payment} profile={profile} scale={1} />
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

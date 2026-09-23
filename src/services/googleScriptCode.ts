@@ -1,12 +1,12 @@
 /**
  * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND SCRIPT
- * Version: v4.0.0 (Enterprise Header-Index Dynamic Row-Parsing & Anti-Drift Engine)
+ * Version: v4.1.0 (Dynamic Header-Index, Multi-Alias Financial Alignment & Universal Drive Archival Pipeline)
  * Location: Hotel Damview ERP / Google Apps Script
  */
 
 export const GOOGLE_APPS_SCRIPT_CODE = `/**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v4.0.0)
- * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Anti-Column-Drift Engine
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v4.1.0)
+ * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Universal Drive Archival Engine
  * Single Source of Truth for Hotel Damview ERP Across All App Workstations & Mobile Devices
  *
  * Core Architectural Guarantees:
@@ -29,13 +29,19 @@ export const GOOGLE_APPS_SCRIPT_CODE = `/**
  *    - Multiline Text & Special Characters: Preserves line breaks in address and service particulars,
  *      escapes formula injection characters (=, +, @, -), and prevents cell splitting across columns.
  *
- * 3. Atomic Two-Way Deletion & Tombstone Purge:
+ * 3. Universal Google Drive PDF Archival Pipeline:
+ *    - Fully decodes Base64 PDF documents, receipts, and account statements.
+ *    - Verifies byte size and binary integrity before writing to designated folder.
+ *    - Deduplicates identical file names in destination folder by moving older versions to Trash.
+ *    - Enforces public view permissions (ANYONE_WITH_LINK, VIEW) and returns persistent webViewLink and driveUrl.
+ *
+ * 4. Atomic Two-Way Deletion & Tombstone Purge:
  *    - Fully supports CASCADE_DELETE_DOCUMENT, CASCADE_DELETE_CLIENT, CASCADE_DELETE_PAYMENT,
  *      and PURGE_TOMBSTONES actions.
  *    - Synchronously removes rows from Google Sheets, line item breakdowns, and trashes corresponding
  *      PDF archives from Google Drive to maintain zero orphaned files.
  *
- * 4. 11 Automated ERP Tabs:
+ * 5. 11 Automated ERP Tabs:
  *    1. Summary_Dashboard (Executive KPI Cards with Dynamic Column-Letter Formula References)
  *    2. Invoices (Master Invoice Register with Paid & Balance Due)
  *    3. Quotations (Master Quotations Register)
@@ -64,55 +70,58 @@ export const GOOGLE_APPS_SCRIPT_CODE = `/**
 
 var CANONICAL_SCHEMAS = {
   INVOICE: [
-    { key: "documentNumber", type: "code", aliases: ["invoicenum", "invoice", "invoicenumber", "docnum", "number", "invoiceno"] },
+    { key: "documentNumber", type: "code", aliases: ["invoicenum", "invoice", "invoicenumber", "docnum", "number", "invoiceno", "invoiceno."] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "invoicedate", "billdate", "createddate"] },
     { key: "dueDate", type: "date", aliases: ["duedate", "validuntil", "paymentdue", "expirydate", "paymentduedate"] },
     { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "customername", "client", "customer", "companyguestname"] },
     { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin", "clientpin", "vatpin"] },
     { key: "clientAddress", type: "text", aliases: ["clientaddress", "address", "physicalpostaladdress", "physicaladdress", "postaladdress", "location"] },
     { key: "grossSubtotal", type: "currency", aliases: ["grosssubtotalksh", "grosssubtotal", "subtotalgross", "grossamount"] },
-    { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount"] },
-    { key: "subtotal", type: "currency", aliases: ["netsubtotalksh", "netsubtotal", "subtotal", "taxableamount", "netamount"] },
-    { key: "vatAmount", type: "currency", aliases: ["vat16ksh", "vatamount", "vat16", "vat", "tax", "vat16amount"] },
-    { key: "grandTotal", type: "currency", aliases: ["grandtotalksh", "grandtotal", "totalamountksh", "totalamount", "total", "billtotal"] },
-    { key: "amountPaid", type: "currency", aliases: ["paidksh", "paid", "amountpaidksh", "amountpaid", "settled", "payments"] },
-    { key: "balanceDue", type: "currency", aliases: ["balanceksh", "balance", "balancedueksh", "balancedue", "outstanding", "amountdue"] },
+    { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount", "totaldiscount"] },
+    { key: "subtotal", type: "currency", aliases: ["netsubtotalksh", "netsubtotal", "subtotal", "taxablesubtotal", "taxablesubtotalksh", "taxableamount", "netamount", "subtotalamount", "taxable"] },
+    { key: "vatAmount", type: "currency", aliases: ["vat16ksh", "vatamount", "vat16", "vat", "tax", "vat16amount", "vat16%ksh", "vat(16%)", "vat16%", "vat16percent", "valueaddedtax"] },
+    { key: "grandTotal", type: "currency", aliases: ["grandtotalksh", "grandtotal", "totalamountksh", "totalamount", "total", "billtotal", "invoicetotal", "totalbill"] },
+    { key: "amountPaid", type: "currency", aliases: ["paidksh", "paid", "amountpaidksh", "amountpaid", "settled", "payments", "totalpaid"] },
+    { key: "balanceDue", type: "currency", aliases: ["balanceksh", "balance", "balancedueksh", "balancedue", "outstanding", "amountdue", "currentbalance"] },
     { key: "status", type: "text", aliases: ["status", "paymentstatus", "docstatus", "state"] },
-    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "documentlink", "pdflink"] },
+    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "documentlink", "pdflink", "webviewlink", "drivepdfarchive"] },
+    { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
     { key: "id", type: "code", aliases: ["docid", "id", "documentid", "uid"] }
   ],
   QUOTATION: [
-    { key: "documentNumber", type: "code", aliases: ["quotationnum", "quotation", "quotationnumber", "docnum", "number", "quotationno"] },
+    { key: "documentNumber", type: "code", aliases: ["quotationnum", "quotation", "quotationnumber", "docnum", "number", "quotationno", "quotationno."] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "quotationdate", "createddate"] },
     { key: "dueDate", type: "date", aliases: ["validuntil", "duedate", "validity", "expirydate", "validtodate"] },
     { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "customername", "client", "customer"] },
     { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin", "clientpin"] },
     { key: "clientAddress", type: "text", aliases: ["clientaddress", "address", "physicalpostaladdress", "physicaladdress", "postaladdress", "location"] },
     { key: "grossSubtotal", type: "currency", aliases: ["grosssubtotalksh", "grosssubtotal", "subtotalgross", "grossamount"] },
-    { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount"] },
-    { key: "subtotal", type: "currency", aliases: ["netsubtotalksh", "netsubtotal", "subtotal", "taxableamount", "netamount"] },
-    { key: "vatAmount", type: "currency", aliases: ["vat16ksh", "vatamount", "vat16", "vat", "tax"] },
+    { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount", "totaldiscount"] },
+    { key: "subtotal", type: "currency", aliases: ["netsubtotalksh", "netsubtotal", "subtotal", "taxablesubtotal", "taxablesubtotalksh", "taxableamount", "netamount", "subtotalamount", "taxable"] },
+    { key: "vatAmount", type: "currency", aliases: ["vat16ksh", "vatamount", "vat16", "vat", "tax", "vat16amount", "vat16%ksh", "vat(16%)", "vat16%", "vat16percent"] },
     { key: "grandTotal", type: "currency", aliases: ["grandtotalksh", "grandtotal", "totalamountksh", "totalamount", "total", "quotationtotal"] },
     { key: "status", type: "text", aliases: ["status", "docstatus", "state"] },
-    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink"] },
+    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink", "webviewlink", "drivepdfarchive"] },
+    { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
     { key: "id", type: "code", aliases: ["docid", "id", "documentid", "uid"] }
   ],
   PROFORMA: [
-    { key: "documentNumber", type: "code", aliases: ["proformanum", "proforma", "proformanumber", "docnum", "number", "proformano"] },
+    { key: "documentNumber", type: "code", aliases: ["proformanum", "proforma", "proformanumber", "docnum", "number", "proformano", "proformano."] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "proformadate", "createddate"] },
     { key: "dueDate", type: "date", aliases: ["duedate", "validuntil", "validity", "expirydate", "paymentdue"] },
     { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "customername", "client", "customer"] },
     { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin", "clientpin"] },
     { key: "clientAddress", type: "text", aliases: ["clientaddress", "address", "physicalpostaladdress", "physicaladdress", "postaladdress", "location"] },
     { key: "grossSubtotal", type: "currency", aliases: ["grosssubtotalksh", "grosssubtotal", "subtotalgross", "grossamount"] },
-    { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount"] },
-    { key: "subtotal", type: "currency", aliases: ["netsubtotalksh", "netsubtotal", "subtotal", "taxableamount", "netamount"] },
-    { key: "vatAmount", type: "currency", aliases: ["vat16ksh", "vatamount", "vat16", "vat", "tax"] },
-    { key: "grandTotal", type: "currency", aliases: ["grandtotalksh", "grandtotal", "totalamountksh", "totalamount", "total"] },
+    { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount", "totaldiscount"] },
+    { key: "subtotal", type: "currency", aliases: ["netsubtotalksh", "netsubtotal", "subtotal", "taxablesubtotal", "taxablesubtotalksh", "taxableamount", "netamount", "subtotalamount", "taxable"] },
+    { key: "vatAmount", type: "currency", aliases: ["vat16ksh", "vatamount", "vat16", "vat", "tax", "vat16amount", "vat16%ksh", "vat(16%)", "vat16%", "vat16percent"] },
+    { key: "grandTotal", type: "currency", aliases: ["grandtotalksh", "grandtotal", "totalamountksh", "totalamount", "total", "proformatotal"] },
     { key: "status", type: "text", aliases: ["status", "docstatus", "state"] },
-    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink"] },
+    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink", "webviewlink", "drivepdfarchive"] },
+    { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
     { key: "id", type: "code", aliases: ["docid", "id", "documentid", "uid"] }
   ],
@@ -128,14 +137,15 @@ var CANONICAL_SCHEMAS = {
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "timestamp", "modifiedat"] }
   ],
   RECEIPT: [
-    { key: "receiptNumber", type: "code", aliases: ["receiptnum", "receipt", "receiptno", "number", "docnum", "recnum"] },
+    { key: "receiptNumber", type: "code", aliases: ["receiptnum", "receipt", "receiptno", "number", "docnum", "recnum", "receiptno."] },
     { key: "date", type: "date", aliases: ["date", "paymentdate", "receiptdate", "transactiondate"] },
     { key: "clientName", type: "text", aliases: ["clientname", "customername", "guestname", "client", "receivedfrom", "payer"] },
     { key: "documentNumber", type: "code", aliases: ["settleddocnum", "settleddoc", "invoicenumber", "invoicenum", "docnum", "settleddocument", "invoiceno"] },
     { key: "paymentMode", type: "text", aliases: ["paymentmode", "method", "mode", "paymentmethod", "channel"] },
     { key: "amount", type: "currency", aliases: ["amountksh", "amount", "paidamount", "totalpaid", "receivedamount"] },
     { key: "referenceNote", type: "text", aliases: ["referencenote", "reference", "note", "mpesacode", "transactioncode", "details", "chequeno"] },
-    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "driveurl", "receipturl", "pdfurl", "drivelink", "pdflink"] },
+    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "receipturl", "pdfurl", "drivelink", "pdflink", "webviewlink", "drivepdfarchive"] },
+    { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "createdAt", type: "datetime", aliases: ["recordedat", "createdat", "timestamp"] },
     { key: "id", type: "code", aliases: ["paymentid", "id", "receiptid", "uid"] }
   ],
@@ -149,8 +159,22 @@ var CANONICAL_SCHEMAS = {
     { key: "days", type: "number", aliases: ["daysunits", "days", "units", "nights", "duration"] },
     { key: "rate", type: "currency", aliases: ["unitrateksh", "unitrate", "rate", "price", "unitprice"] },
     { key: "discount", type: "currency", aliases: ["discountksh", "discount", "itemdiscount"] },
-    { key: "totalAmount", type: "currency", aliases: ["totalamountksh", "totalamount", "amount", "total", "lineamount"] },
+    { key: "totalAmount", type: "currency", aliases: ["totalamountksh", "totalamount", "amount", "total", "lineamount", "amountksh"] },
     { key: "id", type: "code", aliases: ["itemid", "id", "lineitemid", "uid"] }
+  ],
+  STATEMENT: [
+    { key: "statementNumber", type: "code", aliases: ["statementnum", "statementnumber", "soano", "soanum", "docnum", "number"] },
+    { key: "issueDate", type: "date", aliases: ["issuedate", "date", "statementdate"] },
+    { key: "startDate", type: "date", aliases: ["startdate", "fromdate", "periodfrom"] },
+    { key: "endDate", type: "date", aliases: ["enddate", "todate", "periodto"] },
+    { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "client"] },
+    { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin"] },
+    { key: "totalDebit", type: "currency", aliases: ["totaldebit", "totalinvoiced", "debitksh", "totalinvoicedksh"] },
+    { key: "totalCredit", type: "currency", aliases: ["totalcredit", "totalpaid", "creditksh", "totalpaidksh"] },
+    { key: "closingBalance", type: "currency", aliases: ["closingbalance", "balance", "balancedue", "currentbalance"] },
+    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "webviewlink"] },
+    { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
+    { key: "id", type: "code", aliases: ["stmtid", "id", "statementid", "uid"] }
   ]
 };
 
@@ -298,6 +322,7 @@ function doPost(e) {
           success: true,
           document: upsertResult,
           driveUrl: driveUrl,
+          webViewLink: driveUrl,
           driveFileId: driveFileId,
           pdfArchived: pdfArchive
         });
@@ -349,12 +374,40 @@ function doPost(e) {
           success: true,
           payment: paymentResult,
           driveUrl: receiptDriveUrl,
+          webViewLink: receiptDriveUrl,
           driveFileId: receiptDriveId,
           pdfArchived: receiptArchive
         });
       } catch (payErr) {
         logAudit(ss, "RECORD_PAYMENT", "Payment record failed: " + payErr.toString(), "FAILURE", "", "");
         return responseJSON({ success: false, error: payErr.toString() });
+      }
+    }
+
+    // 4b. DIRECT PDF ARCHIVING PIPELINE (FOR STATEMENTS & ON-DEMAND ARCHIVES)
+    if (action === "ARCHIVE_PDF" || action === "UPLOAD_PDF" || action === "ARCHIVE_STATEMENT_PDF") {
+      try {
+        if (!data.pdfBase64) throw new Error("Missing pdfBase64 payload string");
+        var targetFolder = data.folderName || "Hotel Damview Archives";
+        var fileName = data.fileName || ("Document_" + new Date().toISOString().split("T")[0] + ".pdf");
+        var genericArchive = archiveGenericPdfToDrive(data.pdfBase64, targetFolder, fileName);
+        if (genericArchive && genericArchive.url) {
+          logAudit(ss, "ARCHIVE_PDF", "Archived " + fileName + " (" + genericArchive.byteLength + " bytes)", "SUCCESS", genericArchive.url, genericArchive.fileId);
+          return responseJSON({
+            success: true,
+            driveUrl: genericArchive.url,
+            webViewLink: genericArchive.url,
+            driveFileId: genericArchive.fileId,
+            fileName: genericArchive.fileName,
+            byteLength: genericArchive.byteLength,
+            pdfArchived: genericArchive
+          });
+        } else {
+          throw new Error(genericArchive && genericArchive.error ? genericArchive.error : "Failed to archive PDF to Google Drive");
+        }
+      } catch (archErr) {
+        logAudit(ss, "ARCHIVE_PDF", "PDF Archiving failed: " + archErr.toString(), "FAILURE", "", "");
+        return responseJSON({ success: false, error: archErr.toString() });
       }
     }
 
@@ -515,18 +568,6 @@ function doPost(e) {
 function getStandardTabDefinitions() {
   return [
     {
-      name: "Summary_Dashboard",
-      headers: ["Metric / KPI Category", "Live Computed Value", "Unit / Metric Formula", "Notes / Category"]
-    },
-    {
-      name: "Invoices",
-      headers: [
-        "Invoice #", "Issue Date", "Due Date", "Client Name", "KRA PIN", "Client Address",
-        "Gross Subtotal (Ksh)", "Discount (Ksh)", "Net Subtotal (Ksh)", "VAT 16% (Ksh)",
-        "Grand Total (Ksh)", "Paid (Ksh)", "Balance (Ksh)", "Status", "Drive PDF Link", "Last Updated", "Doc ID"
-      ]
-    },
-    {
       name: "Quotations",
       headers: [
         "Quotation #", "Issue Date", "Valid Until", "Client Name", "KRA PIN", "Client Address",
@@ -543,10 +584,11 @@ function getStandardTabDefinitions() {
       ]
     },
     {
-      name: "Clients",
+      name: "Invoices",
       headers: [
-        "Client ID", "Company / Guest Name", "Contact Person", "KRA PIN",
-        "Email", "Phone", "Physical / Postal Address", "Registered Date", "Last Updated"
+        "Invoice #", "Issue Date", "Due Date", "Client Name", "KRA PIN", "Client Address",
+        "Gross Subtotal (Ksh)", "Discount (Ksh)", "Net Subtotal (Ksh)", "VAT 16% (Ksh)",
+        "Grand Total (Ksh)", "Paid (Ksh)", "Balance (Ksh)", "Status", "Drive PDF Link", "Last Updated", "Doc ID"
       ]
     },
     {
@@ -557,18 +599,64 @@ function getStandardTabDefinitions() {
       ]
     },
     {
-      name: "Statements_Ledger",
+      name: "Statements_of_Account",
       headers: [
-        "Client ID", "Client / Company Name", "KRA PIN", "Total Invoiced (Ksh)",
-        "Total Paid (Ksh)", "Current Balance Due (Ksh)", "Account Status", "Last Transaction Date"
+        "Statement #", "Client ID", "Client Name", "KRA PIN", "Period From", "Period To",
+        "Total Invoiced (Ksh)", "Total Paid (Ksh)", "Closing Balance (Ksh)", "Drive PDF Link", "Last Updated", "Statement ID"
       ]
     },
     {
-      name: "Monthly_Revenue_Analytics",
+      name: "Room_Hall_Folios",
       headers: [
-        "Month (YYYY-MM)", "Invoices Count", "Total Invoiced (Ksh)", "Total Collected (Ksh)",
-        "Outstanding Balance (Ksh)", "Collection Rate %"
+        "Folio #", "Guest / Client Name", "Phone", "Unit / Space Name", "Unit Type",
+        "Check-In Date", "Check-Out Date", "Rate / Night (Ksh)", "Nights / Days", "Total Amount (Ksh)",
+        "Amount Paid (Ksh)", "Balance Due (Ksh)", "Status", "Special Requests", "Created At"
       ]
+    },
+    {
+      name: "Restaurant_POS_Orders",
+      headers: [
+        "Order #", "Table / Room", "Guest Name", "Order Summary", "Subtotal (Ksh)",
+        "VAT 16% (Ksh)", "Grand Total (Ksh)", "Payment Mode", "Status", "Receipt #", "Created At"
+      ]
+    },
+    {
+      name: "POS_Menu_Catalog",
+      headers: [
+        "Item ID", "Item Name", "Category", "Unit Rate (Ksh)", "Tax Applicable", "Description", "Available", "Last Updated"
+      ]
+    },
+    {
+      name: "Room_Space_Catalog",
+      headers: [
+        "Space Code", "Space Name", "Space Type", "Base Rate (Ksh)", "Capacity (Pax)", "Description", "Status", "Last Updated"
+      ]
+    },
+    {
+      name: "Clients",
+      headers: [
+        "Client ID", "Company / Guest Name", "Contact Person", "KRA PIN",
+        "Email", "Phone", "Physical / Postal Address", "Registered Date", "Last Updated"
+      ]
+    },
+    {
+      name: "Hotel_Settings",
+      headers: ["Property / Setting Key", "Value", "Group / Category", "Last Updated"]
+    },
+    {
+      name: "Night_Audit_Reconciliations",
+      headers: [
+        "Audit Date", "Room Revenue (Ksh)", "POS Revenue (Ksh)", "Other Revenue (Ksh)",
+        "Total Collected (Ksh)", "Total Expenses (Ksh)", "Net Cashflow (Ksh)", "Occupancy %", "Reconciled By", "Notes", "Timestamp"
+      ]
+    },
+    {
+      name: "Audit_Log",
+      headers: ["Timestamp", "Action", "Description", "Status", "Drive File Link", "File ID", "User / Agent"]
+    },
+    {
+      name: "Summary_Dashboard",
+      headers: ["Metric / KPI Category", "Live Computed Value", "Unit / Metric Formula", "Notes / Category"]
     },
     {
       name: "Line_Items_Breakdown",
@@ -576,14 +664,6 @@ function getStandardTabDefinitions() {
         "Document #", "Doc Type", "Issue Date", "Client Name", "Service / Particulars",
         "Quantity", "Days / Units", "Unit Rate (Ksh)", "Discount (Ksh)", "Total Amount (Ksh)", "Item ID"
       ]
-    },
-    {
-      name: "Hotel_Profile",
-      headers: ["Property", "Value", "Last Updated"]
-    },
-    {
-      name: "Audit_Log",
-      headers: ["Timestamp", "Action", "Description", "Status", "Drive File Link", "File ID", "User / Agent"]
     }
   ];
 }
@@ -1941,6 +2021,7 @@ function archivePdfToDrive(doc, pdfBase64, folderName, customFileName) {
       success: true,
       fileId: file.getId(),
       url: file.getUrl(),
+      webViewLink: file.getUrl(),
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,
@@ -2006,6 +2087,7 @@ function archiveReceiptPdfToDrive(payment, pdfBase64, folderName, customFileName
       success: true,
       fileId: file.getId(),
       url: file.getUrl(),
+      webViewLink: file.getUrl(),
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,
@@ -2013,6 +2095,66 @@ function archiveReceiptPdfToDrive(payment, pdfBase64, folderName, customFileName
     };
   } catch (err) {
     Logger.log("archiveReceiptPdfToDrive error: " + err.toString());
+    return { error: err.toString(), status: "FAILED" };
+  }
+}
+
+function archiveGenericPdfToDrive(pdfBase64, folderName, customFileName) {
+  try {
+    if (!pdfBase64) return { error: "No PDF base64 provided", status: "VALIDATION_FAILED" };
+
+    var targetFolderName = folderName || "Hotel Damview Archives";
+    var folders = DriveApp.getFoldersByName(targetFolderName);
+    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(targetFolderName);
+
+    var cleanBase64 = String(pdfBase64).trim();
+    var commaIdx = cleanBase64.indexOf(",");
+    if (cleanBase64.indexOf("data:") === 0 && commaIdx >= 0) {
+      cleanBase64 = cleanBase64.substring(commaIdx + 1).trim();
+    }
+
+    if (cleanBase64.length < 500) {
+      return { error: "Corrupt or truncated base64 PDF stream (length < 500)", status: "VALIDATION_FAILED" };
+    }
+
+    var decodedBytes = Utilities.base64Decode(cleanBase64);
+    if (!decodedBytes || decodedBytes.length < 1000) {
+      return { error: "Corrupted PDF binary: decoded byte length is undersized (" + (decodedBytes ? decodedBytes.length : 0) + " bytes)", status: "VALIDATION_FAILED" };
+    }
+
+    var fileName = customFileName || ("Document_" + new Date().toISOString().split("T")[0] + ".pdf");
+    var blob = Utilities.newBlob(decodedBytes, "application/pdf", fileName);
+
+    var existingFiles = folder.getFilesByName(fileName);
+    var trashedCount = 0;
+    while (existingFiles.hasNext()) {
+      var oldFile = existingFiles.next();
+      try {
+        oldFile.setTrashed(true);
+        trashedCount++;
+      } catch (trashErr) {
+        Logger.log("Could not trash duplicate file: " + trashErr.toString());
+      }
+    }
+
+    var file = folder.createFile(blob);
+
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareErr) {}
+
+    return {
+      success: true,
+      fileId: file.getId(),
+      url: file.getUrl(),
+      webViewLink: file.getUrl(),
+      fileName: fileName,
+      byteLength: decodedBytes.length,
+      deduplicatedCount: trashedCount,
+      status: "ARCHIVED"
+    };
+  } catch (err) {
+    Logger.log("archiveGenericPdfToDrive error: " + err.toString());
     return { error: err.toString(), status: "FAILED" };
   }
 }

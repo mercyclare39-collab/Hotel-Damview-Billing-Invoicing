@@ -31,8 +31,18 @@ import {
   ShieldAlert,
   UploadCloud,
   FileText,
+  ListPlus,
+  Plus,
+  Edit2,
+  Trash2,
+  X,
 } from 'lucide-react';
-import { HotelProfile, SyncQueueItem } from '../types';
+import { HotelProfile, SyncQueueItem, CatalogueItem } from '../types';
+import {
+  normalizeKenyanPhone,
+  sanitizeKenyanPhoneLive,
+  validateKenyanPhone,
+} from '../utils/formatters';
 import { syncManager } from '../services/sync';
 import { dbService } from '../services/db';
 import {
@@ -42,7 +52,6 @@ import {
 } from '../services/localBackupService';
 import { GOOGLE_APPS_SCRIPT_CODE } from '../services/googleScriptCode';
 import { HotelLogo } from './HotelLogo';
-import { PWAInstallButton } from './PWAInstallButton';
 
 interface HotelSettingsProps {
   profile: HotelProfile;
@@ -58,8 +67,68 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   onTriggerSync,
 }) => {
   const [formData, setFormData] = useState<HotelProfile>({ ...profile });
-  const [activeTab, setActiveTab] = useState<'profile' | 'accounts' | 'google-sync' | 'local-backup' | 'pwa'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'accounts' | 'google-sync' | 'local-backup' | 'pwa' | 'catalogue'>('profile');
   const [copiedCode, setCopiedCode] = useState(false);
+
+  // Particulars Catalogue State
+  const [catalogueItems, setCatalogueItems] = useState<CatalogueItem[]>([]);
+  const [isCatModalOpen, setIsCatModalOpen] = useState(false);
+  const [editingCatItem, setEditingCatItem] = useState<CatalogueItem | null>(null);
+  const [catParticulars, setCatParticulars] = useState('');
+  const [catCategory, setCatCategory] = useState<'Accommodation' | 'Conference & Banqueting' | 'Food & Beverage' | 'Equipment & Services'>('Conference & Banqueting');
+  const [catStandardRate, setCatStandardRate] = useState<number>(2500);
+  const [catTaxable, setCatTaxable] = useState(true);
+
+  const loadCatalogue = async () => {
+    const items = await dbService.getCatalogueItems();
+    setCatalogueItems(items);
+  };
+
+  useEffect(() => {
+    loadCatalogue();
+  }, []);
+
+  const handleOpenNewCatItem = () => {
+    setEditingCatItem(null);
+    setCatParticulars('');
+    setCatCategory('Conference & Banqueting');
+    setCatStandardRate(2800);
+    setCatTaxable(true);
+    setIsCatModalOpen(true);
+  };
+
+  const handleOpenEditCatItem = (item: CatalogueItem) => {
+    setEditingCatItem(item);
+    setCatParticulars(item.particulars || '');
+    setCatCategory(item.category || 'Conference & Banqueting');
+    setCatStandardRate(item.standardRate || 0);
+    setCatTaxable(item.taxable !== false);
+    setIsCatModalOpen(true);
+  };
+
+  const handleSaveCatItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!catParticulars.trim() || catStandardRate <= 0) return;
+
+    const newItem: CatalogueItem = {
+      id: editingCatItem ? editingCatItem.id : 'cat-' + Date.now(),
+      particulars: catParticulars.trim(),
+      category: catCategory,
+      standardRate: catStandardRate,
+      taxable: catTaxable,
+      defaultUnit: 'Person/Day',
+    };
+
+    await dbService.saveCatalogueItem(newItem);
+    await loadCatalogue();
+    setIsCatModalOpen(false);
+  };
+
+  const handleDeleteCatItem = async (id: string) => {
+    if (!window.confirm('Are you sure you want to permanently remove this service preset from the catalog?')) return;
+    await dbService.deleteCatalogueItem(id);
+    await loadCatalogue();
+  };
   const [testResult, setTestResult] = useState<{
     ok: boolean;
     message: string;
@@ -306,7 +375,12 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
       setPasscodeError('Administrative authorization required: Enter your passcode to unlock and save changes.');
       return;
     }
-    onSaveProfile(formData);
+    const normalizedData: HotelProfile = {
+      ...formData,
+      phone: normalizeKenyanPhone(formData.phone),
+    };
+    setFormData(normalizedData);
+    onSaveProfile(normalizedData);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
   };
@@ -653,7 +727,20 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
           }`}
         >
           <Smartphone className="w-3.5 h-3.5 text-amber-600" />
-          Offline PWA & App Install
+          Offline Storage & Cache
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('catalogue')}
+          className={`px-4 py-2 font-bold rounded-t transition-colors flex items-center gap-1.5 ${
+            activeTab === 'catalogue'
+              ? 'bg-white border-x border-t border-stone-300 text-stone-900 border-b-2 border-b-amber-500'
+              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+          }`}
+        >
+          <ListPlus className="w-3.5 h-3.5 text-purple-600" />
+          Particulars & Service Catalog ({catalogueItems.length})
         </button>
       </div>
 
@@ -745,13 +832,37 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-stone-700 mb-1">Telephone / Hotline</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-semibold text-stone-700">Telephone / Hotline</label>
+                {formData.phone && (
+                  <span
+                    className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
+                      validateKenyanPhone(formData.phone).isValid
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}
+                  >
+                    {validateKenyanPhone(formData.phone).isValid
+                      ? '✓ Valid Kenyan Format'
+                      : 'Format: +254 7XX XXXXXX'}
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 value={formData.phone}
-                onChange={(e) => handleInputChange('phone', e.target.value)}
-                className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900"
+                onChange={(e) =>
+                  handleInputChange('phone', sanitizeKenyanPhoneLive(e.target.value))
+                }
+                onBlur={(e) =>
+                  handleInputChange('phone', normalizeKenyanPhone(e.target.value))
+                }
+                placeholder="e.g. +254 722 890 123 or 0722 890 123"
+                className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-mono text-xs"
               />
+              <p className="text-[10px] text-stone-500 mt-1">
+                Strict autonomous normalization converts input into official Kenyan telephone format (+254 7XX XXXXXX, 07XXXXXXXX, or 01XXXXXXXX).
+              </p>
             </div>
 
             <div>
@@ -1586,21 +1697,19 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
         </div>
       )}
 
-      {/* TAB 4: OFFLINE PWA & APP INSTALLATION */}
+      {/* TAB 4: OFFLINE CAPABILITIES & STORAGE */}
       {activeTab === 'pwa' && (
         <div className="bg-white border border-stone-200 rounded p-6 shadow-xs space-y-6 text-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-stone-900 text-white p-5 rounded-lg border border-stone-800">
+          <div className="bg-stone-900 text-white p-5 rounded-lg border border-stone-800">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <Smartphone className="w-5 h-5 text-amber-400" />
-                <h3 className="text-base font-bold text-white">Progressive Web App (PWA) Capabilities</h3>
+                <h3 className="text-base font-bold text-white">Offline Capabilities & Local Storage</h3>
               </div>
               <p className="text-stone-300 text-xs">
-                Install Hotel Damview ERP onto your desktop, tablet, or phone for offline access with automatic background syncing.
+                Hotel Damview ERP runs with permanent local offline persistence and automatic background sync.
               </p>
             </div>
-
-            <PWAInstallButton variant="full" />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1634,17 +1743,172 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               </p>
             </div>
           </div>
+        </div>
+      )}
 
-          <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-2 text-amber-950">
-            <h4 className="font-bold text-xs flex items-center gap-1.5 text-amber-900">
-              <Download className="w-4 h-4" />
-              Installation Across Platforms
-            </h4>
-            <ul className="list-disc list-inside space-y-1 text-[11px] text-amber-900">
-              <li><strong>Chrome / Edge / Brave:</strong> Click the <em>"Install App"</em> button in the toolbar or sidebar.</li>
-              <li><strong>iPhone / iPad (Safari):</strong> Tap the <em>Share</em> button in the bottom Safari bar, then select <em>"Add to Home Screen"</em>.</li>
-              <li><strong>Android (Chrome):</strong> Tap <em>"Install App"</em> or use the browser menu &gt; <em>"Add to Home Screen"</em>.</li>
-            </ul>
+      {/* TAB 5: PARTICULARS & SERVICE CATALOGUE */}
+      {activeTab === 'catalogue' && (
+        <div className="bg-white border border-stone-200 rounded p-6 shadow-xs space-y-6 text-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-200">
+            <div>
+              <h3 className="text-base font-bold text-stone-900 flex items-center gap-2">
+                <ListPlus className="w-5 h-5 text-purple-600" />
+                <span>Particulars & Service Catalog Presets</span>
+              </h3>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Manage pre-configured billing particulars, conference packages, banquet services, and unit rates for instant predictive autocomplete in document editors.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenNewCatItem}
+              className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-amber-400 font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
+            >
+              <Plus className="w-4 h-4 text-amber-400" />
+              <span>Add Service Preset</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-stone-100 text-stone-700 border-b border-stone-200">
+                  <th className="p-3 font-bold">Billing Particulars Name</th>
+                  <th className="p-3 font-bold">Category</th>
+                  <th className="p-3 font-bold text-right">Standard Rate (Ksh)</th>
+                  <th className="p-3 font-bold">Tax Setting</th>
+                  <th className="p-3 font-bold text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-200">
+                {catalogueItems.map((item) => (
+                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="p-3 font-bold text-stone-900">{item.particulars}</td>
+                    <td className="p-3">
+                      <span className="bg-stone-100 border border-stone-200 px-2 py-0.5 rounded text-[11px] font-medium text-stone-700">
+                        {item.category}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-stone-900">
+                      Ksh {(item.standardRate || 0).toLocaleString()}
+                    </td>
+                    <td className="p-3 text-stone-600">
+                      {item.taxable !== false ? '16% VAT Applicable' : 'Tax Exempt'}
+                    </td>
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditCatItem(item)}
+                          className="p-1 text-stone-600 hover:text-amber-700 rounded hover:bg-stone-100 transition-colors cursor-pointer"
+                          title="Edit Preset"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCatItem(item.id)}
+                          className="p-1 text-stone-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Permanently Remove Preset"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Service Particulars Add/Edit Modal */}
+      {isCatModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/70 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-stone-200 overflow-hidden text-xs">
+            <div className="bg-stone-900 text-white px-5 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <ListPlus className="w-4 h-4 text-amber-400" />
+                <span>{editingCatItem ? 'Edit Particulars Preset' : 'Add New Particulars Preset'}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsCatModalOpen(false)}
+                className="text-stone-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCatItem} className="p-5 space-y-4">
+              <div>
+                <label className="block text-stone-700 font-semibold mb-1">Particulars Name / Description</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Full Board Conference Package, Executive Bed & Breakfast, Buffet Lunch"
+                  value={catParticulars}
+                  onChange={(e) => setCatParticulars(e.target.value)}
+                  className="w-full border border-stone-300 rounded-md p-2 text-stone-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-stone-700 font-semibold mb-1">Category</label>
+                <select
+                  value={catCategory}
+                  onChange={(e) => setCatCategory(e.target.value as any)}
+                  className="w-full border border-stone-300 rounded-md p-2 text-stone-900 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white"
+                >
+                  <option value="Conference & Banqueting">Conference & Banqueting</option>
+                  <option value="Accommodation">Accommodation</option>
+                  <option value="Food & Beverage">Food & Beverage</option>
+                  <option value="Equipment & Services">Equipment & Services</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-stone-700 font-semibold mb-1">Standard Rate (Ksh)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="50"
+                  required
+                  value={catStandardRate}
+                  onChange={(e) => setCatStandardRate(parseFloat(e.target.value) || 0)}
+                  className="w-full border border-stone-300 rounded-md p-2 text-stone-900 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-stone-200">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={catTaxable}
+                    onChange={(e) => setCatTaxable(e.target.checked)}
+                    className="rounded text-amber-600 focus:ring-amber-500 h-4 w-4"
+                  />
+                  <span className="text-stone-800 font-medium">Subject to 16% VAT</span>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-stone-200">
+                <button
+                  type="button"
+                  onClick={() => setIsCatModalOpen(false)}
+                  className="px-4 py-2 border border-stone-300 rounded-md text-stone-700 hover:bg-stone-100 font-semibold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-stone-900 hover:bg-stone-800 text-amber-400 font-bold rounded-md transition-colors cursor-pointer"
+                >
+                  Save Particulars Preset
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

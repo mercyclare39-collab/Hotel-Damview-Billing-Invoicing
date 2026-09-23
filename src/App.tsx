@@ -18,11 +18,17 @@ import { HotelSettings } from './components/HotelSettings';
 import { GoogleSyncModule } from './components/GoogleSyncModule';
 import { PaymentModal } from './components/PaymentModal';
 import { ReceiptsManager } from './components/ReceiptsManager';
-import { Menu, Wifi, WifiOff, Plus, RefreshCw } from 'lucide-react';
+import { CommandPalette } from './components/CommandPalette';
+import { ReservationsManager } from './components/ReservationsManager';
+import { RestaurantPOS } from './components/RestaurantPOS';
+import { NightAuditReports } from './components/NightAuditReports';
+import { DriveVault } from './components/DriveVault';
+import { Menu, Wifi, WifiOff, Plus, RefreshCw, Search } from 'lucide-react';
 import { HotelLogo } from './components/HotelLogo';
-import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineBanner } from './components/OfflineBanner';
 import { PWAReloadPrompt } from './components/PWAReloadPrompt';
+import { logSystemIncident } from './services/selfHealingPatch';
+import { StatementRecord } from './types';
 
 export default function App() {
   const [currentModule, setCurrentModule] = useState<MainNavModule>('dashboard');
@@ -30,6 +36,7 @@ export default function App() {
   const [clients, setClients] = useState<Client[]>([]);
   const [documents, setDocuments] = useState<BillingDocument[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [statements, setStatements] = useState<StatementRecord[]>([]);
   const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>([]);
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -38,6 +45,8 @@ export default function App() {
 
   // Active document being created or edited
   const [editingDoc, setEditingDoc] = useState<BillingDocument | null>(null);
+  const [docModuleSubTab, setDocModuleSubTab] = useState<'new' | 'journal'>('journal');
+  const [docModuleKey, setDocModuleKey] = useState(0);
 
   // Collapsible sidebar state (persists in localStorage)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
@@ -50,6 +59,9 @@ export default function App() {
 
   // Mobile drawer open state
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  // Command palette spotlight search state
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // Payment Modal state
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -73,17 +85,19 @@ export default function App() {
   // Load all initial data from IndexedDB
   const refreshData = useCallback(async () => {
     try {
-      const [p, c, d, pay, q] = await Promise.all([
+      const [p, c, d, pay, stmts, q] = await Promise.all([
         dbService.getHotelProfile(),
         dbService.getClients(),
         dbService.getDocuments(),
         dbService.getPayments(),
+        dbService.getStatements(),
         dbService.getSyncQueue(),
       ]);
       setProfile(p);
       setClients(c);
       setDocuments(d);
       setPayments(pay);
+      setStatements(stmts);
       setSyncQueue(q);
     } catch (err) {
       console.error('Failed to load local data:', err);
@@ -106,6 +120,16 @@ export default function App() {
 
     window.addEventListener('damview:data-changed', handleRemoteDataChanged);
 
+    // Global keyboard shortcut listener (Cmd/Ctrl + K or / to open Command Palette)
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+
     // Start 5-second real-time auto-sync background loop
     syncManager.startAutoSync(5);
 
@@ -117,6 +141,7 @@ export default function App() {
     return () => {
       unsubscribeSync();
       window.removeEventListener('damview:data-changed', handleRemoteDataChanged);
+      window.removeEventListener('keydown', handleGlobalKeyDown);
       syncManager.stopAutoSync();
       clearInterval(interval);
     };
@@ -133,9 +158,11 @@ export default function App() {
     }
   };
 
-  // Document Editor navigation triggers
+  // Document Editor navigation triggers (Zero-friction deep action routing)
   const handleOpenNewDocument = (type: DocumentType = 'INVOICE') => {
     setEditingDoc(null);
+    setDocModuleSubTab('new');
+    setDocModuleKey((prev) => prev + 1);
     if (type === 'QUOTATION') setCurrentModule('quotations');
     else if (type === 'PROFORMA') setCurrentModule('proformas');
     else setCurrentModule('invoices');
@@ -143,6 +170,8 @@ export default function App() {
 
   const handleEditDocument = (doc: BillingDocument) => {
     setEditingDoc(doc);
+    setDocModuleSubTab('new');
+    setDocModuleKey((prev) => prev + 1);
     if (doc.documentType === 'QUOTATION') setCurrentModule('quotations');
     else if (doc.documentType === 'PROFORMA') setCurrentModule('proformas');
     else setCurrentModule('invoices');
@@ -166,9 +195,44 @@ export default function App() {
       updatedAt: new Date().toISOString().split('T')[0],
     };
     setEditingDoc(converted);
+    setDocModuleSubTab('new');
+    setDocModuleKey((prev) => prev + 1);
     if (targetType === 'QUOTATION') setCurrentModule('quotations');
     else if (targetType === 'PROFORMA') setCurrentModule('proformas');
     else setCurrentModule('invoices');
+  };
+
+  const handleConvertFolioToInvoice = async (docData: Partial<BillingDocument>) => {
+    const nextNum = await dbService.getNextDocumentNumber('INVOICE');
+    const fullDoc: BillingDocument = {
+      id: 'doc-inv-' + Date.now(),
+      documentType: 'INVOICE',
+      documentNumber: nextNum,
+      clientId: docData.clientId || 'cli-001',
+      clientName: docData.clientName || 'Valued Guest',
+      clientKraPin: docData.clientKraPin || '',
+      clientAddress: docData.clientAddress || profile.physicalLocation,
+      clientPhone: docData.clientPhone || '',
+      clientEmail: docData.clientEmail || '',
+      issueDate: docData.issueDate || new Date().toISOString().split('T')[0],
+      validityDays: docData.validityDays || 14,
+      dueDate: docData.dueDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+      lineItems: docData.lineItems || [],
+      subtotal: docData.subtotal || 0,
+      vatAmount: docData.vatAmount || 0,
+      grandTotal: docData.grandTotal || 0,
+      amountPaid: docData.amountPaid || 0,
+      balanceDue: docData.balanceDue || 0,
+      status: (docData.status as any) || 'Draft',
+      notes: docData.notes || '',
+      terms: docData.terms || 'Settlement due upon invoice presentation.',
+      createdAt: new Date().toISOString().split('T')[0],
+      updatedAt: new Date().toISOString().split('T')[0],
+    };
+    setEditingDoc(fullDoc);
+    setDocModuleSubTab('new');
+    setDocModuleKey((prev) => prev + 1);
+    setCurrentModule('invoices');
   };
 
   const handleSaveDocument = async (doc: BillingDocument) => {
@@ -184,30 +248,71 @@ export default function App() {
     });
     setEditingDoc(null);
 
-    // Asynchronous background persistence and sync
-    dbService.saveDocument(doc).catch((err) => console.warn('Persistence error:', err));
-    syncManager.syncDocument(doc).catch((err) => console.warn('Sync error:', err));
+    // Immediate local persistence & asynchronous background cloud sync
+    try {
+      await dbService.saveDocument(doc);
+      // Trigger background sync without blocking UI
+      syncManager.syncBidirectional().catch((syncErr) => {
+        logSystemIncident('WARNING', `Background sync after save document failed: ${syncErr.message}`);
+      });
+    } catch (err: any) {
+      logSystemIncident('ERROR', `Failed saving document to DB: ${err.message}`);
+    }
   };
 
   const handleDeleteDocument = async (docId: string) => {
-    const targetDoc = documents.find((d) => d.id === docId);
-    
-    // Optimistic local state update
+    if (!confirm('Are you sure you want to delete this document?')) return;
     setDocuments((prev) => prev.filter((d) => d.id !== docId));
+    if (editingDoc?.id === docId) {
+      setEditingDoc(null);
+    }
+    try {
+      await dbService.deleteDocument(docId);
+      syncManager.syncBidirectional().catch(() => {});
+    } catch (err: any) {
+      logSystemIncident('ERROR', `Failed deleting document from DB: ${err.message}`);
+    }
+  };
 
-    dbService.deleteDocument(docId).catch((err) => console.warn('Delete document error:', err));
-    if (targetDoc) {
-      syncManager.cascadeDeleteDocument(
-        targetDoc.id,
-        targetDoc.documentNumber,
-        profile.googleDriveFolder
-      ).catch((err) => console.warn('Cascade delete document sync error:', err));
+  // Payment Recording modal triggers
+  const handleOpenPaymentModal = (doc?: BillingDocument) => {
+    setPaymentModalDoc(doc || null);
+    setPaymentModalClientId(doc?.clientId);
+    setIsPaymentModalOpen(true);
+  };
+
+  const handleSavePayment = async (payment: PaymentRecord) => {
+    setIsPaymentModalOpen(false);
+    setPaymentModalDoc(null);
+
+    // Optimistic payment update
+    setPayments((prev) => [payment, ...prev]);
+
+    try {
+      await dbService.savePayment(payment);
+      syncManager.syncBidirectional().catch(() => {});
+      // Refresh documents to reflect updated payment balances
+      dbService.getDocuments().then(setDocuments);
+    } catch (err: any) {
+      logSystemIncident('ERROR', `Failed saving payment: ${err.message}`);
+    }
+  };
+
+  const handleDeletePayment = async (paymentId: string, skipConfirm = false) => {
+    if (!skipConfirm && !confirm('Are you sure you want to delete this payment record? The related invoice balance will be adjusted.')) return;
+    setPayments((prev) => prev.filter((p) => p.id !== paymentId));
+    try {
+      await dbService.deletePayment(paymentId);
+      syncManager.syncBidirectional().catch(() => {});
+      dbService.getDocuments().then(setDocuments);
+    } catch (err: any) {
+      logSystemIncident('ERROR', `Failed deleting payment: ${err.message}`);
     }
   };
 
   // Client Management Handlers
   const handleSaveClient = async (client: Client) => {
-    // Optimistic local state update
+    // Instant optimistic commit in-memory
     setClients((prev) => {
       const idx = prev.findIndex((c) => c.id === client.id);
       if (idx >= 0) {
@@ -217,17 +322,23 @@ export default function App() {
       }
       return [client, ...prev];
     });
-
-    dbService.saveClient(client).catch((err) => console.warn('Save client error:', err));
-    syncManager.syncClient(client).catch((err) => console.warn('Sync client error:', err));
+    try {
+      await dbService.saveClient(client);
+      syncManager.syncBidirectional().catch(() => {});
+    } catch (err: any) {
+      logSystemIncident('ERROR', `Failed saving client: ${err.message}`);
+    }
   };
 
   const handleDeleteClient = async (clientId: string) => {
-    // Optimistic local state update
+    if (!confirm('Are you sure you want to delete this client? Documents associated with them will remain in records.')) return;
     setClients((prev) => prev.filter((c) => c.id !== clientId));
-
-    dbService.deleteClient(clientId).catch((err) => console.warn('Delete client error:', err));
-    syncManager.cascadeDeleteClient(clientId).catch((err) => console.warn('Cascade delete client sync error:', err));
+    try {
+      await dbService.deleteClient(clientId);
+      syncManager.syncBidirectional().catch(() => {});
+    } catch (err: any) {
+      logSystemIncident('ERROR', `Failed deleting client: ${err.message}`);
+    }
   };
 
   const handleViewClientLedger = (clientId: string) => {
@@ -237,108 +348,58 @@ export default function App() {
 
   const handleNewDocForClient = (clientId: string) => {
     const client = clients.find((c) => c.id === clientId);
-    if (client) {
-      dbService.getNextDocumentNumber('INVOICE').then((docNum) => {
-        const newDoc: BillingDocument = {
-          id: 'doc-new-' + Date.now(),
-          documentType: 'INVOICE',
-          documentNumber: docNum,
-          clientId: client.id,
-          clientName: client.name,
-          clientKraPin: client.kraPin,
-          clientAddress: client.address,
-          clientPhone: client.phone,
-          clientEmail: client.email,
-          issueDate: new Date().toISOString().split('T')[0],
-          validityDays: 14,
-          dueDate: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
-          lineItems: [
-            {
-              id: 'li-1',
-              particulars: 'Executive Suite Accommodation (Full Board)',
-              quantity: 1,
-              days: 1,
-              rate: 9500,
-              discount: 0,
-              amount: 9500,
-            },
-          ],
-          subtotal: 9500,
-          vatAmount: 1520,
-          grandTotal: 11020,
-          amountPaid: 0,
-          balanceDue: 11020,
-          status: 'Draft',
-          notes: 'Standard check-in 12:00 PM, check-out 10:00 AM.',
-          terms: 'Payable via M-Pesa Buy Goods Till 5432100 or KCB Bank.',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        setEditingDoc(newDoc);
-        setCurrentModule('invoices');
-      });
-    }
+    if (!client) return;
+
+    dbService.getNextDocumentNumber('INVOICE').then((nextDocNo) => {
+      const newDoc: BillingDocument = {
+        id: 'doc-' + Date.now(),
+        documentType: 'INVOICE',
+        documentNumber: nextDocNo,
+        issueDate: new Date().toISOString().split('T')[0],
+        dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        validityDays: 14,
+        status: 'Draft',
+        clientId: client.id,
+        clientName: client.name,
+        clientAddress: client.address || '',
+        clientPhone: client.phone || '',
+        clientEmail: client.email || '',
+        clientKraPin: client.kraPin || '',
+        lineItems: [
+          {
+            id: 'item-1',
+            particulars: '',
+            quantity: 1,
+            days: 1,
+            rate: 0,
+            amount: 0,
+          },
+        ],
+        subtotal: 0,
+        discount: 0,
+        vatAmount: 0,
+        grandTotal: 0,
+        amountPaid: 0,
+        balanceDue: 0,
+        notes: '',
+        terms: 'Payment due within 14 days of invoice issue.',
+        createdAt: new Date().toISOString().split('T')[0],
+        updatedAt: new Date().toISOString().split('T')[0],
+      };
+      setEditingDoc(newDoc);
+      setCurrentModule('invoices');
+    });
   };
 
-  // Payment Settlement Handlers
-  const handleOpenPaymentModal = (doc?: BillingDocument, clientId?: string) => {
-    setPaymentModalDoc(doc || null);
-    setPaymentModalClientId(clientId);
-    setIsPaymentModalOpen(true);
-  };
-
-  const handleSavePayment = async (payment: PaymentRecord) => {
-    // Optimistic local state update
-    setPayments((prev) => [payment, ...prev]);
-
-    // Optimistically update document balance
-    if (payment.documentId) {
-      setDocuments((prevDocs) =>
-        prevDocs.map((doc) => {
-          if (doc.id === payment.documentId) {
-            const newPaid = Math.round(((doc.amountPaid || 0) + payment.amount) * 100) / 100;
-            const newBalance = Math.max(0, Math.round((doc.grandTotal - newPaid) * 100) / 100);
-            return {
-              ...doc,
-              amountPaid: newPaid,
-              balanceDue: newBalance,
-              status: newBalance <= 0 ? 'Paid' : 'Sent',
-            };
-          }
-          return doc;
-        })
-      );
-    }
-
-    dbService.savePayment(payment).catch((err) => console.warn('Save payment error:', err));
-    syncManager.syncPayment(payment).catch((err) => console.warn('Sync payment error:', err));
-  };
-
-  const handleDeletePayment = async (
-    payment: PaymentRecord,
-    options?: { cascadeSheet?: boolean; cascadeDrive?: boolean }
-  ) => {
-    // Optimistic local state update
-    setPayments((prev) => prev.filter((p) => p.id !== payment.id));
-
-    dbService.deletePayment(payment.id).catch((err) => console.warn('Delete payment error:', err));
-    if (options?.cascadeSheet !== false) {
-      syncManager.cascadeDeletePayment(
-        payment.id,
-        payment.receiptNumber,
-        payment.documentNumber,
-        options?.cascadeDrive !== false ? profile.googleDriveFolder : undefined
-      ).catch((err) => console.warn('Cascade delete payment sync error:', err));
-    }
-  };
-
-  // Profile Save
+  // Hotel Profile Settings Handler
   const handleSaveProfile = async (newProfile: HotelProfile) => {
     setProfile(newProfile);
-    dbService.saveHotelProfile(newProfile).catch((err) => console.warn('Save profile error:', err));
+    await dbService.saveHotelProfile(newProfile);
+    await syncManager.syncBidirectional();
+    await refreshData();
   };
 
-  // Live badge counts for persistent sidebar
+  // Summary counts for navigation badges
   const quotationsCount = useMemo(() => {
     return documents.filter((d) => d.documentType === 'QUOTATION' && d.status !== 'Paid').length;
   }, [documents]);
@@ -347,22 +408,28 @@ export default function App() {
     return documents.filter((d) => d.documentType === 'PROFORMA').length;
   }, [documents]);
 
-  const unpaidInvoicesCount = useMemo(() => {
-    return documents.filter((d) => d.documentType === 'INVOICE' && (d.balanceDue || 0) > 0).length;
+  const unpaidInvoices = useMemo(() => {
+    return documents.filter(
+      (d) => d.documentType === 'INVOICE' && (d.balanceDue || 0) > 0
+    );
   }, [documents]);
 
+  const unpaidInvoicesCount = unpaidInvoices.length;
+
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
   const hasOverdueInvoices = useMemo(() => {
-    return documents.some((d) => d.documentType === 'INVOICE' && d.status === 'Overdue');
-  }, [documents]);
+    return unpaidInvoices.some((d) => d.dueDate < todayStr);
+  }, [unpaidInvoices, todayStr]);
 
   return (
-    <div className="flex h-[100dvh] w-screen overflow-hidden bg-slate-100 text-slate-900 antialiased select-auto">
-      {/* 1. PERSISTENT COLLAPSIBLE LEFT SIDEBAR */}
+    <div className="flex h-screen bg-stone-950 text-stone-100 font-sans overflow-hidden antialiased selection:bg-amber-500 selection:text-stone-950">
+      {/* 1. COLLAPSIBLE PERSISTENT / AMBIENT SIDEBAR */}
       <Sidebar
         currentModule={currentModule}
         onSelectModule={(mod) => {
-          setEditingDoc(null);
           setCurrentModule(mod);
+          setEditingDoc(null);
+          setDocModuleSubTab('journal');
         }}
         profile={profile}
         isOnline={isOnline}
@@ -370,6 +437,11 @@ export default function App() {
         pendingSyncCount={syncQueue.length}
         onTriggerSync={handleTriggerSync}
         onQuickNewDoc={() => handleOpenNewDocument('INVOICE')}
+        onNewQuotation={() => handleOpenNewDocument('QUOTATION')}
+        onNewProforma={() => handleOpenNewDocument('PROFORMA')}
+        onNewInvoice={() => handleOpenNewDocument('INVOICE')}
+        onRecordPayment={() => handleOpenPaymentModal()}
+        onOpenSearch={() => setIsCommandPaletteOpen(true)}
         quotationsCount={quotationsCount}
         proformasCount={proformasCount}
         unpaidInvoicesCount={unpaidInvoicesCount}
@@ -390,21 +462,37 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsMobileOpen(true)}
-              className="p-1.5 rounded text-stone-300 hover:text-white hover:bg-stone-800"
+              className="p-1.5 rounded text-stone-300 hover:text-white hover:bg-stone-800 cursor-pointer"
               title="Open Navigation Menu"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <div className="flex items-center gap-2">
+            <div
+              className="flex items-center gap-2 cursor-pointer min-w-0"
+              onClick={() => setCurrentModule('dashboard')}
+            >
               <HotelLogo logoBase64={profile.logoBase64} size={28} />
-              <span className="font-bold text-xs uppercase tracking-wider text-amber-400 font-serif">
-                {profile.name || 'HOTEL DAMVIEW'}
-              </span>
+              <div className="min-w-0">
+                <span className="font-bold text-xs uppercase tracking-wider text-amber-400 font-serif truncate block max-w-[130px]">
+                  {profile.name || 'HOTEL DAMVIEW'}
+                </span>
+                <span className="text-[9px] text-stone-400 truncate block max-w-[130px]">
+                  {profile.physicalLocation || profile.postalAddress || 'Machakos'}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <PWAInstallButton variant="compact" />
+          <div className="flex items-center gap-1.5">
+            {/* Spotlight Search Icon Button */}
+            <button
+              type="button"
+              onClick={() => setIsCommandPaletteOpen(true)}
+              className="p-1.5 bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white rounded-md border border-stone-700 cursor-pointer"
+              title="Search ERP (Cmd+K)"
+            >
+              <Search className="w-3.5 h-3.5 text-amber-400" />
+            </button>
 
             <div
               className={`px-2 py-0.5 rounded-full text-[10px] font-medium flex items-center gap-1 border ${
@@ -416,15 +504,6 @@ export default function App() {
               {isOnline ? <Wifi className="w-2.5 h-2.5" /> : <WifiOff className="w-2.5 h-2.5" />}
               <span>{isOnline ? 'Online' : 'Offline'}</span>
             </div>
-
-            <button
-              type="button"
-              onClick={() => handleOpenNewDocument('INVOICE')}
-              className="bg-amber-500 hover:bg-amber-400 text-stone-950 px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1 shadow-xs"
-            >
-              <Plus className="w-3 h-3 stroke-[3]" />
-              <span>New</span>
-            </button>
           </div>
         </header>
 
@@ -442,95 +521,123 @@ export default function App() {
               profile={profile}
               onNavigateToNewDoc={handleOpenNewDocument}
               onNavigateToClients={() => setCurrentModule('clients')}
-              onNavigateToJournal={() => setCurrentModule('invoices')}
+              onNavigateToJournal={() => {
+                setDocModuleSubTab('journal');
+                setCurrentModule('invoices');
+              }}
               onNavigateToStatement={() => setCurrentModule('statements')}
+              onRecordPayment={() => handleOpenPaymentModal()}
               onEditDocument={handleEditDocument}
             />
           )}
 
-          {/* Quotations Module (with New Quotation, Journal, Expired/Archived sub-tabs) */}
+          {/* Room & Hall Folios / Reservations Module */}
+          {currentModule === 'reservations' && (
+            <div className="p-6 max-w-7xl mx-auto">
+              <ReservationsManager
+                profile={profile}
+                clients={clients}
+                onConvertToInvoice={handleConvertFolioToInvoice}
+                onShowPaymentModal={handleOpenPaymentModal}
+              />
+            </div>
+          )}
+
+          {/* Restaurant & Bar POS Quick-Billing Module */}
+          {currentModule === 'pos' && (
+            <div className="p-6 max-w-7xl mx-auto">
+              <RestaurantPOS profile={profile} clients={clients} />
+            </div>
+          )}
+
+          {/* Quotations Module */}
           {currentModule === 'quotations' && (
             <DocumentModule
+              key={`quotations-${docModuleKey}`}
               moduleType="QUOTATION"
               documents={documents}
               clients={clients}
               profile={profile}
               editingDocument={editingDoc}
+              initialSubTab={docModuleSubTab}
               onSaveDocument={handleSaveDocument}
               onDeleteDocument={handleDeleteDocument}
-              onRecordPayment={(doc) => handleOpenPaymentModal(doc)}
+              onRecordPayment={handleOpenPaymentModal}
               onConvertDocument={handleConvertDocument}
-              onStartNewDocument={(type) => {
-                setEditingDoc(null);
-                handleOpenNewDocument(type);
-              }}
+              onStartNewDocument={() => handleOpenNewDocument('QUOTATION')}
               onStartEditDocument={handleEditDocument}
-              onCancelEditor={() => setEditingDoc(null)}
+              onCancelEditor={() => {
+                setEditingDoc(null);
+                setDocModuleSubTab('journal');
+              }}
               onAddNewClient={() => setCurrentModule('clients')}
             />
           )}
 
-          {/* Proforma Invoices Module (with New Proforma, Journal, Converted sub-tabs) */}
+          {/* Proforma Invoices Module */}
           {currentModule === 'proformas' && (
             <DocumentModule
+              key={`proformas-${docModuleKey}`}
               moduleType="PROFORMA"
               documents={documents}
               clients={clients}
               profile={profile}
               editingDocument={editingDoc}
+              initialSubTab={docModuleSubTab}
               onSaveDocument={handleSaveDocument}
               onDeleteDocument={handleDeleteDocument}
-              onRecordPayment={(doc) => handleOpenPaymentModal(doc)}
+              onRecordPayment={handleOpenPaymentModal}
               onConvertDocument={handleConvertDocument}
-              onStartNewDocument={(type) => {
-                setEditingDoc(null);
-                handleOpenNewDocument(type);
-              }}
+              onStartNewDocument={() => handleOpenNewDocument('PROFORMA')}
               onStartEditDocument={handleEditDocument}
-              onCancelEditor={() => setEditingDoc(null)}
+              onCancelEditor={() => {
+                setEditingDoc(null);
+                setDocModuleSubTab('journal');
+              }}
               onAddNewClient={() => setCurrentModule('clients')}
             />
           )}
 
-          {/* Invoices Module (with New Invoice, Sales Journal, Unpaid/Overdue sub-tabs) */}
+          {/* Tax Invoices Module */}
           {currentModule === 'invoices' && (
             <DocumentModule
+              key={`invoices-${docModuleKey}`}
               moduleType="INVOICE"
               documents={documents}
               clients={clients}
               profile={profile}
               editingDocument={editingDoc}
+              initialSubTab={docModuleSubTab}
               onSaveDocument={handleSaveDocument}
               onDeleteDocument={handleDeleteDocument}
-              onRecordPayment={(doc) => handleOpenPaymentModal(doc)}
+              onRecordPayment={handleOpenPaymentModal}
               onConvertDocument={handleConvertDocument}
-              onStartNewDocument={(type) => {
-                setEditingDoc(null);
-                handleOpenNewDocument(type);
-              }}
+              onStartNewDocument={() => handleOpenNewDocument('INVOICE')}
               onStartEditDocument={handleEditDocument}
-              onCancelEditor={() => setEditingDoc(null)}
+              onCancelEditor={() => {
+                setEditingDoc(null);
+                setDocModuleSubTab('journal');
+              }}
               onAddNewClient={() => setCurrentModule('clients')}
             />
           )}
 
-          {/* Payment Receipts Journal Module */}
+          {/* Payment Receipts Manager */}
           {currentModule === 'receipts' && (
             <ReceiptsManager
               payments={payments}
-              clients={clients}
               documents={documents}
+              clients={clients}
               profile={profile}
               onRecordNewPayment={() => handleOpenPaymentModal()}
-              onDeletePayment={handleDeletePayment}
               onViewDocument={(docId) => {
                 const doc = documents.find((d) => d.id === docId);
                 if (doc) {
                   handleEditDocument(doc);
-                  if (doc.documentType === 'INVOICE') setCurrentModule('invoices');
-                  else if (doc.documentType === 'QUOTATION') setCurrentModule('quotations');
-                  else setCurrentModule('proformas');
                 }
+              }}
+              onDeletePayment={async (payment) => {
+                await handleDeletePayment(payment.id, true);
               }}
             />
           )}
@@ -543,15 +650,38 @@ export default function App() {
               payments={payments}
               profile={profile}
               initialClientId={statementClientId}
-              onRecordPayment={(cliId, doc) => handleOpenPaymentModal(doc, cliId)}
-              onEditDocument={(doc) => {
-                handleEditDocument(doc);
-                if (doc.documentType === 'INVOICE') setCurrentModule('invoices');
-                else if (doc.documentType === 'QUOTATION') setCurrentModule('quotations');
-                else setCurrentModule('proformas');
-              }}
+              onEditDocument={handleEditDocument}
+              onConvertDocument={handleConvertDocument}
+              onRecordPayment={(clientId, doc) => handleOpenPaymentModal(doc)}
               onNewDocumentForClient={(clientId) => handleNewDocForClient(clientId)}
             />
+          )}
+
+          {/* Night Audit & Financial Analytics Module */}
+          {currentModule === 'nightaudit' && (
+            <div className="p-6 max-w-7xl mx-auto">
+              <NightAuditReports
+                documents={documents}
+                payments={payments}
+                clients={clients}
+                profile={profile}
+              />
+            </div>
+          )}
+
+          {/* Google Drive Document Vault Module */}
+          {currentModule === 'vault' && (
+            <div className="p-6 max-w-7xl mx-auto">
+              <DriveVault
+                documents={documents}
+                payments={payments}
+                statements={statements}
+                profile={profile}
+                onViewDocument={handleEditDocument}
+                onSyncToDrive={handleTriggerSync}
+                isSyncing={isSyncing}
+              />
+            </div>
           )}
 
           {/* Clients Directory Module */}
@@ -591,6 +721,29 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Global Command Palette (Cmd/Ctrl + K) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        documents={documents}
+        clients={clients}
+        payments={payments}
+        onSelectDocument={(doc) => {
+          handleEditDocument(doc);
+        }}
+        onSelectClient={(clientId) => {
+          handleViewClientLedger(clientId);
+        }}
+        onNavigateToNewDoc={(type) => {
+          handleOpenNewDocument(type);
+        }}
+        onNavigateToModule={(mod) => {
+          setCurrentModule(mod);
+        }}
+        onTriggerSync={handleTriggerSync}
+        onOpenPaymentModal={handleOpenPaymentModal}
+      />
 
       {/* Payment Settlement Modal (Global Access) */}
       <PaymentModal

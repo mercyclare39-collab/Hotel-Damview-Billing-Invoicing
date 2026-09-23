@@ -1,16 +1,151 @@
-import { Client, BillingDocument, PaymentRecord, HotelProfile, SyncQueueItem, AuditLogEntry } from '../types';
+import {
+  Client,
+  BillingDocument,
+  PaymentRecord,
+  HotelProfile,
+  SyncQueueItem,
+  AuditLogEntry,
+  StatementRecord,
+  Reservation,
+  POSOrder,
+  ExpenseRecord,
+  CatalogueItem,
+  POSOrderItem,
+} from '../types';
 
 const DB_NAME = 'HotelDamviewDB';
-const DB_VERSION = 3;
+const DB_VERSION = 5;
 
 export interface DeletedTombstone {
   id: string;
   key?: string;
-  type: 'DOCUMENT' | 'CLIENT' | 'PAYMENT';
+  type: 'DOCUMENT' | 'CLIENT' | 'PAYMENT' | 'RESERVATION' | 'POS';
   deletedAt: number;
 }
 
-export type { AuditLogEntry };
+export type { AuditLogEntry, Reservation, POSOrder, ExpenseRecord, CatalogueItem, POSOrderItem };
+
+export const STANDARD_HOSPITALITY_CATALOGUE: CatalogueItem[] = [
+  {
+    id: 'cat-1',
+    particulars: 'Executive Conference Hall (Day Package with Projector, PA System & Wi-Fi)',
+    category: 'Conference & Banqueting',
+    standardRate: 25000,
+    taxable: true,
+    defaultUnit: 'Day',
+  },
+  {
+    id: 'cat-2',
+    particulars: 'Maruba Garden Pavilion / Banqueting Hall Hire',
+    category: 'Conference & Banqueting',
+    standardRate: 35000,
+    taxable: true,
+    defaultUnit: 'Day',
+  },
+  {
+    id: 'cat-3',
+    particulars: 'Full Day Delegate Conference Package (Buffet Lunch, 2x Tea/Coffee & Snacks, 2x 500ml Water, Stationery)',
+    category: 'Conference & Banqueting',
+    standardRate: 2800,
+    taxable: true,
+    defaultUnit: 'Person/Day',
+  },
+  {
+    id: 'cat-4',
+    particulars: 'Half Day Delegate Conference Package (Buffet Lunch, 1x Tea/Coffee & Snacks, 1x 500ml Water)',
+    category: 'Conference & Banqueting',
+    standardRate: 2200,
+    taxable: true,
+    defaultUnit: 'Person/Day',
+  },
+  {
+    id: 'cat-5',
+    particulars: 'VIP Deluxe Lake View Suite (Bed & Breakfast, Lake View, Wi-Fi)',
+    category: 'Accommodation',
+    standardRate: 8500,
+    taxable: true,
+    defaultUnit: 'Night',
+  },
+  {
+    id: 'cat-6',
+    particulars: 'Standard Room Accommodation (Single Occupancy, Bed & Breakfast)',
+    category: 'Accommodation',
+    standardRate: 5500,
+    taxable: true,
+    defaultUnit: 'Night',
+  },
+  {
+    id: 'cat-7',
+    particulars: 'Standard Room Accommodation (Double / Twin Occupancy, Bed & Breakfast)',
+    category: 'Accommodation',
+    standardRate: 7000,
+    taxable: true,
+    defaultUnit: 'Night',
+  },
+  {
+    id: 'cat-8',
+    particulars: 'Damview Special Buffet Dinner / Lunch (3-Course Corporate Dining)',
+    category: 'Food & Beverage',
+    standardRate: 1800,
+    taxable: true,
+    defaultUnit: 'Person/Day',
+  },
+  {
+    id: 'cat-9',
+    particulars: 'Outdoor Cocktail Reception & Live BBQ Station (per delegate)',
+    category: 'Food & Beverage',
+    standardRate: 2500,
+    taxable: true,
+    defaultUnit: 'Person/Day',
+  },
+  {
+    id: 'cat-10',
+    particulars: 'High-Lumen HD Projector & Motorized Screen Hire',
+    category: 'Equipment & Services',
+    standardRate: 5000,
+    taxable: true,
+    defaultUnit: 'Day',
+  },
+  {
+    id: 'cat-11',
+    particulars: 'Wireless Cordless Microphones & Dedicated Sound Engineer',
+    category: 'Equipment & Services',
+    standardRate: 6000,
+    taxable: true,
+    defaultUnit: 'Day',
+  },
+  {
+    id: 'cat-12',
+    particulars: 'Dam Grounds Team-Building Facilitation & Obstacle Course',
+    category: 'Equipment & Services',
+    standardRate: 35000,
+    taxable: true,
+    defaultUnit: 'Session',
+  },
+];
+
+export const STANDARD_POS_MENU: POSOrderItem[] = [
+  { id: 'pos-m1', name: 'English Breakfast Combo (Eggs, Sausage, Toast, Coffee/Tea)', category: 'Breakfast', price: 750, quantity: 1, amount: 750 },
+  { id: 'pos-m2', name: 'African Tea & Mahamri / Samosas (2 pcs)', category: 'Breakfast', price: 350, quantity: 1, amount: 350 },
+  { id: 'pos-m3', name: 'Spanish Omelette with Buttered Toast & Grilled Tomato', category: 'Breakfast', price: 450, quantity: 1, amount: 450 },
+  { id: 'pos-m4', name: 'Damview Chicken Wings (Sweet Chilli / Hot Buffalo 6 pcs)', category: 'Starters & Snacks', price: 650, quantity: 1, amount: 650 },
+  { id: 'pos-m5', name: 'Beef Samosas Trio with Tangy Tamarind Sauce', category: 'Starters & Snacks', price: 300, quantity: 1, amount: 300 },
+  { id: 'pos-m6', name: 'Crispy Garlic Masala Chips / Potato Wedges', category: 'Starters & Snacks', price: 350, quantity: 1, amount: 350 },
+  { id: 'pos-m7', name: 'Wet/Dry Fry Goat Meat (Mbuzi Fry 1/2 Kg) with Ugali & Greens', category: 'Main Dishes', price: 950, quantity: 1, amount: 950 },
+  { id: 'pos-m8', name: 'Kienyeji Chicken Special (Half) with Rice/Chapati', category: 'Main Dishes', price: 1100, quantity: 1, amount: 1100 },
+  { id: 'pos-m9', name: 'Whole Deep-Fried Lake Tilapia with Kachumbari & Ugali', category: 'Main Dishes', price: 1200, quantity: 1, amount: 1200 },
+  { id: 'pos-m10', name: 'Prime Beef Steak in Pepper Sauce with Roast Herb Potatoes', category: 'Main Dishes', price: 1050, quantity: 1, amount: 1050 },
+  { id: 'pos-m11', name: 'Fresh Passion / Mango / Tropical Cocktail Juice (500ml)', category: 'Beverages & Juices', price: 300, quantity: 1, amount: 300 },
+  { id: 'pos-m12', name: 'Soda 300ml Glass (Coke, Fanta, Sprite, Stoney)', category: 'Beverages & Juices', price: 150, quantity: 1, amount: 150 },
+  { id: 'pos-m13', name: 'Mineral Water 500ml Still', category: 'Beverages & Juices', price: 100, quantity: 1, amount: 100 },
+  { id: 'pos-m14', name: 'Special Dawa Tea (Ginger, Lemon, Honey & Mint)', category: 'Beverages & Juices', price: 350, quantity: 1, amount: 350 },
+  { id: 'pos-m15', name: 'Tusker Lager / Malt / Cider 500ml', category: 'Bar & Cocktails', price: 350, quantity: 1, amount: 350 },
+  { id: 'pos-m16', name: 'White Cap Crisp / Heineken 330ml', category: 'Bar & Cocktails', price: 400, quantity: 1, amount: 400 },
+  { id: 'pos-m17', name: 'Maruba Sunset Signature Cocktail', category: 'Bar & Cocktails', price: 750, quantity: 1, amount: 750 },
+  { id: 'pos-m18', name: 'House Wine (Red / White by Glass 150ml)', category: 'Bar & Cocktails', price: 500, quantity: 1, amount: 500 },
+  { id: 'pos-m19', name: 'Executive Buffet Lunch (Corporate Dining per person)', category: 'Conference Packages', price: 1800, quantity: 1, amount: 1800 },
+  { id: 'pos-m20', name: 'Morning / Afternoon Tea Break with Assorted Savouries', category: 'Conference Packages', price: 650, quantity: 1, amount: 650 },
+];
 
 export const DEFAULT_HOTEL_PROFILE: HotelProfile = {
   name: 'HOTEL DAMVIEW',
@@ -75,7 +210,7 @@ const SAMPLE_DOCUMENTS: BillingDocument[] = [
   {
     id: 'doc-q001',
     documentType: 'QUOTATION',
-    documentNumber: 'Q-0001',
+    documentNumber: 'QT-0001',
     clientId: 'cli-001',
     clientName: 'Machakos County Executive Committee',
     clientKraPin: 'P051122334A',
@@ -306,6 +441,197 @@ const SAMPLE_PAYMENTS: PaymentRecord[] = [
   },
 ];
 
+const SAMPLE_STATEMENTS: StatementRecord[] = [
+  {
+    id: 'stmt-001',
+    statementNumber: 'SOA-MAC-20260920',
+    clientId: 'cli-001',
+    clientName: 'Machakos County Executive Committee',
+    clientKraPin: 'P051122334A',
+    issueDate: '2026-09-20',
+    startDate: '2026-08-01',
+    endDate: '2026-09-20',
+    totalDebit: 448000,
+    totalCredit: 0,
+    closingBalance: 448000,
+    entriesCount: 1,
+    pdfGenerated: true,
+    driveFileUrl: 'https://drive.google.com/file/d/sample-stmt-001/view',
+    createdAt: '2026-09-20T08:00:00.000Z',
+  },
+  {
+    id: 'stmt-002',
+    statementNumber: 'SOA-KEN-20260918',
+    clientId: 'cli-002',
+    clientName: 'Kenya Red Cross Society - Eastern Region',
+    clientKraPin: 'P051998877B',
+    issueDate: '2026-09-18',
+    startDate: '2026-08-01',
+    endDate: '2026-09-18',
+    totalDebit: 222720,
+    totalCredit: 100000,
+    closingBalance: 122720,
+    entriesCount: 2,
+    pdfGenerated: true,
+    driveFileUrl: 'https://drive.google.com/file/d/sample-stmt-002/view',
+    createdAt: '2026-09-18T08:00:00.000Z',
+  },
+];
+
+const SAMPLE_RESERVATIONS: Reservation[] = [
+  {
+    id: 'res-001',
+    folioNumber: 'FOL-2026-001',
+    guestName: 'Hon. Mutua Musyoka',
+    guestPhone: '+254 711 200 300',
+    guestEmail: 'treasury@machakosgovernment.co.ke',
+    guestKraPin: 'P051122334A',
+    clientId: 'cli-001',
+    clientName: 'Machakos County Executive Committee',
+    unitType: 'Hall',
+    unitName: 'Executive Conference Hall',
+    checkInDate: '2026-09-24',
+    checkOutDate: '2026-09-27',
+    ratePerNight: 25000,
+    nightsOrDays: 3,
+    totalAmount: 75000,
+    amountPaid: 75000,
+    balanceDue: 0,
+    status: 'Checked-In',
+    specialRequests: 'PA System, Projector, Wi-Fi high priority, 45 delegate layout',
+    createdAt: '2026-09-20T08:00:00.000Z',
+    updatedAt: '2026-09-23T08:00:00.000Z',
+  },
+  {
+    id: 'res-002',
+    folioNumber: 'FOL-2026-002',
+    guestName: 'Faith Ndanu Mwende',
+    guestPhone: '+254 722 455 677',
+    guestEmail: 'eastern.operations@redcross.or.ke',
+    guestKraPin: 'P051998877B',
+    clientId: 'cli-002',
+    clientName: 'Kenya Red Cross Society - Eastern Region',
+    unitType: 'Hall',
+    unitName: 'Maruba Garden Pavilion',
+    checkInDate: '2026-09-25',
+    checkOutDate: '2026-09-26',
+    ratePerNight: 35000,
+    nightsOrDays: 1,
+    totalAmount: 35000,
+    amountPaid: 35000,
+    balanceDue: 0,
+    status: 'Reserved',
+    specialRequests: 'Outdoor tent setup, cocktail tables, emergency response training mock zone',
+    createdAt: '2026-09-21T08:00:00.000Z',
+    updatedAt: '2026-09-21T08:00:00.000Z',
+  },
+  {
+    id: 'res-003',
+    folioNumber: 'FOL-2026-003',
+    guestName: 'Eng. Peter Kariuki',
+    guestPhone: '+254 733 899 001',
+    guestEmail: 'finance@apexagroke.com',
+    guestKraPin: 'P051443322C',
+    clientId: 'cli-003',
+    clientName: 'Apex Agro-Logistics Ltd',
+    unitType: 'Room',
+    unitName: 'VIP Suite 101 (Lake View)',
+    checkInDate: '2026-09-23',
+    checkOutDate: '2026-09-25',
+    ratePerNight: 8500,
+    nightsOrDays: 2,
+    totalAmount: 17000,
+    amountPaid: 17000,
+    balanceDue: 0,
+    status: 'Checked-In',
+    specialRequests: 'Quiet room facing Maruba Dam, extra workstation desk & iron box',
+    createdAt: '2026-09-22T08:00:00.000Z',
+    updatedAt: '2026-09-23T08:00:00.000Z',
+  },
+  {
+    id: 'res-004',
+    folioNumber: 'FOL-2026-004',
+    guestName: 'Dr. Sarah Wambui',
+    guestPhone: '+254 700 112 233',
+    guestEmail: 'swambui@consultant.ke',
+    unitType: 'Room',
+    unitName: 'Deluxe Room 204',
+    checkInDate: '2026-09-24',
+    checkOutDate: '2026-09-26',
+    ratePerNight: 7000,
+    nightsOrDays: 2,
+    totalAmount: 14000,
+    amountPaid: 0,
+    balanceDue: 14000,
+    status: 'Reserved',
+    specialRequests: 'Late check-in around 8 PM, airport pick-up transfer requested',
+    createdAt: '2026-09-23T08:00:00.000Z',
+    updatedAt: '2026-09-23T08:00:00.000Z',
+  },
+];
+
+const SAMPLE_POS_ORDERS: POSOrder[] = [
+  {
+    id: 'pos-ord-001',
+    orderNumber: 'POS-2026-001',
+    tableOrRoom: 'Terrace Table 6',
+    guestOrClientName: 'County Delegation (Dinner)',
+    items: [
+      { id: 'pos-m7', name: 'Wet/Dry Fry Goat Meat (Mbuzi Fry 1/2 Kg) with Ugali & Greens', category: 'Main Dishes', price: 950, quantity: 4, amount: 3800 },
+      { id: 'pos-m11', name: 'Fresh Passion / Mango / Tropical Cocktail Juice (500ml)', category: 'Beverages & Juices', price: 300, quantity: 4, amount: 1200 },
+      { id: 'pos-m15', name: 'Tusker Lager / Malt / Cider 500ml', category: 'Bar & Cocktails', price: 350, quantity: 6, amount: 2100 },
+    ],
+    subtotal: 7100,
+    vatAmount: 1136,
+    grandTotal: 8236,
+    paymentMode: 'M-Pesa',
+    status: 'Completed',
+    receiptNumber: 'REC-0004',
+    createdAt: '2026-09-23T04:30:00.000Z',
+  },
+  {
+    id: 'pos-ord-002',
+    orderNumber: 'POS-2026-002',
+    tableOrRoom: 'Room 101',
+    guestOrClientName: 'Eng. Peter Kariuki',
+    items: [
+      { id: 'pos-m10', name: 'Prime Beef Steak in Pepper Sauce with Roast Herb Potatoes', category: 'Main Dishes', price: 1050, quantity: 1, amount: 1050 },
+      { id: 'pos-m14', name: 'Special Dawa Tea (Ginger, Lemon, Honey & Mint)', category: 'Beverages & Juices', price: 350, quantity: 1, amount: 350 },
+    ],
+    subtotal: 1400,
+    vatAmount: 224,
+    grandTotal: 1624,
+    paymentMode: 'Room Charge',
+    status: 'Billed to Room',
+    createdAt: '2026-09-23T05:10:00.000Z',
+  },
+];
+
+const SAMPLE_EXPENSES: ExpenseRecord[] = [
+  {
+    id: 'exp-001',
+    expenseNumber: 'EXP-2026-001',
+    category: 'Kitchen & Food Supplies',
+    description: 'Fresh vegetables, butchery goat meat & dairy supplies from Machakos Market',
+    amount: 24500,
+    date: '2026-09-22',
+    paidTo: 'Machakos Farmers Fresh Produce',
+    paymentMode: 'M-Pesa',
+    createdAt: '2026-09-22T08:00:00.000Z',
+  },
+  {
+    id: 'exp-002',
+    expenseNumber: 'EXP-2026-002',
+    category: 'Utilities (Water/Power)',
+    description: 'Kenya Power (KPLC) Prepaid Token Purchase for Hotel Damview Premises',
+    amount: 18000,
+    date: '2026-09-20',
+    paidTo: 'Kenya Power and Lighting Co.',
+    paymentMode: 'Bank Transfer',
+    createdAt: '2026-09-20T08:00:00.000Z',
+  },
+];
+
 class StorageEngine {
   private dbPromise: Promise<IDBDatabase> | null = null;
   
@@ -314,6 +640,11 @@ class StorageEngine {
   private l1Clients: Map<string, Client> = new Map();
   private l1Documents: Map<string, BillingDocument> = new Map();
   private l1Payments: Map<string, PaymentRecord> = new Map();
+  private l1Statements: Map<string, StatementRecord> = new Map();
+  private l1Reservations: Map<string, Reservation> = new Map();
+  private l1POSOrders: Map<string, POSOrder> = new Map();
+  private l1Expenses: Map<string, ExpenseRecord> = new Map();
+  private l1Catalogue: Map<string, CatalogueItem> = new Map();
   private l1SyncQueue: Map<string, SyncQueueItem> = new Map();
   private l1Tombstones: DeletedTombstone[] | null = null;
   private isL1Hydrated = false;
@@ -355,11 +686,46 @@ class StorageEngine {
         list.forEach((p) => this.l1Payments.set(p.id, p));
       }
 
+      const savedStatements = localStorage.getItem('damview_statements_v1');
+      if (savedStatements) {
+        const list: StatementRecord[] = JSON.parse(savedStatements);
+        this.l1Statements.clear();
+        list.forEach((s) => this.l1Statements.set(s.id, s));
+      }
+
       const savedQueue = localStorage.getItem('damview_sync_queue');
       if (savedQueue) {
         const list: SyncQueueItem[] = JSON.parse(savedQueue);
         this.l1SyncQueue.clear();
         list.forEach((q) => this.l1SyncQueue.set(q.id, q));
+      }
+
+      const savedRes = localStorage.getItem('damview_reservations');
+      if (savedRes) {
+        const list: Reservation[] = JSON.parse(savedRes);
+        this.l1Reservations.clear();
+        list.forEach((r) => this.l1Reservations.set(r.id, r));
+      }
+
+      const savedPOS = localStorage.getItem('damview_pos_orders');
+      if (savedPOS) {
+        const list: POSOrder[] = JSON.parse(savedPOS);
+        this.l1POSOrders.clear();
+        list.forEach((p) => this.l1POSOrders.set(p.id, p));
+      }
+
+      const savedExp = localStorage.getItem('damview_expenses');
+      if (savedExp) {
+        const list: ExpenseRecord[] = JSON.parse(savedExp);
+        this.l1Expenses.clear();
+        list.forEach((e) => this.l1Expenses.set(e.id, e));
+      }
+
+      const savedCat = localStorage.getItem('damview_catalogue');
+      if (savedCat) {
+        const list: CatalogueItem[] = JSON.parse(savedCat);
+        this.l1Catalogue.clear();
+        list.forEach((c) => this.l1Catalogue.set(c.id, c));
       }
 
       const savedTombstones = localStorage.getItem('damview_tombstones');
@@ -423,6 +789,35 @@ class StorageEngine {
         if (!db.objectStoreNames.contains('system_meta')) {
           db.createObjectStore('system_meta', { keyPath: 'key' });
         }
+        if (!db.objectStoreNames.contains('statements')) {
+          const stmtStore = db.createObjectStore('statements', { keyPath: 'id' });
+          stmtStore.createIndex('statementNumber', 'statementNumber', { unique: true });
+          stmtStore.createIndex('clientId', 'clientId', { unique: false });
+          stmtStore.createIndex('issueDate', 'issueDate', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('reservations')) {
+          const resStore = db.createObjectStore('reservations', { keyPath: 'id' });
+          resStore.createIndex('folioNumber', 'folioNumber', { unique: true });
+          resStore.createIndex('status', 'status', { unique: false });
+          resStore.createIndex('unitType', 'unitType', { unique: false });
+          resStore.createIndex('checkInDate', 'checkInDate', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('pos_orders')) {
+          const posStore = db.createObjectStore('pos_orders', { keyPath: 'id' });
+          posStore.createIndex('orderNumber', 'orderNumber', { unique: true });
+          posStore.createIndex('status', 'status', { unique: false });
+          posStore.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('expenses')) {
+          const expStore = db.createObjectStore('expenses', { keyPath: 'id' });
+          expStore.createIndex('expenseNumber', 'expenseNumber', { unique: true });
+          expStore.createIndex('category', 'category', { unique: false });
+          expStore.createIndex('date', 'date', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('catalogue')) {
+          const catStore = db.createObjectStore('catalogue', { keyPath: 'id' });
+          catStore.createIndex('category', 'category', { unique: false });
+        }
       };
 
       request.onsuccess = async () => {
@@ -452,6 +847,21 @@ class StorageEngine {
         const storeNames = ['hotel_profile', 'clients', 'documents', 'payments', 'sync_queue'];
         if (db.objectStoreNames.contains('tombstones')) {
           storeNames.push('tombstones');
+        }
+        if (db.objectStoreNames.contains('statements')) {
+          storeNames.push('statements');
+        }
+        if (db.objectStoreNames.contains('reservations')) {
+          storeNames.push('reservations');
+        }
+        if (db.objectStoreNames.contains('pos_orders')) {
+          storeNames.push('pos_orders');
+        }
+        if (db.objectStoreNames.contains('expenses')) {
+          storeNames.push('expenses');
+        }
+        if (db.objectStoreNames.contains('catalogue')) {
+          storeNames.push('catalogue');
         }
 
         const tx = db.transaction(storeNames, 'readonly');
@@ -534,6 +944,81 @@ class StorageEngine {
           };
         }
 
+        if (db.objectStoreNames.contains('statements')) {
+          const reqStmt = tx.objectStore('statements').getAll();
+          reqStmt.onsuccess = () => {
+            if (reqStmt.result) {
+              this.l1Statements.clear();
+              reqStmt.result.forEach((s: StatementRecord) => this.l1Statements.set(s.id, s));
+              if (typeof window !== 'undefined' && window.localStorage) {
+                try {
+                  localStorage.setItem('damview_statements_v1', JSON.stringify(Array.from(this.l1Statements.values())));
+                } catch {}
+              }
+            }
+          };
+        }
+
+        if (db.objectStoreNames.contains('reservations')) {
+          const reqRes = tx.objectStore('reservations').getAll();
+          reqRes.onsuccess = () => {
+            if (reqRes.result) {
+              this.l1Reservations.clear();
+              reqRes.result.forEach((r: Reservation) => this.l1Reservations.set(r.id, r));
+              if (typeof window !== 'undefined' && window.localStorage) {
+                try {
+                  localStorage.setItem('damview_reservations', JSON.stringify(Array.from(this.l1Reservations.values())));
+                } catch {}
+              }
+            }
+          };
+        }
+
+        if (db.objectStoreNames.contains('pos_orders')) {
+          const reqPOS = tx.objectStore('pos_orders').getAll();
+          reqPOS.onsuccess = () => {
+            if (reqPOS.result) {
+              this.l1POSOrders.clear();
+              reqPOS.result.forEach((p: POSOrder) => this.l1POSOrders.set(p.id, p));
+              if (typeof window !== 'undefined' && window.localStorage) {
+                try {
+                  localStorage.setItem('damview_pos_orders', JSON.stringify(Array.from(this.l1POSOrders.values())));
+                } catch {}
+              }
+            }
+          };
+        }
+
+        if (db.objectStoreNames.contains('expenses')) {
+          const reqExp = tx.objectStore('expenses').getAll();
+          reqExp.onsuccess = () => {
+            if (reqExp.result) {
+              this.l1Expenses.clear();
+              reqExp.result.forEach((e: ExpenseRecord) => this.l1Expenses.set(e.id, e));
+              if (typeof window !== 'undefined' && window.localStorage) {
+                try {
+                  localStorage.setItem('damview_expenses', JSON.stringify(Array.from(this.l1Expenses.values())));
+                } catch {}
+              }
+            }
+          };
+        }
+
+        if (db.objectStoreNames.contains('catalogue')) {
+          const reqCat = tx.objectStore('catalogue').getAll();
+          reqCat.onsuccess = () => {
+            if (reqCat.result) {
+              this.l1Catalogue.clear();
+              reqCat.result.forEach((c: CatalogueItem) => this.l1Catalogue.set(c.id, c));
+              if (typeof window !== 'undefined' && window.localStorage) {
+                try {
+                  localStorage.setItem('damview_catalogue', JSON.stringify(Array.from(this.l1Catalogue.values())));
+                } catch {}
+              }
+            }
+          };
+        }
+
         tx.oncomplete = () => {
           this.isL1Hydrated = true;
           resolve();
@@ -573,14 +1058,42 @@ class StorageEngine {
 
           // First-time installation seed
           try {
-            const seedTx = db.transaction(
-              ['hotel_profile', 'clients', 'documents', 'payments', 'system_meta'],
-              'readwrite'
-            );
+            const seedStores = ['hotel_profile', 'clients', 'documents', 'payments', 'system_meta'];
+            if (db.objectStoreNames.contains('statements')) {
+              seedStores.push('statements');
+            }
+            if (db.objectStoreNames.contains('reservations')) {
+              seedStores.push('reservations');
+            }
+            if (db.objectStoreNames.contains('pos_orders')) {
+              seedStores.push('pos_orders');
+            }
+            if (db.objectStoreNames.contains('expenses')) {
+              seedStores.push('expenses');
+            }
+            if (db.objectStoreNames.contains('catalogue')) {
+              seedStores.push('catalogue');
+            }
+            const seedTx = db.transaction(seedStores, 'readwrite');
             seedTx.objectStore('hotel_profile').put({ id: 'current', ...DEFAULT_HOTEL_PROFILE });
             SAMPLE_CLIENTS.forEach((c) => seedTx.objectStore('clients').put(c));
             SAMPLE_DOCUMENTS.forEach((d) => seedTx.objectStore('documents').put(d));
             SAMPLE_PAYMENTS.forEach((p) => seedTx.objectStore('payments').put(p));
+            if (db.objectStoreNames.contains('statements')) {
+              SAMPLE_STATEMENTS.forEach((s) => seedTx.objectStore('statements').put(s));
+            }
+            if (db.objectStoreNames.contains('reservations')) {
+              SAMPLE_RESERVATIONS.forEach((r) => seedTx.objectStore('reservations').put(r));
+            }
+            if (db.objectStoreNames.contains('pos_orders')) {
+              SAMPLE_POS_ORDERS.forEach((p) => seedTx.objectStore('pos_orders').put(p));
+            }
+            if (db.objectStoreNames.contains('expenses')) {
+              SAMPLE_EXPENSES.forEach((e) => seedTx.objectStore('expenses').put(e));
+            }
+            if (db.objectStoreNames.contains('catalogue')) {
+              STANDARD_HOSPITALITY_CATALOGUE.forEach((c) => seedTx.objectStore('catalogue').put(c));
+            }
             seedTx.objectStore('system_meta').put({
               key: 'initial_seed_completed',
               value: true,
@@ -1132,12 +1645,18 @@ class StorageEngine {
   // --- Next Document Number Generator ---
   async getNextDocumentNumber(type: 'QUOTATION' | 'PROFORMA' | 'INVOICE'): Promise<string> {
     const docs = await this.getDocuments();
-    const prefix = type === 'QUOTATION' ? 'Q-' : type === 'PROFORMA' ? 'PI-' : 'INV-';
-    const matching = docs.filter((d) => d.documentType === type && d.documentNumber.startsWith(prefix));
+    const prefix = type === 'QUOTATION' ? 'QT-' : type === 'PROFORMA' ? 'PI-' : 'INV-';
+    const matching = docs.filter((d) => {
+      if (d.documentType !== type) return false;
+      if (type === 'QUOTATION') {
+        return d.documentNumber.startsWith('QT-') || d.documentNumber.startsWith('Q-');
+      }
+      return d.documentNumber.startsWith(prefix);
+    });
 
     let maxNum = 0;
     matching.forEach((d) => {
-      const numPart = parseInt(d.documentNumber.replace(prefix, ''), 10);
+      const numPart = parseInt(d.documentNumber.replace(/^(QT-|Q-|PI-|INV-)/, ''), 10);
       if (!isNaN(numPart) && numPart > maxNum) {
         maxNum = numPart;
       }
@@ -1318,6 +1837,639 @@ class StorageEngine {
     return `REC-${String(maxNum + 1).padStart(4, '0')}`;
   }
 
+  // --- Statement of Accounts (SOA) ---
+  async getStatements(): Promise<StatementRecord[]> {
+    if (this.l1Statements.size > 0) {
+      const list = Array.from(this.l1Statements.values());
+      return list.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+    }
+
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('statements')) {
+        const tx = db.transaction('statements', 'readonly');
+        const store = tx.objectStore('statements');
+        const req = store.getAll();
+        const res = await new Promise<StatementRecord[]>((resolve) => {
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        });
+
+        if (res && res.length > 0) {
+          this.l1Statements.clear();
+          res.forEach((s) => this.l1Statements.set(s.id, s));
+          this.persistL1StatementsFallback();
+          return res.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+        }
+      }
+    } catch (e) {
+      console.warn('[StorageEngine] IndexedDB getStatements error:', e);
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('damview_statements_v1');
+        if (raw) {
+          const parsed: StatementRecord[] = JSON.parse(raw);
+          this.l1Statements.clear();
+          parsed.forEach((s) => this.l1Statements.set(s.id, s));
+          return parsed.sort((a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime());
+        }
+      } catch (e) {}
+    }
+
+    // Seed defaults
+    this.l1Statements.clear();
+    SAMPLE_STATEMENTS.forEach((s) => this.l1Statements.set(s.id, s));
+    this.persistL1StatementsFallback();
+    return [...SAMPLE_STATEMENTS];
+  }
+
+  async saveStatement(statement: StatementRecord): Promise<void> {
+    const updated = {
+      ...statement,
+      updatedAt: new Date().toISOString(),
+    };
+    this.l1Statements.set(updated.id, updated);
+    this.persistL1StatementsFallback();
+
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('statements')) {
+        const tx = db.transaction('statements', 'readwrite');
+        tx.objectStore('statements').put(updated);
+      }
+    } catch (e) {
+      console.warn('[StorageEngine] IndexedDB saveStatement error:', e);
+    }
+
+    this.recordAuditLog({
+      entityType: 'DOCUMENT',
+      entityId: statement.id,
+      action: 'CREATE',
+      details: `Generated Statement of Account ${statement.statementNumber} for ${statement.clientName} (Closing Balance: Ksh ${statement.closingBalance.toLocaleString()})`,
+      snapshot: statement,
+    }).catch(() => {});
+  }
+
+  async deleteStatement(statementId: string): Promise<void> {
+    const target = this.l1Statements.get(statementId);
+    this.l1Statements.delete(statementId);
+    this.persistL1StatementsFallback();
+
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('statements')) {
+        const tx = db.transaction('statements', 'readwrite');
+        tx.objectStore('statements').delete(statementId);
+      }
+    } catch (e) {
+      console.warn('[StorageEngine] Delete statement error:', e);
+    }
+
+    this.recordAuditLog({
+      entityType: 'DOCUMENT',
+      entityId: statementId,
+      action: 'DELETE',
+      details: `Deleted Statement of Account ${target?.statementNumber || statementId} (${target?.clientName || ''})`,
+      snapshot: target,
+    }).catch(() => {});
+  }
+
+  // --- Reservations & Hall Bookings ---
+  async getReservations(): Promise<Reservation[]> {
+    if (this.l1Reservations.size > 0) {
+      const list = Array.from(this.l1Reservations.values());
+      return list.sort((a, b) => new Date(b.checkInDate).getTime() - new Date(a.checkInDate).getTime());
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames.contains('reservations')) {
+        const tx = db.transaction('reservations', 'readonly');
+        const req = tx.objectStore('reservations').getAll();
+        const res = await new Promise<Reservation[]>((resolve) => {
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        });
+        if (res && res.length > 0) {
+          this.l1Reservations.clear();
+          res.forEach((r) => this.l1Reservations.set(r.id, r));
+          if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+              localStorage.setItem('damview_reservations', JSON.stringify(res));
+            } catch {}
+          }
+          return res.sort((a, b) => new Date(b.checkInDate).getTime() - new Date(a.checkInDate).getTime());
+        }
+      }
+    } catch {}
+
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('damview_reservations');
+        if (raw) {
+          const parsed: Reservation[] = JSON.parse(raw);
+          this.l1Reservations.clear();
+          parsed.forEach((r) => this.l1Reservations.set(r.id, r));
+          return parsed.sort((a, b) => new Date(b.checkInDate).getTime() - new Date(a.checkInDate).getTime());
+        }
+      } catch {}
+    }
+
+    this.l1Reservations.clear();
+    SAMPLE_RESERVATIONS.forEach((r) => this.l1Reservations.set(r.id, r));
+    return [...SAMPLE_RESERVATIONS];
+  }
+
+  async getReservationById(id: string): Promise<Reservation | null> {
+    const list = await this.getReservations();
+    return list.find((r) => r.id === id) || null;
+  }
+
+  async saveReservation(reservation: Reservation): Promise<void> {
+    const nowIso = new Date().toISOString();
+    const updated: Reservation = {
+      ...reservation,
+      updatedAt: nowIso,
+      createdAt: reservation.createdAt || nowIso,
+    };
+    this.l1Reservations.set(updated.id, updated);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_reservations', JSON.stringify(Array.from(this.l1Reservations.values())));
+      } catch {}
+    }
+
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('reservations')) {
+        const tx = db.transaction('reservations', 'readwrite');
+        tx.objectStore('reservations').put(updated);
+      }
+    } catch (e) {
+      console.warn('[StorageEngine] IndexedDB saveReservation error:', e);
+    }
+
+    this.recordAuditLog({
+      entityType: 'RESERVATION',
+      entityId: updated.id,
+      action: 'UPDATE',
+      details: `Saved Folio ${updated.folioNumber} for ${updated.guestName} (${updated.unitName}) - Status: ${updated.status}`,
+      snapshot: updated,
+    }).catch(() => {});
+  }
+
+  async deleteReservation(id: string): Promise<void> {
+    const target = this.l1Reservations.get(id);
+    this.l1Reservations.delete(id);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_reservations', JSON.stringify(Array.from(this.l1Reservations.values())));
+      } catch {}
+    }
+
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('reservations')) {
+        const tx = db.transaction('reservations', 'readwrite');
+        tx.objectStore('reservations').delete(id);
+      }
+    } catch {}
+
+    this.recordAuditLog({
+      entityType: 'RESERVATION',
+      entityId: id,
+      action: 'DELETE',
+      details: `Deleted reservation folio ${target?.folioNumber || id}`,
+      snapshot: target,
+    }).catch(() => {});
+  }
+
+  async getNextFolioNumber(): Promise<string> {
+    const list = await this.getReservations();
+    let maxNum = 0;
+    list.forEach((r) => {
+      const match = r.folioNumber.match(/FOL-\d{4}-(\d+)/) || r.folioNumber.match(/FOL-(\d+)/);
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+    const year = new Date().getFullYear();
+    return `FOL-${year}-${String(maxNum + 1).padStart(3, '0')}`;
+  }
+
+  // --- Restaurant & POS Quick-Billing ---
+  async getPOSOrders(): Promise<POSOrder[]> {
+    if (this.l1POSOrders.size > 0) {
+      const list = Array.from(this.l1POSOrders.values());
+      return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames.contains('pos_orders')) {
+        const tx = db.transaction('pos_orders', 'readonly');
+        const req = tx.objectStore('pos_orders').getAll();
+        const res = await new Promise<POSOrder[]>((resolve) => {
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        });
+        if (res && res.length > 0) {
+          this.l1POSOrders.clear();
+          res.forEach((p) => this.l1POSOrders.set(p.id, p));
+          if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+              localStorage.setItem('damview_pos_orders', JSON.stringify(res));
+            } catch {}
+          }
+          return res.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        }
+      }
+    } catch {}
+
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('damview_pos_orders');
+        if (raw) {
+          const parsed: POSOrder[] = JSON.parse(raw);
+          this.l1POSOrders.clear();
+          parsed.forEach((p) => this.l1POSOrders.set(p.id, p));
+          return parsed.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        }
+      } catch {}
+    }
+
+    this.l1POSOrders.clear();
+    SAMPLE_POS_ORDERS.forEach((p) => this.l1POSOrders.set(p.id, p));
+    return [...SAMPLE_POS_ORDERS];
+  }
+
+  async savePOSOrder(order: POSOrder): Promise<void> {
+    const updated: POSOrder = {
+      ...order,
+      createdAt: order.createdAt || new Date().toISOString(),
+    };
+    this.l1POSOrders.set(updated.id, updated);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_pos_orders', JSON.stringify(Array.from(this.l1POSOrders.values())));
+      } catch {}
+    }
+
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('pos_orders')) {
+        const tx = db.transaction('pos_orders', 'readwrite');
+        tx.objectStore('pos_orders').put(updated);
+      }
+    } catch (e) {
+      console.warn('[StorageEngine] IndexedDB savePOSOrder error:', e);
+    }
+
+    this.recordAuditLog({
+      entityType: 'POS',
+      entityId: updated.id,
+      action: 'CREATE',
+      details: `Recorded POS Order ${updated.orderNumber} for ${updated.tableOrRoom} - Ksh ${updated.grandTotal.toLocaleString()} (${updated.paymentMode})`,
+      snapshot: updated,
+    }).catch(() => {});
+  }
+
+  async deletePOSOrder(id: string): Promise<void> {
+    const target = this.l1POSOrders.get(id);
+    this.l1POSOrders.delete(id);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_pos_orders', JSON.stringify(Array.from(this.l1POSOrders.values())));
+      } catch {}
+    }
+
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('pos_orders')) {
+        const tx = db.transaction('pos_orders', 'readwrite');
+        tx.objectStore('pos_orders').delete(id);
+      }
+    } catch {}
+
+    this.recordAuditLog({
+      entityType: 'POS',
+      entityId: id,
+      action: 'DELETE',
+      details: `Deleted POS Order ${target?.orderNumber || id}`,
+      snapshot: target,
+    }).catch(() => {});
+  }
+
+  async getNextPOSOrderNumber(): Promise<string> {
+    const list = await this.getPOSOrders();
+    let maxNum = 0;
+    list.forEach((p) => {
+      const match = p.orderNumber.match(/POS-\d{4}-(\d+)/) || p.orderNumber.match(/POS-(\d+)/);
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+    const year = new Date().getFullYear();
+    return `POS-${year}-${String(maxNum + 1).padStart(3, '0')}`;
+  }
+
+  // --- Expenses & Purchases ---
+  async getExpenses(): Promise<ExpenseRecord[]> {
+    if (this.l1Expenses.size > 0) {
+      const list = Array.from(this.l1Expenses.values());
+      return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames.contains('expenses')) {
+        const tx = db.transaction('expenses', 'readonly');
+        const req = tx.objectStore('expenses').getAll();
+        const res = await new Promise<ExpenseRecord[]>((resolve) => {
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        });
+        if (res && res.length > 0) {
+          this.l1Expenses.clear();
+          res.forEach((e) => this.l1Expenses.set(e.id, e));
+          return res.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        }
+      }
+    } catch {}
+
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('damview_expenses');
+        if (raw) {
+          const parsed: ExpenseRecord[] = JSON.parse(raw);
+          this.l1Expenses.clear();
+          parsed.forEach((e) => this.l1Expenses.set(e.id, e));
+          return parsed.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        }
+      } catch {}
+    }
+
+    this.l1Expenses.clear();
+    SAMPLE_EXPENSES.forEach((e) => this.l1Expenses.set(e.id, e));
+    return [...SAMPLE_EXPENSES];
+  }
+
+  async saveExpense(expense: ExpenseRecord): Promise<void> {
+    const updated: ExpenseRecord = {
+      ...expense,
+      createdAt: expense.createdAt || new Date().toISOString(),
+    };
+    this.l1Expenses.set(updated.id, updated);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_expenses', JSON.stringify(Array.from(this.l1Expenses.values())));
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('expenses')) {
+        const tx = db.transaction('expenses', 'readwrite');
+        tx.objectStore('expenses').put(updated);
+      }
+    } catch {}
+  }
+
+  async deleteExpense(id: string): Promise<void> {
+    this.l1Expenses.delete(id);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_expenses', JSON.stringify(Array.from(this.l1Expenses.values())));
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('expenses')) {
+        const tx = db.transaction('expenses', 'readwrite');
+        tx.objectStore('expenses').delete(id);
+      }
+    } catch {}
+  }
+
+  async getNextExpenseNumber(): Promise<string> {
+    const list = await this.getExpenses();
+    let maxNum = 0;
+    list.forEach((e) => {
+      const match = e.expenseNumber.match(/EXP-\d{4}-(\d+)/) || e.expenseNumber.match(/EXP-(\d+)/);
+      if (match && match[1]) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+    const year = new Date().getFullYear();
+    return `EXP-${year}-${String(maxNum + 1).padStart(3, '0')}`;
+  }
+
+  // --- Hospitality Catalogue ---
+  async getCatalogueItems(): Promise<CatalogueItem[]> {
+    if (this.l1Catalogue.size > 0) {
+      return Array.from(this.l1Catalogue.values());
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('damview_catalogue');
+        if (raw) {
+          const parsed: CatalogueItem[] = JSON.parse(raw);
+          this.l1Catalogue.clear();
+          parsed.forEach((c) => this.l1Catalogue.set(c.id, c));
+          return parsed;
+        }
+      } catch {}
+    }
+    this.l1Catalogue.clear();
+    STANDARD_HOSPITALITY_CATALOGUE.forEach((c) => this.l1Catalogue.set(c.id, c));
+    return [...STANDARD_HOSPITALITY_CATALOGUE];
+  }
+
+  async saveCatalogueItem(item: CatalogueItem): Promise<void> {
+    this.l1Catalogue.set(item.id, item);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_catalogue', JSON.stringify(Array.from(this.l1Catalogue.values())));
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('catalogue')) {
+        const tx = db.transaction('catalogue', 'readwrite');
+        tx.objectStore('catalogue').put(item);
+      }
+    } catch {}
+  }
+
+  async deleteCatalogueItem(id: string): Promise<void> {
+    this.l1Catalogue.delete(id);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_catalogue', JSON.stringify(Array.from(this.l1Catalogue.values())));
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('catalogue')) {
+        const tx = db.transaction('catalogue', 'readwrite');
+        tx.objectStore('catalogue').delete(id);
+      }
+    } catch {}
+  }
+
+  // --- Dynamic POS Menu Catalog ---
+  private l1POSMenu = new Map<string, any>();
+
+  async getPOSMenuItems(): Promise<any[]> {
+    if (this.l1POSMenu.size > 0) {
+      return Array.from(this.l1POSMenu.values());
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('damview_pos_menu_catalog');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            this.l1POSMenu.clear();
+            parsed.forEach((item) => this.l1POSMenu.set(item.id, item));
+            return parsed;
+          }
+        }
+      } catch {}
+    }
+    this.l1POSMenu.clear();
+    STANDARD_POS_MENU.forEach((m) => {
+      const menuItem = {
+        id: m.id,
+        name: m.name,
+        category: m.category,
+        unitRate: m.price,
+        taxApplicable: true,
+        available: true,
+      };
+      this.l1POSMenu.set(m.id, menuItem);
+    });
+    return Array.from(this.l1POSMenu.values());
+  }
+
+  async savePOSMenuItem(item: any): Promise<void> {
+    const updated = {
+      ...item,
+      updatedAt: new Date().toISOString(),
+    };
+    this.l1POSMenu.set(updated.id, updated);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_pos_menu_catalog', JSON.stringify(Array.from(this.l1POSMenu.values())));
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('pos_menu_catalog')) {
+        const tx = db.transaction('pos_menu_catalog', 'readwrite');
+        tx.objectStore('pos_menu_catalog').put(updated);
+      }
+    } catch {}
+  }
+
+  async deletePOSMenuItem(id: string): Promise<void> {
+    this.l1POSMenu.delete(id);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_pos_menu_catalog', JSON.stringify(Array.from(this.l1POSMenu.values())));
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('pos_menu_catalog')) {
+        const tx = db.transaction('pos_menu_catalog', 'readwrite');
+        tx.objectStore('pos_menu_catalog').delete(id);
+      }
+    } catch {}
+  }
+
+  // --- Dynamic Room & Space Catalog ---
+  private l1RoomSpaces = new Map<string, any>();
+
+  async getRoomSpaceItems(): Promise<any[]> {
+    if (this.l1RoomSpaces.size > 0) {
+      return Array.from(this.l1RoomSpaces.values());
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('damview_room_space_catalog');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            this.l1RoomSpaces.clear();
+            parsed.forEach((item) => this.l1RoomSpaces.set(item.id, item));
+            return parsed;
+          }
+        }
+      } catch {}
+    }
+    const baselineSpaces = [
+      { id: 'rs-101', code: 'R-101', name: 'VIP Suite 101 (Lake View)', spaceType: 'Room', baseRate: 8500, capacity: '2 Guests', status: 'Available' },
+      { id: 'rs-102', code: 'R-102', name: 'Standard Room 102', spaceType: 'Room', baseRate: 5500, capacity: '1-2 Guests', status: 'Available' },
+      { id: 'rs-103', code: 'R-103', name: 'Standard Room 103', spaceType: 'Room', baseRate: 5500, capacity: '1-2 Guests', status: 'Available' },
+      { id: 'rs-105', code: 'R-105', name: 'Twin Deluxe 105', spaceType: 'Room', baseRate: 7000, capacity: '2-3 Guests', status: 'Available' },
+      { id: 'rs-204', code: 'R-204', name: 'Deluxe Room 204 (Lake View)', spaceType: 'Room', baseRate: 7000, capacity: '2 Guests', status: 'Available' },
+      { id: 'rs-kilima', code: 'H-KILIMA', name: 'Executive Kilima Hall', spaceType: 'Conference Hall', baseRate: 25000, capacity: '60 Delegates', status: 'Available' },
+      { id: 'rs-maruba', code: 'H-MARUBA', name: 'Maruba Garden Pavilion / Pavilion Hall', spaceType: 'Conference Hall', baseRate: 35000, capacity: '150 Delegates', status: 'Available' },
+      { id: 'rs-boardroom', code: 'H-BOARD', name: 'Executive Boardroom VIP Suite', spaceType: 'Conference Hall', baseRate: 15000, capacity: '20 Delegates', status: 'Available' },
+      { id: 'rs-terrace', code: 'A-TERRACE', name: 'Poolside / Lake View Terrace', spaceType: 'Auxiliary Space', baseRate: 15000, capacity: '80 Guests', status: 'Available' },
+      { id: 'rs-grounds', code: 'A-GARDEN', name: 'Damview Gardens / Grounds', spaceType: 'Auxiliary Space', baseRate: 25000, capacity: '300 Guests', status: 'Available' },
+    ];
+    this.l1RoomSpaces.clear();
+    baselineSpaces.forEach((s) => this.l1RoomSpaces.set(s.id, s));
+    return baselineSpaces;
+  }
+
+  async saveRoomSpaceItem(item: any): Promise<void> {
+    const updated = {
+      ...item,
+      updatedAt: new Date().toISOString(),
+    };
+    this.l1RoomSpaces.set(updated.id, updated);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_room_space_catalog', JSON.stringify(Array.from(this.l1RoomSpaces.values())));
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('room_space_catalog')) {
+        const tx = db.transaction('room_space_catalog', 'readwrite');
+        tx.objectStore('room_space_catalog').put(updated);
+      }
+    } catch {}
+  }
+
+  async deleteRoomSpaceItem(id: string): Promise<void> {
+    this.l1RoomSpaces.delete(id);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_room_space_catalog', JSON.stringify(Array.from(this.l1RoomSpaces.values())));
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('room_space_catalog')) {
+        const tx = db.transaction('room_space_catalog', 'readwrite');
+        tx.objectStore('room_space_catalog').delete(id);
+      }
+    } catch {}
+  }
+
+  private persistL1StatementsFallback() {
+    if (typeof window === 'undefined') return;
+    try {
+      const list = Array.from(this.l1Statements.values());
+      localStorage.setItem('damview_statements_v1', JSON.stringify(list));
+    } catch (e) {}
+  }
+
   // --- Sync Queue ---
   async getSyncQueue(): Promise<SyncQueueItem[]> {
     if (this.l1SyncQueue.size > 0) {
@@ -1429,15 +2581,17 @@ class StorageEngine {
 
   // --- Immutable Audit Logging ---
   async recordAuditLog(entry: {
-    entityType: 'DOCUMENT' | 'CLIENT' | 'PAYMENT' | 'PROFILE' | 'SYNC';
+    entityType: AuditLogEntry['entityType'];
     entityId: string;
-    action: 'CREATE' | 'UPDATE' | 'DELETE' | 'MUTATION_GUARDED' | 'SELF_HEALED' | 'MERGED';
+    action: AuditLogEntry['action'];
     details: string;
     snapshot?: any;
+    id?: string;
+    timestamp?: string;
   }): Promise<void> {
     const logItem: AuditLogEntry = {
-      id: 'aud-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
-      timestamp: new Date().toISOString(),
+      id: entry.id || ('aud-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7)),
+      timestamp: entry.timestamp || new Date().toISOString(),
       ...entry,
     };
 

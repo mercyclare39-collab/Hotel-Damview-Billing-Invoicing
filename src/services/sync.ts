@@ -1,7 +1,8 @@
 import { dbService } from './db';
-import { BillingDocument, Client, PaymentRecord, HotelProfile, LineItem } from '../types';
+import { BillingDocument, Client, PaymentRecord, HotelProfile, LineItem, StatementRecord } from '../types';
 import { getPdfFileName } from '../utils/formatters';
 import { generateTestPdfDocument } from '../utils/pdfGenerator';
+import { driveArchiver } from './driveArchiver';
 import {
   autoCorrectIncomingDocument,
   autoCorrectIncomingClient,
@@ -389,6 +390,8 @@ export function sanitizeDocumentForSync(doc: BillingDocument): BillingDocument {
     status: doc.status || (doc.documentType === 'INVOICE' && balanceDue <= 0 ? 'Paid' : 'Sent'),
     notes: normalizeText(doc.notes || ''),
     terms: normalizeText(doc.terms || ''),
+    driveFileUrl: doc.driveFileUrl || undefined,
+    driveFileId: doc.driveFileId || undefined,
     createdAt: normalizeDate(doc.createdAt),
     updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : new Date().toISOString(),
   };
@@ -418,6 +421,8 @@ export function sanitizePaymentForSync(payment: PaymentRecord): PaymentRecord {
     amount: normalizeCurrency(payment.amount),
     paymentMode: payment.paymentMode || 'M-Pesa',
     referenceNote: normalizeText(payment.referenceNote),
+    driveFileUrl: payment.driveFileUrl || undefined,
+    driveFileId: payment.driveFileId || undefined,
     createdAt: payment.createdAt ? new Date(payment.createdAt).toISOString() : new Date().toISOString(),
   };
 }
@@ -847,7 +852,12 @@ class GoogleSyncManager {
         throw new Error(res.error || 'Sync rejected by Google Apps Script backend');
       }
 
-      const driveUrl = res?.pdfArchived?.url || res?.driveUrl || doc.driveFileUrl;
+      const driveUrl =
+        res?.pdfArchived?.webViewLink ||
+        res?.pdfArchived?.url ||
+        res?.webViewLink ||
+        res?.driveUrl ||
+        doc.driveFileUrl;
       const driveFileId = res?.pdfArchived?.fileId || res?.driveFileId || doc.driveFileId;
       const uploadVerified = Boolean(
         res?.pdfArchived?.status === 'ARCHIVED' ||
@@ -903,6 +913,17 @@ class GoogleSyncManager {
 
       return { success: false, error: errorMessage };
     }
+  }
+
+  /**
+   * Direct trigger to archive a document PDF to Google Drive and sync remote ledger.
+   */
+  async archiveDocumentPdf(
+    doc: BillingDocument,
+    pdfBase64?: string,
+    fileName?: string
+  ): Promise<{ success: boolean; driveUrl?: string; driveFileId?: string; uploadVerified?: boolean; error?: string }> {
+    return this.syncDocument(doc, pdfBase64, fileName);
   }
 
   /**
@@ -1160,7 +1181,12 @@ class GoogleSyncManager {
         throw new Error(res.error || 'Payment sync rejected by Google backend');
       }
 
-      const driveUrl = res?.pdfArchived?.url || res?.driveUrl || payment.driveFileUrl;
+      const driveUrl =
+        res?.pdfArchived?.webViewLink ||
+        res?.pdfArchived?.url ||
+        res?.webViewLink ||
+        res?.driveUrl ||
+        payment.driveFileUrl;
       const driveFileId = res?.pdfArchived?.fileId || res?.driveFileId || payment.driveFileId;
       const uploadVerified = Boolean(
         res?.pdfArchived?.status === 'ARCHIVED' ||
@@ -1199,6 +1225,112 @@ class GoogleSyncManager {
         statusText: 'Payment queued for sync',
       });
       return { success: false, error: err?.message || 'Payment sync error' };
+    }
+  }
+
+  /**
+   * Direct trigger to archive a receipt payment PDF to Google Drive and sync remote ledger.
+   */
+  async archiveReceiptPdf(
+    payment: PaymentRecord,
+    pdfBase64?: string,
+    fileName?: string
+  ): Promise<{ success: boolean; driveUrl?: string; driveFileId?: string; uploadVerified?: boolean; error?: string }> {
+    return this.syncPayment(payment, pdfBase64, fileName);
+  }
+
+  /**
+   * Direct trigger to archive a Statement of Account PDF to Google Drive via Apps Script.
+   */
+  async archiveStatementPdf(
+    statement: StatementRecord,
+    pdfBase64?: string,
+    fileName?: string
+  ): Promise<{ success: boolean; driveUrl?: string; driveFileId?: string; uploadVerified?: boolean; error?: string }> {
+    const profile = await dbService.getHotelProfile();
+    const url = profile.googleWebAppUrl;
+
+    const canonicalFileName =
+      fileName ||
+      `${statement.statementNumber}_${(statement.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_')}_${statement.issueDate}.pdf`;
+
+    let validPdfBase64 = pdfBase64;
+    if (validPdfBase64 && validPdfBase64.length < 500) {
+      console.warn('Pre-upload validation: Statement PDF base64 stream length is undersized (< 500 characters).');
+      validPdfBase64 = undefined;
+    }
+
+    const payload = {
+      action: 'ARCHIVE_STATEMENT_PDF',
+      statementNumber: statement.statementNumber,
+      clientName: statement.clientName,
+      pdfBase64: validPdfBase64,
+      fileName: canonicalFileName,
+      folderName: profile.googleDriveFolder || 'Hotel Damview Archives',
+      timestamp: new Date().toISOString(),
+    };
+
+    if (!url || !navigator.onLine) {
+      const reason = !navigator.onLine
+        ? 'Offline mode active. Statement archived locally; queued for cloud sync.'
+        : 'Web App URL missing.';
+      await dbService.addToSyncQueue({
+        action: 'ARCHIVE_STATEMENT_PDF',
+        payload,
+      });
+      const queue = await dbService.getSyncQueue();
+      this.notifyListeners({ pendingCount: queue.length });
+      return { success: false, error: reason };
+    }
+
+    try {
+      this.notifyListeners({ isSyncing: true, statusText: 'Archiving Statement PDF to Google Drive...' });
+      const res = await this.postToScript(url, payload);
+
+      if (!res.success) {
+        throw new Error(res.error || 'Statement archive rejected by Google backend');
+      }
+
+      const driveUrl =
+        res?.pdfArchived?.webViewLink ||
+        res?.pdfArchived?.url ||
+        res?.webViewLink ||
+        res?.driveUrl ||
+        statement.driveFileUrl;
+      const driveFileId = res?.pdfArchived?.fileId || res?.driveFileId || statement.driveFileId;
+      const uploadVerified = Boolean(
+        res?.pdfArchived?.status === 'ARCHIVED' ||
+        (driveUrl && typeof driveUrl === 'string' && driveUrl.startsWith('http'))
+      );
+
+      const updatedStmt: StatementRecord = {
+        ...statement,
+        driveFileUrl: driveUrl,
+        driveFileId,
+        pdfGenerated: true,
+        updatedAt: new Date().toISOString(),
+      };
+      await dbService.saveStatement(updatedStmt);
+
+      this.notifyListeners({
+        isSyncing: false,
+        lastSyncTimestamp: new Date().toISOString(),
+        statusText: uploadVerified ? 'Statement PDF Live Synced & Verified' : 'Statement PDF Live Synced',
+      });
+
+      return { success: true, driveUrl, driveFileId, uploadVerified };
+    } catch (err: any) {
+      await dbService.addToSyncQueue({
+        action: 'ARCHIVE_STATEMENT_PDF',
+        payload,
+      });
+      const queue = await dbService.getSyncQueue();
+      this.notifyListeners({
+        isSyncing: false,
+        pendingCount: queue.length,
+        statusText: 'Statement queued for cloud sync',
+      });
+      return { success: false, error: err?.message || 'Statement sync network error' };
     }
   }
 
@@ -1540,9 +1672,21 @@ class GoogleSyncManager {
 
   /**
    * Pull latest data from Google Sheets down into local database in real time
-   * Fast fingerprinting prevents unnecessary database writes when nothing changed
+   * Supports optional force parameter to bypass fingerprint caching and force full update
    */
-  async pullFromGoogleSheets(): Promise<{ success: boolean; itemsPulled: number; error?: string; unchanged?: boolean }> {
+  async pullFromGoogleSheets(options?: { force?: boolean }): Promise<{
+    success: boolean;
+    itemsPulled: number;
+    stats?: {
+      invoices: number;
+      quotations: number;
+      proformas: number;
+      clients: number;
+      payments: number;
+    };
+    error?: string;
+    unchanged?: boolean;
+  }> {
     if (!navigator.onLine) {
       return { success: false, itemsPulled: 0, error: 'Cannot pull from Google Sheets while offline.' };
     }
@@ -1554,21 +1698,31 @@ class GoogleSyncManager {
     }
 
     try {
+      this.notifyListeners({ isSyncing: true, statusText: 'Pulling latest data from Google Sheets...' });
       const fetchRes = await this.fetchSheetData();
       if (!fetchRes.success || !fetchRes.data) {
+        this.notifyListeners({ isSyncing: false, statusText: 'Pull failed' });
         return { success: false, itemsPulled: 0, error: fetchRes.error || 'Empty response from spreadsheet.' };
       }
 
       const remoteData = fetchRes.data;
       const currentHash = this.computePayloadHash(remoteData);
 
-      // Fast-path: If remote content has not changed, return in ~0ms
+      // Fast-path: If remote content has not changed and force is not specified, return immediately
       const syncQueue = await dbService.getSyncQueue();
-      if (this.lastPulledHash && this.lastPulledHash === currentHash && syncQueue.length === 0) {
+      if (!options?.force && this.lastPulledHash && this.lastPulledHash === currentHash && syncQueue.length === 0) {
+        this.notifyListeners({ isSyncing: false, statusText: 'All data up to date' });
         return { success: true, itemsPulled: 0, unchanged: true };
       }
 
       let pulledCount = 0;
+      const pullStats = {
+        invoices: 0,
+        quotations: 0,
+        proformas: 0,
+        clients: 0,
+        payments: 0,
+      };
 
       // Get pending offline queue IDs so local un-synced edits are not overwritten
       const pendingDocNumbers = new Set(
@@ -1652,8 +1806,9 @@ class GoogleSyncManager {
                 address: remoteClient.address?.trim() ? remoteClient.address.trim() : existing.address,
                 updatedAt: remoteClient.updatedAt || new Date().toISOString(),
               };
-              await dbService.saveClient(updatedClient);
+              await dbService.saveClient(updatedClient, { skipRemoteSync: true });
               pulledCount++;
+              pullStats.clients++;
             }
           } else {
             const newClient: Client = {
@@ -1667,8 +1822,9 @@ class GoogleSyncManager {
               createdAt: remoteClient.createdAt || new Date().toISOString(),
               updatedAt: remoteClient.updatedAt || new Date().toISOString(),
             };
-            await dbService.saveClient(newClient);
+            await dbService.saveClient(newClient, { skipRemoteSync: true });
             pulledCount++;
+            pullStats.clients++;
           }
         }
       }
@@ -1722,8 +1878,11 @@ class GoogleSyncManager {
             // Strict LWW enforcement: Only update local document if remote is strictly newer
             if (remoteUpdated > localUpdated + 1500) {
               const merged = safelyMergeDocumentWithDefensiveShields(existing, rDoc);
-              await dbService.saveDocument(merged);
+              await dbService.saveDocument(merged, { skipRemoteSync: true });
               pulledCount++;
+              if (type === 'INVOICE') pullStats.invoices++;
+              else if (type === 'QUOTATION') pullStats.quotations++;
+              else if (type === 'PROFORMA') pullStats.proformas++;
             } else if (
               existing.amountPaid !== rawPaid &&
               (rDoc.amountPaid !== undefined && rDoc.amountPaid !== null) &&
@@ -1739,8 +1898,11 @@ class GoogleSyncManager {
                 status: newStatus as any,
                 updatedAt: new Date().toISOString(),
               };
-              await dbService.saveDocument(updated);
+              await dbService.saveDocument(updated, { skipRemoteSync: true });
               pulledCount++;
+              if (type === 'INVOICE') pullStats.invoices++;
+              else if (type === 'QUOTATION') pullStats.quotations++;
+              else if (type === 'PROFORMA') pullStats.proformas++;
             }
           } else {
             const rawSubtotal = sanitizeCurrency(rDoc.subtotal);
@@ -1790,8 +1952,11 @@ class GoogleSyncManager {
               driveFileUrl: rDoc.driveFileUrl || undefined,
               lastSyncStatus: 'synced',
             };
-            await dbService.saveDocument(newDoc);
+            await dbService.saveDocument(newDoc, { skipRemoteSync: true });
             pulledCount++;
+            if (type === 'INVOICE') pullStats.invoices++;
+            else if (type === 'QUOTATION') pullStats.quotations++;
+            else if (type === 'PROFORMA') pullStats.proformas++;
           }
         }
       };
@@ -1844,8 +2009,9 @@ class GoogleSyncManager {
               driveFileUrl: rPay.driveFileUrl || undefined,
               lastSyncStatus: 'synced',
             };
-            await dbService.savePayment(newPayment);
+            await dbService.savePayment(newPayment, { skipRemoteSync: true });
             pulledCount++;
+            pullStats.payments++;
           }
         }
       }
@@ -1865,7 +2031,7 @@ class GoogleSyncManager {
         if (rp.vatRate && !isNaN(Number(rp.vatRate))) profileUpdates.vatRate = Number(rp.vatRate);
 
         if (Object.keys(profileUpdates).length > 0) {
-          await dbService.saveHotelProfile(profileUpdates);
+          await dbService.saveHotelProfile(profileUpdates, { skipRemoteSync: true });
         }
       }
 
@@ -1874,13 +2040,29 @@ class GoogleSyncManager {
       if (pulledCount > 0 && typeof window !== 'undefined') {
         window.dispatchEvent(
           new CustomEvent('damview:data-changed', {
-            detail: { itemsPulled: pulledCount, timestamp: new Date().toISOString() },
+            detail: { itemsPulled: pulledCount, stats: pullStats, timestamp: new Date().toISOString() },
           })
         );
       }
 
-      return { success: true, itemsPulled: pulledCount };
+      const now = new Date().toISOString();
+      await dbService.saveHotelProfile({
+        lastSyncTimestamp: now,
+      }, { skipRemoteSync: true });
+
+      this.notifyListeners({
+        isSyncing: false,
+        lastSyncTimestamp: now,
+        statusText: pulledCount > 0 ? `Pulled ${pulledCount} record(s)` : 'All data up to date',
+      });
+
+      return { success: true, itemsPulled: pulledCount, stats: pullStats };
     } catch (err: any) {
+      this.notifyListeners({
+        isSyncing: false,
+        statusText: 'Pull error',
+        lastError: err.message,
+      });
       return { success: false, itemsPulled: 0, error: err.message || 'Failed during sheet data pull' };
     }
   }
@@ -1998,6 +2180,13 @@ class GoogleSyncManager {
       // Step 2: Pull latest data from Google Sheets
       const pullResult = await this.pullFromGoogleSheets();
       const pulledCount = pullResult.itemsPulled || 0;
+
+      // Step 2b: Flush queued offline PDF exports to Google Drive
+      try {
+        await driveArchiver.flushOfflineQueue();
+      } catch (driveErr) {
+        console.warn('Background Drive offline queue flush warning:', driveErr);
+      }
 
       // Step 3: Record sync timestamp
       const now = new Date().toISOString();

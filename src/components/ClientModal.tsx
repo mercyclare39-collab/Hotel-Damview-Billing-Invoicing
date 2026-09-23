@@ -12,7 +12,8 @@ import {
   Save,
 } from 'lucide-react';
 import { Client } from '../types';
-import { validateKraPin, normalizeKenyanPhone } from '../utils/formatters';
+import { validateKraPin, normalizeKenyanPhone, sanitizeKenyanPhoneLive } from '../utils/formatters';
+import { autoCorrectKenyanPhone, autoCorrectKraPin } from '../utils/autoCorrection';
 
 interface ClientModalProps {
   isOpen: boolean;
@@ -67,12 +68,15 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       return;
     }
 
+    const correctedPhone = autoCorrectKenyanPhone(phone, 'international').international || normalizeKenyanPhone(phone);
+    const correctedKra = autoCorrectKraPin(kraPin).cleaned;
+
     const clientToSave: Client = {
       id: client?.id || `cli-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       name: name.trim(),
       contactPerson: contactPerson.trim(),
-      kraPin: kraPin.trim().toUpperCase(),
-      phone: phone.trim(),
+      kraPin: correctedKra,
+      phone: correctedPhone,
       email: email.trim().toLowerCase(),
       address: address.trim(),
       createdAt: client?.createdAt || new Date().toISOString(),
@@ -180,7 +184,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                   <input
                     type="text"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => setPhone(sanitizeKenyanPhoneLive(e.target.value))}
                     onBlur={(e) => setPhone(normalizeKenyanPhone(e.target.value))}
                     placeholder="0722 000 000 or +254..."
                     className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"

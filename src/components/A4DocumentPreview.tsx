@@ -62,31 +62,41 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
     // Formatted phone & email line
     const phoneEmail = `${profile.phone || '+254 722 890 123'} | ${profile.email || 'reservations@damviewhotel.co.ke'}`;
 
-    // Auto-fit calculations for similar columns:
-    // 1. Similar numerical columns: Qty & Days (auto-fitted to data, equally distributed to identical width)
-    const maxQtyDaysChars = Math.max(
-      4, // Length of header label "Days"
-      ...(activeLineItems.length > 0
-        ? activeLineItems.map((item) =>
-            Math.max(String(item.quantity || 1).length, String(item.days || 1).length)
-          )
-        : [2])
-    );
-    const similarQtyDaysWidth = `${Math.max(52, maxQtyDaysChars * 8.5 + 16)}px`;
+    // Adaptive, content-based column width calculation:
+    // 1. Item #: compact fixed width
+    const itemNumberWidth = '34px';
 
-    // 2. Similar monetary columns: Rate & Total (auto-fitted to currency data, locked to identical auto-fit width)
-    const maxCurrencyChars = Math.max(
-      5, // Length of header label "Total"
+    // 2. Qty: auto-fitted to maximum quantity digit length
+    const maxQtyChars = Math.max(
+      3, // 'Qty' length
+      ...(activeLineItems.length > 0 ? activeLineItems.map((item) => String(item.quantity || 1).length) : [1])
+    );
+    const dynamicQtyWidth = `${Math.max(44, maxQtyChars * 8 + 16)}px`;
+
+    // 3. Days: auto-fitted to maximum days digit length
+    const maxDaysChars = Math.max(
+      4, // 'Days' length
+      ...(activeLineItems.length > 0 ? activeLineItems.map((item) => String(item.days || 1).length) : [1])
+    );
+    const dynamicDaysWidth = `${Math.max(48, maxDaysChars * 8 + 16)}px`;
+
+    // 4. Rate: auto-fitted to maximum rate currency length
+    const maxRateChars = Math.max(
+      4, // 'Rate' length
       ...(activeLineItems.length > 0
-        ? activeLineItems.map((item) =>
-            Math.max(
-              formatKsh(item.rate || 0).replace('Ksh ', '').length,
-              formatKsh(item.amount || 0).replace('Ksh ', '').length
-            )
-          )
+        ? activeLineItems.map((item) => formatKsh(item.rate || 0).replace('Ksh ', '').length)
+        : [5])
+    );
+    const dynamicRateWidth = `${Math.max(82, maxRateChars * 8 + 18)}px`;
+
+    // 5. Amount: auto-fitted to maximum amount currency length
+    const maxAmountChars = Math.max(
+      6, // 'Amount' length
+      ...(activeLineItems.length > 0
+        ? activeLineItems.map((item) => formatKsh(item.amount || 0).replace('Ksh ', '').length)
         : [7])
     );
-    const similarRateTotalWidth = `${Math.max(95, maxCurrencyChars * 8.5 + 16)}px`;
+    const dynamicAmountWidth = `${Math.max(90, maxAmountChars * 8 + 18)}px`;
 
     return (
       <div
@@ -206,46 +216,47 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
               </div>
             </div>
 
-            {/* 4. TRANSACTION LINE-ITEM GRID: Hairline high-contrast border grid */}
+            {/* 4. TRANSACTION LINE-ITEM GRID: Adaptive Dynamic Column Widths */}
             <div className="mb-4 w-full">
               <table className="document-table text-[11pt]" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
                 <thead>
                   <tr>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: '36px', minWidth: '36px' }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: itemNumberWidth, minWidth: itemNumberWidth }}
                     >
                       #
                     </th>
                     <th
-                      className="text-left"
+                      className="text-left col-particulars"
+                      data-col="particulars"
                       style={{ width: 'auto' }}
                     >
                       Particulars
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: similarQtyDaysWidth, minWidth: similarQtyDaysWidth }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: dynamicQtyWidth, minWidth: dynamicQtyWidth }}
                     >
                       Qty
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: similarQtyDaysWidth, minWidth: similarQtyDaysWidth }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: dynamicDaysWidth, minWidth: dynamicDaysWidth }}
                     >
                       Days
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: similarRateTotalWidth, minWidth: similarRateTotalWidth, maxWidth: similarRateTotalWidth }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: dynamicRateWidth, minWidth: dynamicRateWidth }}
                     >
                       Rate
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: similarRateTotalWidth, minWidth: similarRateTotalWidth, maxWidth: similarRateTotalWidth }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: dynamicAmountWidth, minWidth: dynamicAmountWidth }}
                     >
-                      Total
+                      Amount
                     </th>
                   </tr>
                 </thead>
@@ -260,7 +271,7 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                         {/* Item #: Center-aligned */}
                         <td
                           className="text-center text-stone-600 whitespace-nowrap font-normal"
-                          style={{ width: '36px' }}
+                          style={{ width: itemNumberWidth }}
                         >
                           {index + 1}
                         </td>
@@ -268,31 +279,31 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                         <td className="text-left text-stone-900 font-normal leading-snug">
                           {item.particulars}
                         </td>
-                        {/* Qty: Center-aligned, equal auto-fit width */}
+                        {/* Qty: Center-aligned, tight auto-fit width */}
                         <td
                           className="text-center text-stone-800 whitespace-nowrap font-normal"
-                          style={{ width: similarQtyDaysWidth, minWidth: similarQtyDaysWidth }}
+                          style={{ width: dynamicQtyWidth, minWidth: dynamicQtyWidth }}
                         >
                           {item.quantity}
                         </td>
-                        {/* Days: Center-aligned, equal auto-fit width */}
+                        {/* Days: Center-aligned, tight auto-fit width */}
                         <td
                           className="text-center text-stone-800 whitespace-nowrap font-normal"
-                          style={{ width: similarQtyDaysWidth, minWidth: similarQtyDaysWidth }}
+                          style={{ width: dynamicDaysWidth, minWidth: dynamicDaysWidth }}
                         >
                           {item.days || 1}
                         </td>
-                        {/* Rate: Right-aligned, locked auto-fit width */}
+                        {/* Rate: Right-aligned, auto-fit width */}
                         <td
                           className="text-right text-stone-800 tabular-decimal whitespace-nowrap font-normal"
-                          style={{ width: similarRateTotalWidth, minWidth: similarRateTotalWidth, maxWidth: similarRateTotalWidth }}
+                          style={{ width: dynamicRateWidth, minWidth: dynamicRateWidth }}
                         >
                           {formatKsh(item.rate).replace('Ksh ', '')}
                         </td>
-                        {/* Total: Right-aligned, locked auto-fit width */}
+                        {/* Amount: Right-aligned, auto-fit width */}
                         <td
                           className="text-right font-semibold text-stone-900 tabular-decimal whitespace-nowrap"
-                          style={{ width: similarRateTotalWidth, minWidth: similarRateTotalWidth, maxWidth: similarRateTotalWidth }}
+                          style={{ width: dynamicAmountWidth, minWidth: dynamicAmountWidth }}
                         >
                           {formatKsh(item.amount).replace('Ksh ', '')}
                         </td>
@@ -317,35 +328,26 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
               <div className="w-80">
                 <table className="document-table text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
                   <tbody>
-                    <tr className="bg-stone-50/50">
-                      <td className="px-2.5 py-1 text-stone-600 font-normal">Subtotal:</td>
-                      <td className="px-2.5 py-1 text-right text-stone-800 font-medium">
-                        {renderAlignedCurrency(docDiscount > 0 ? grossSubtotal : doc.subtotal)}
-                      </td>
-                    </tr>
-
                     {/* Dedicated Discount row with distinct italic typography */}
                     {docDiscount > 0 && (
                       <tr className="bg-emerald-50/30">
-                        <td className="px-2.5 py-1 font-semibold text-emerald-800 italic">Less Discount:</td>
+                        <td className="px-2.5 py-1 font-semibold text-emerald-800 italic">Discount:</td>
                         <td className="px-2.5 py-1 text-right text-emerald-700 font-semibold">
                           {renderAlignedCurrency(-docDiscount)}
                         </td>
                       </tr>
                     )}
 
-                    {docDiscount > 0 && (
-                      <tr>
-                        <td className="px-2.5 py-1 text-stone-500 font-medium">Net Taxable:</td>
-                        <td className="px-2.5 py-1 text-right text-stone-700 font-medium">
-                          {renderAlignedCurrency(doc.subtotal)}
-                        </td>
-                      </tr>
-                    )}
+                    <tr>
+                      <td className="px-2.5 py-1 text-stone-600 font-medium">Subtotal:</td>
+                      <td className="px-2.5 py-1 text-right text-stone-700 font-medium">
+                        {renderAlignedCurrency(doc.subtotal)}
+                      </td>
+                    </tr>
 
                     <tr>
-                      <td className="px-2.5 py-1 text-stone-500 font-medium uppercase tracking-wide">
-                        VAT ({profile.vatRate ? `${profile.vatRate}%` : '16%'}):
+                      <td className="px-2.5 py-1 text-stone-600 font-medium uppercase tracking-wide">
+                        VAT (16%):
                       </td>
                       <td className="px-2.5 py-1 text-right text-stone-600 font-normal">
                         {renderAlignedCurrency(doc.vatAmount)}

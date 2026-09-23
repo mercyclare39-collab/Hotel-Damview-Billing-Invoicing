@@ -312,6 +312,119 @@ class LocalBackupService {
   }
 
   /**
+   * Save a JSON state record directly to the local archive folder (silent background mirror).
+   */
+  async saveStateRecordToLocalArchive(
+    data: any,
+    fileName: string,
+    options?: { documentNumber?: string }
+  ): Promise<SaveLocalResult> {
+    const designatedPath = this.getTargetDirectoryPath();
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+
+    if (!this.isFileSystemAccessSupported()) {
+      return {
+        success: false,
+        method: 'BROWSER_DOWNLOAD_FALLBACK',
+        fileName,
+        path: designatedPath,
+        byteLength: blob.size,
+        error: 'File System Access API not available for silent JSON state recording.',
+      };
+    }
+
+    try {
+      const dirHandle = await this.getStoredDirectoryHandle();
+      if (dirHandle) {
+        const hasPerm = await this.verifyPermission(dirHandle, true);
+        if (hasPerm) {
+          const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+
+          const record: LocalBackupRecord = {
+            id: `bk-json-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            fileName,
+            documentNumber: options?.documentNumber,
+            byteLength: blob.size,
+            timestamp: new Date().toISOString(),
+            method: 'FILE_SYSTEM_ACCESS_API',
+            status: 'SUCCESS',
+            path: `${designatedPath}\\${fileName}`,
+          };
+          this.recordBackup(record);
+
+          return {
+            success: true,
+            method: 'FILE_SYSTEM_ACCESS_API',
+            fileName,
+            path: `${designatedPath}\\${fileName}`,
+            byteLength: blob.size,
+          };
+        }
+      }
+
+      return {
+        success: false,
+        method: 'FILE_SYSTEM_ACCESS_API',
+        fileName,
+        path: designatedPath,
+        byteLength: blob.size,
+        error: 'Local archive directory handle not initialized.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        method: 'FILE_SYSTEM_ACCESS_API',
+        fileName,
+        path: designatedPath,
+        byteLength: blob.size,
+        error: err?.message || 'Failed saving JSON record',
+      };
+    }
+  }
+
+  /**
+   * Auto-mirror a complete document and its rendered PDF blob directly to the local archive
+   */
+  async mirrorDocumentDualLocalBackup(
+    pdfBlob: Blob | undefined,
+    pdfFileName: string,
+    documentPayload: any,
+    documentNumber: string
+  ): Promise<{ pdfResult?: SaveLocalResult; jsonResult?: SaveLocalResult }> {
+    const results: { pdfResult?: SaveLocalResult; jsonResult?: SaveLocalResult } = {};
+    const sanitizedNumber = documentNumber.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const jsonFileName = `${sanitizedNumber}_StateRecord.json`;
+
+    // 1. Mirror JSON State Record
+    try {
+      results.jsonResult = await this.saveStateRecordToLocalArchive(
+        documentPayload,
+        jsonFileName,
+        { documentNumber }
+      );
+    } catch (e) {
+      console.warn('Silent local state backup warning:', e);
+    }
+
+    // 2. Mirror PDF if blob available
+    if (pdfBlob) {
+      try {
+        results.pdfResult = await this.savePdfToLocalArchive(pdfBlob, pdfFileName, {
+          documentNumber,
+        });
+      } catch (e) {
+        console.warn('Local PDF archival warning:', e);
+      }
+    }
+
+    return results;
+  }
+
+  /**
    * Record backup activity in history store (localStorage).
    */
   private recordBackup(record: Omit<LocalBackupRecord, 'id' | 'timestamp'> & { id?: string; timestamp?: string }): void {

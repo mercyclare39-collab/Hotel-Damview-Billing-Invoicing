@@ -11,6 +11,7 @@ import {
   Sparkles,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   FileText,
   Clock,
   RotateCcw,
@@ -27,24 +28,40 @@ import {
   Columns,
   Rows,
 } from 'lucide-react';
-import { BillingDocument, DocumentType, LineItem, Client, HotelProfile } from '../types';
+import { BillingDocument, DocumentType, LineItem, Client, HotelProfile, CatalogueItem } from '../types';
 import { ClientModal } from './ClientModal';
 import {
-  calculateLineItemAmount,
-  calculateTotals,
   calculateDueDate,
   formatDate,
   formatKsh,
   getPdfFileName,
   normalizeLineItemParticulars,
   normalizeKenyanPhone,
+  sanitizeKenyanPhoneLive,
+  validateKenyanPhone,
   validateKraPin,
   parseCurrencyInput,
 } from '../utils/formatters';
+import {
+  calculateLineItemAmount,
+  calculateTotals,
+  calculateBalanceDue,
+  calculateTaxableSubtotal,
+  calculateVatAmount,
+  roundToTwoDecimals,
+  DEFAULT_KENYAN_VAT_RATE,
+} from '../utils/financial';
 import { generatePdfFromElement, shareDocumentPdf, validatePdfBlob } from '../utils/pdfGenerator';
 import { dbService } from '../services/db';
 import { syncManager } from '../services/sync';
 import { localBackupService } from '../services/localBackupService';
+import {
+  autoCorrectKenyanPhone,
+  autoCorrectKraPin,
+  autoCorrectNumericAmount,
+  autoCorrectIsoDate,
+} from '../utils/autoCorrection';
+import { executeWithAutonomousRetry, logSystemIncident } from '../services/selfHealingPatch';
 import { A4DocumentPreview } from './A4DocumentPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
 
@@ -84,15 +101,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 }) => {
   const [docType, setDocType] = useState<DocumentType>(initialDocument?.documentType || defaultType);
 
-  // Auto-focus primary input on mount
-  const primaryInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      primaryInputRef.current?.focus();
-    }, 120);
-    return () => clearTimeout(timer);
-  }, []);
-
   // Loaded documents for uniqueness validation
   const [localDocs, setLocalDocs] = useState<BillingDocument[]>(existingDocuments || []);
 
@@ -104,9 +112,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   }, [existingDocuments]);
 
-  // Prefix extraction & locked prefix handling
+  // Prefix extraction & locked prefix handling (Canonical QT- for Quotations)
   const getEnforcedPrefix = (type: DocumentType): string => {
-    if (type === 'QUOTATION') return 'Q-';
+    if (type === 'QUOTATION') return 'QT-';
     if (type === 'PROFORMA') return 'PI-';
     return 'INV-';
   };
@@ -117,8 +125,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     if (fullNumber.startsWith(prefix)) {
       return fullNumber.slice(prefix.length);
     }
-    // Try to strip other known prefixes
-    return fullNumber.replace(/^(Q-|PI-|INV-)/, '');
+    // Try to strip other known prefixes including legacy Q-
+    return fullNumber.replace(/^(QT-|Q-|PI-|INV-)/, '');
   };
 
   const [numberSuffix, setNumberSuffix] = useState<string>(
@@ -143,12 +151,25 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [relatedDocNumber, setRelatedDocNumber] = useState(initialDocument?.relatedDocNumber || '');
   const [relatedDocId, setRelatedDocId] = useState(initialDocument?.relatedDocId || '');
 
-  // Guarded Client Profile Editing State
-  const [isClientLocked, setIsClientLocked] = useState<boolean>(
-    Boolean(initialDocument?.clientId || initialDocument?.clientName)
-  );
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [clientModalTarget, setClientModalTarget] = useState<Client | null>(null);
+  const [isClientLocked, setIsClientLocked] = useState(!!initialDocument?.clientId);
+
+  // Autocomplete state for Particulars column
+  const [activeAutocompleteRow, setActiveAutocompleteRow] = useState<number | null>(null);
+
+  // Auto-focus primary entry field upon mount: first line-item particulars
+  const primaryInputRef = useRef<HTMLInputElement>(null);
+  const firstParticularsRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (firstParticularsRef.current) {
+        firstParticularsRef.current.focus();
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Scrolling Ref
   const formScrollRef = useRef<HTMLDivElement>(null);
@@ -231,6 +252,86 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   // Real-time KRA PIN validation status
   const kraValidation = useMemo(() => validateKraPin(clientKraPin), [clientKraPin]);
 
+  // Particulars catalog loaded from IndexedDB
+  const [dbCatalogueItems, setDbCatalogueItems] = useState<CatalogueItem[]>([]);
+
+  useEffect(() => {
+    dbService.getCatalogueItems().then((items) => {
+      if (items && items.length > 0) {
+        setDbCatalogueItems(items);
+      }
+    });
+  }, []);
+
+  // Intelligent predictive catalog gathered from local db catalog, documents and hospitality presets
+  const catalogSuggestions = useMemo(() => {
+    const map = new Map<string, { particulars: string; rate: number; defaultDays?: number; category?: string }>();
+
+    // 1. Standard DB Catalogue Presets
+    dbCatalogueItems.forEach((c) => {
+      const key = (c.particulars || '').trim().toLowerCase();
+      if (key) {
+        map.set(key, { particulars: c.particulars, rate: c.standardRate || 0, defaultDays: 1, category: c.category });
+      }
+    });
+
+    // 2. Fallback Standard Presets
+    HOSPITALITY_PRESETS.forEach((p) => {
+      const key = p.particulars.trim().toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, { particulars: p.particulars, rate: p.rate, defaultDays: p.days, category: 'Hospitality Package' });
+      }
+    });
+
+    // 3. Historical items from all local documents in memory
+    localDocs.forEach((doc) => {
+      (doc.lineItems || []).forEach((item) => {
+        if (item.particulars && item.particulars.trim().length > 2 && Number(item.rate) > 0) {
+          const key = item.particulars.trim().toLowerCase();
+          if (!map.has(key)) {
+            map.set(key, {
+              particulars: item.particulars.trim(),
+              rate: Number(item.rate),
+              defaultDays: item.days || 1,
+              category: doc.documentType === 'INVOICE' ? 'Past Invoice' : 'Past Quote',
+            });
+          }
+        }
+      });
+    });
+
+    return Array.from(map.values());
+  }, [dbCatalogueItems, localDocs]);
+
+  // Mandatory PDF Generation & Recording Validation Gates
+  const isClientValid = Boolean(clientName && clientName.trim().length > 0);
+  const isDateValid = Boolean(issueDate && /^\d{4}-\d{2}-\d{2}$/.test(issueDate) && !isNaN(Date.parse(issueDate)));
+  const completedLineItems = useMemo(() => {
+    return lineItems.filter(
+      (item) => item.particulars && item.particulars.trim().length > 0 && Number(item.quantity) > 0 && Number(item.rate) > 0
+    );
+  }, [lineItems]);
+  const hasCompleteLineItem = completedLineItems.length > 0;
+
+  const validationGateIssues = useMemo(() => {
+    const issues: string[] = [];
+    if (!isClientValid) issues.push('Select a valid client');
+    if (!hasCompleteLineItem) issues.push('At least 1 complete line item (Description, Quantity > 0, Rate > 0)');
+    if (!isDateValid) issues.push('Document date in ISO format (YYYY-MM-DD)');
+    return issues;
+  }, [isClientValid, hasCompleteLineItem, isDateValid]);
+
+  const isGatePassed = validationGateIssues.length === 0;
+
+  // Reactive Lifecycle Status Engine
+  const reactiveLifecycleStatus: 'Draft' | 'Pending Validation' | 'Ready to Record' = useMemo(() => {
+    if (isGatePassed) return 'Ready to Record';
+    const hasAnyContent = isClientValid || lineItems.some((i) => i.particulars.trim().length > 0);
+    return hasAnyContent ? 'Pending Validation' : 'Draft';
+  }, [isGatePassed, isClientValid, lineItems]);
+
+  const [validationGateAlert, setValidationGateAlert] = useState<string | null>(null);
+
   // Auto-generate document number sequential suffix when creating new
   useEffect(() => {
     if (!initialDocument) {
@@ -239,7 +340,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         if (num.startsWith(pfx)) {
           setNumberSuffix(num.slice(pfx.length));
         } else {
-          setNumberSuffix(num.replace(/^(Q-|PI-|INV-)/, ''));
+          setNumberSuffix(num.replace(/^(QT-|Q-|PI-|INV-)/, ''));
         }
       });
     }
@@ -322,7 +423,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       }
       processedValue = strVal;
     } else if (field === 'rate' || field === 'discount') {
-      processedValue = typeof value === 'number' ? value : parseCurrencyInput(value);
+      const rawVal = typeof value === 'number' ? value : parseCurrencyInput(value);
+      processedValue = roundToTwoDecimals(rawVal);
     } else if (field === 'quantity' || field === 'days') {
       const num = Number(value);
       processedValue = isNaN(num) || num < 0 ? 1 : num;
@@ -346,6 +448,37 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
 
     setLineItems(updated);
+  };
+
+  // Autocomplete selection handler: auto-populates particulars, rate, and defaults
+  const handleSelectAutocomplete = (
+    index: number,
+    itemSuggestion: { particulars: string; rate: number; defaultDays?: number }
+  ) => {
+    const updated = [...lineItems];
+    const current = {
+      ...updated[index],
+      particulars: itemSuggestion.particulars,
+      rate: roundToTwoDecimals(itemSuggestion.rate),
+      days: itemSuggestion.defaultDays || updated[index].days || 1,
+    };
+    current.amount = calculateLineItemAmount(current);
+    updated[index] = current;
+
+    if (index === lineItems.length - 1) {
+      updated.push({
+        id: 'li-' + Date.now(),
+        particulars: '',
+        quantity: 1,
+        days: 1,
+        rate: 0,
+        discount: 0,
+        amount: 0,
+      });
+    }
+
+    setLineItems(updated);
+    setActiveAutocompleteRow(null);
   };
 
   // Focus on last row automatically appends row if last row has particulars
@@ -471,42 +604,80 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   };
 
   // PDF Filtering Rule: Rows where Particulars is empty or whitespace-only must be dynamically excluded from totals and preview
-  const activeLineItems = lineItems.filter((item) => item.particulars && item.particulars.trim().length > 0);
-  const totals = calculateTotals(activeLineItems, discount, profile.vatRate);
+  const activeLineItems = useMemo(
+    () => lineItems.filter((item) => item.particulars && item.particulars.trim().length > 0),
+    [lineItems]
+  );
+  const totals = useMemo(
+    () => calculateTotals(activeLineItems, discount, profile.vatRate),
+    [activeLineItems, discount, profile.vatRate]
+  );
   const amountPaid = initialDocument?.amountPaid || 0;
-  const balanceDue = Math.max(0, Math.round((totals.grandTotal - amountPaid) * 100) / 100);
+  const balanceDue = useMemo(
+    () => calculateBalanceDue(totals.grandTotal, amountPaid),
+    [totals.grandTotal, amountPaid]
+  );
 
   // Construct active document object
-  const currentDoc: BillingDocument = {
-    id: initialDocument?.id || 'doc-new-' + Date.now(),
-    documentType: docType,
-    documentNumber: fullDocumentNumber || 'DRAFT',
-    clientId: selectedClientId,
-    clientName: clientName || 'Client Name / Walk-in Guest',
-    clientKraPin,
-    clientAddress,
-    clientPhone,
-    clientEmail,
-    issueDate,
-    validityDays,
-    dueDate,
-    lineItems: activeLineItems.length > 0 ? activeLineItems : lineItems,
-    subtotal: totals.subtotal,
-    discount: totals.discount,
-    vatAmount: totals.vatAmount,
-    grandTotal: totals.grandTotal,
-    amountPaid,
-    balanceDue: docType === 'QUOTATION' ? totals.grandTotal : balanceDue,
-    status,
-    notes,
-    terms,
-    relatedDocId,
-    relatedDocNumber,
-    createdAt: initialDocument?.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    driveFileUrl: initialDocument?.driveFileUrl,
-    driveFileId: initialDocument?.driveFileId,
-  };
+  const currentDoc: BillingDocument = useMemo(
+    () => ({
+      id: initialDocument?.id || 'doc-new-' + Date.now(),
+      documentType: docType,
+      documentNumber: fullDocumentNumber || 'DRAFT',
+      clientId: selectedClientId,
+      clientName: clientName || 'Client Name / Walk-in Guest',
+      clientKraPin,
+      clientAddress,
+      clientPhone,
+      clientEmail,
+      issueDate,
+      validityDays,
+      dueDate,
+      lineItems: activeLineItems.length > 0 ? activeLineItems : lineItems,
+      subtotal: totals.subtotal,
+      discount: totals.discount,
+      vatAmount: totals.vatAmount,
+      grandTotal: totals.grandTotal,
+      amountPaid,
+      balanceDue: docType === 'QUOTATION' ? totals.grandTotal : balanceDue,
+      status,
+      notes,
+      terms,
+      relatedDocId,
+      relatedDocNumber,
+      createdAt: initialDocument?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      driveFileUrl: initialDocument?.driveFileUrl,
+      driveFileId: initialDocument?.driveFileId,
+    }),
+    [
+      initialDocument?.id,
+      initialDocument?.createdAt,
+      initialDocument?.driveFileUrl,
+      initialDocument?.driveFileId,
+      docType,
+      fullDocumentNumber,
+      selectedClientId,
+      clientName,
+      clientKraPin,
+      clientAddress,
+      clientPhone,
+      clientEmail,
+      issueDate,
+      validityDays,
+      dueDate,
+      activeLineItems,
+      lineItems,
+      totals,
+      amountPaid,
+      balanceDue,
+      status,
+      notes,
+      terms,
+      relatedDocId,
+      relatedDocNumber,
+    ]
+  );
 
   // =========================================================================
   // 1. TRIGGER AUTOMATION PIPELINE & ACTION WORKFLOWS
@@ -516,31 +687,30 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   // 3. Sheet Ledger Sync: Push/update record row in Google Sheet
   // =========================================================================
   const runSaveAndRecordPipeline = async (silent = false): Promise<BillingDocument | null> => {
-    if (!clientName.trim()) {
-      alert('Please enter or select a client name.');
+    if (!isGatePassed) {
+      setValidationGateAlert(
+        `Mandatory requirements not met: ${validationGateIssues.join(' • ')}. Please complete these fields before generating PDF or recording.`
+      );
+      formScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return null;
     }
 
     if (!numberSuffix.trim()) {
-      alert('Please enter a document reference number.');
+      setValidationGateAlert('Please provide a document reference number.');
       return null;
     }
 
     let finalNumber = fullDocumentNumber;
     if (collisionDoc) {
-      const confirmUseNext = window.confirm(
-        `Collision Warning:\nDocument reference "${fullDocumentNumber}" is already in use by ${collisionDoc.clientName}.\n\nWould you like to auto-assign the next available number "${activePrefix}${suggestedNextSuffix}" instead?`
-      );
-      if (confirmUseNext) {
-        setNumberSuffix(suggestedNextSuffix);
-        finalNumber = `${activePrefix}${suggestedNextSuffix}`;
-      } else {
-        return null;
-      }
+      setNumberSuffix(suggestedNextSuffix);
+      finalNumber = `${activePrefix}${suggestedNextSuffix}`;
+      setSaveNotification(`Assigned next available number ${finalNumber} (avoiding collision with ${collisionDoc.documentNumber})`);
+    } else {
+      setValidationGateAlert(null);
     }
 
     if (activeLineItems.length === 0) {
-      alert('Please enter at least one line item with a service description.');
+      setValidationGateAlert('Please enter at least one line item with a service description.');
       return null;
     }
 
@@ -589,22 +759,28 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               pdfBase64 = pdfRes.base64;
               pdfFileName = pdfRes.fileName;
 
-              // Background Local Machine Filesystem Backup
+              // Background Dual Local Workstation Filesystem Backup (PDF + State Record JSON)
               localBackupService
-                .savePdfToLocalArchive(pdfRes.blob, pdfRes.fileName, {
-                  documentNumber: docToPersist.documentNumber,
-                })
-                .catch((bkErr) => console.warn('Local machine filesystem archival warning:', bkErr));
+                .mirrorDocumentDualLocalBackup(
+                  pdfRes.blob,
+                  pdfRes.fileName,
+                  docToPersist,
+                  docToPersist.documentNumber
+                )
+                .catch((bkErr) => console.warn('Local workstation filesystem archival warning:', bkErr));
             }
-          } catch (pdfErr) {
-            console.warn('Background PDF generation for drive archival deferred:', pdfErr);
+          } catch (pdfErr: any) {
+            logSystemIncident('ERROR', `Background PDF rendering caught failure: ${pdfErr?.message || String(pdfErr)}`);
           }
         }
 
-        // Background Google Apps Script Push
+        // Background Google Apps Script Push with Autonomous Retry & Telemetry
         try {
-          const syncResult = await syncManager.syncDocument(docToPersist, pdfBase64, pdfFileName);
-          if (syncResult.success && !silent) {
+          const syncResult = await executeWithAutonomousRetry(
+            () => syncManager.syncDocument(docToPersist, pdfBase64, pdfFileName),
+            { taskName: `Drive Archival for ${docToPersist.documentNumber}`, maxRetries: 3 }
+          );
+          if (syncResult && syncResult.success && !silent) {
             setSaveNotification(
               syncResult.uploadVerified
                 ? 'Document verified in Google Drive & archived!'
@@ -612,8 +788,11 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             );
             setTimeout(() => setSaveNotification(null), 3500);
           }
-        } catch (syncErr) {
-          console.warn('Background sync warning:', syncErr);
+        } catch (syncErr: any) {
+          logSystemIncident(
+            'ERROR',
+            `Autonomous sync retry background caught failure: ${syncErr?.message || String(syncErr)}`
+          );
         }
       };
 
@@ -628,7 +807,8 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
       return docToPersist;
     } catch (err: any) {
-      alert('Failed to save document: ' + err.message);
+      logSystemIncident('ERROR', `Save and record trapped exception: ${err?.message || String(err)}`);
+      setValidationGateAlert('Error saving document: ' + (err?.message || 'Check inputs'));
       return null;
     } finally {
       setIsSaving(false);
@@ -732,7 +912,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       setDocType(targetType);
       dbService.getNextDocumentNumber(targetType).then((nextNum) => {
         const pfx = getEnforcedPrefix(targetType);
-        setNumberSuffix(nextNum.replace(/^(Q-|PI-|INV-)/, ''));
+        setNumberSuffix(nextNum.replace(/^(QT-|Q-|PI-|INV-)/, ''));
         setRelatedDocNumber(saved.documentNumber);
         setRelatedDocId(saved.id);
         setStatus('Draft');
@@ -821,6 +1001,26 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
         {/* Primary Action Triggers (Event-Chained Architecture) */}
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Reactive Lifecycle Status Indicator */}
+          <span
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold border transition-all ${
+              reactiveLifecycleStatus === 'Ready to Record'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                : reactiveLifecycleStatus === 'Pending Validation'
+                ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse'
+                : 'bg-slate-100 text-slate-700 border-slate-300'
+            }`}
+          >
+            {reactiveLifecycleStatus === 'Ready to Record' ? (
+              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+            ) : reactiveLifecycleStatus === 'Pending Validation' ? (
+              <AlertTriangle className="w-3 h-3 text-amber-600" />
+            ) : (
+              <Clock className="w-3 h-3 text-slate-500" />
+            )}
+            <span>{reactiveLifecycleStatus}</span>
+          </span>
+
           {saveNotification && (
             <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded flex items-center gap-1 animate-fade-in">
               <CheckCircle2 className="w-3.5 h-3.5" />
@@ -828,29 +1028,16 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </span>
           )}
 
-            {/* Shortcut: Jump to Live A4 Preview */}
-            <button
-              type="button"
-              onClick={() => {
-                document.getElementById('editor-live-a4-preview')?.scrollIntoView({ behavior: 'smooth' });
-              }}
-              className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-stone-300 text-stone-700 rounded bg-white hover:bg-stone-50 transition-colors"
-              title="Scroll directly down to Live A4 PDF Preview"
-            >
-              <Eye className="w-3.5 h-3.5 text-amber-700" />
-              <span>Live A4 Preview</span>
-            </button>
-
-          {/* Chained Trigger: Full Screen Live Preview Modal */}
+          {/* Streamlined Live Preview Modal Trigger */}
           <button
             type="button"
             onClick={handleLivePreviewModalChained}
             disabled={isSaving}
-            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-stone-300 text-stone-700 rounded bg-white hover:bg-stone-50 transition-colors"
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-stone-300 text-stone-700 rounded bg-white hover:bg-stone-50 transition-colors shadow-2xs"
             title="Saves & opens live full-screen A4 PDF preview modal"
           >
-            <Eye className="w-3.5 h-3.5 text-stone-600" />
-            <span className="hidden sm:inline">Preview Modal</span>
+            <Eye className="w-3.5 h-3.5 text-amber-700" />
+            <span>Preview A4</span>
           </button>
 
           {/* Chained Trigger: Direct Print */}
@@ -924,6 +1111,24 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Non-Blocking Validation Gates Visual Prompt */}
+      {validationGateAlert && (
+        <div className="bg-amber-50 border-b border-amber-300 px-4 py-2 text-xs text-amber-900 flex items-center justify-between gap-3 shadow-2xs animate-fade-in">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span className="font-medium">{validationGateAlert}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setValidationGateAlert(null)}
+            className="text-amber-800 hover:text-amber-950 text-xs font-bold px-1.5 py-0.5 rounded hover:bg-amber-100"
+            title="Dismiss prompt"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* UNIFIED CONTINUOUS-SCROLL WORKSPACE (SINGLE-SCREEN VERTICAL FLOW) */}
       <div
@@ -1000,6 +1205,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   type="date"
                   value={issueDate}
                   onChange={(e) => handleIssueDateChange(e.target.value)}
+                  onBlur={(e) => handleIssueDateChange(autoCorrectIsoDate(e.target.value))}
                   className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 />
               </div>
@@ -1027,6 +1233,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   type="date"
                   value={dueDate}
                   onChange={(e) => setDueDate(e.target.value)}
+                  onBlur={(e) => setDueDate(autoCorrectIsoDate(e.target.value))}
                   className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
                 />
               </div>
@@ -1089,63 +1296,13 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               </div>
             </div>
 
-            {/* Guarded Read-Only Lock Banner */}
-            {isClientLocked ? (
-              <div className="flex items-center justify-between bg-slate-100/95 border border-slate-200 px-2.5 py-1.5 rounded text-xs">
-                <div className="flex items-center gap-1.5 text-slate-700">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span className="font-semibold">Guarded Client Profile</span>
-                  <span className="text-[11px] text-slate-500 hidden sm:inline">
-                    (Locked in read-only mode to prevent accidental billing overwrites)
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleOpenEditClientModal}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-medium text-[11px] shadow-2xs cursor-pointer"
-                  >
-                    <Edit3 className="w-3 h-3 text-amber-600" />
-                    <span>Edit Profile</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsClientLocked(false)}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white hover:bg-slate-50 text-slate-600 border border-slate-300 text-[11px] cursor-pointer"
-                    title="Unlock fields to edit particulars directly for this document only"
-                  >
-                    <Unlock className="w-3 h-3" />
-                    <span>Unlock for Walk-in</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between bg-amber-50/80 border border-amber-200 px-2.5 py-1.5 rounded text-xs">
-                <div className="flex items-center gap-1.5 text-amber-800">
-                  <Unlock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span className="font-semibold">Direct Editing Enabled</span>
-                  <span className="text-[11px] text-amber-700 hidden sm:inline">
-                    (Edits apply to this document only)
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsClientLocked(true)}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white text-slate-700 border border-slate-300 text-[11px] font-medium hover:bg-slate-50 cursor-pointer"
-                >
-                  <Lock className="w-3 h-3 text-slate-500" />
-                  <span>Lock Profile</span>
-                </button>
-              </div>
-            )}
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
               <div className="md:col-span-2">
-                <label className="block text-slate-600 font-medium mb-1">Select Existing Client Profile</label>
+                <label className="block text-slate-700 font-semibold mb-1">Select Client</label>
                 <select
                   value={selectedClientId}
                   onChange={(e) => handleClientSelect(e.target.value)}
-                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
                 >
                   <option value="">-- Choose registered corporate client or walk-in guest --</option>
                   {clients.map((c) => (
@@ -1164,77 +1321,26 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   type="text"
                   ref={primaryInputRef}
                   value={clientName}
-                  readOnly={isClientLocked}
-                  onChange={(e) => setClientName(e.target.value)}
-                  placeholder="e.g. Kenya Wildlife Service"
-                  className={`w-full border rounded px-2.5 py-1.5 font-medium transition-colors ${
-                    isClientLocked
-                      ? 'bg-slate-100/90 text-slate-700 cursor-not-allowed border-slate-200 select-none'
-                      : 'border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500'
-                  }`}
+                  readOnly
+                  placeholder="Select client from dropdown above"
+                  className="w-full border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50/80 text-slate-900 font-semibold select-text cursor-default focus:outline-none"
                 />
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-slate-600 font-medium">Client KRA Tax PIN</label>
-                  {clientKraPin && (
-                    kraValidation.isValid ? (
-                      <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 font-medium flex items-center gap-0.5">
-                        <CheckCircle2 className="w-2.5 h-2.5" /> Valid PIN
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 font-medium flex items-center gap-0.5">
-                        <Clock className="w-2.5 h-2.5" /> {kraValidation.message}
-                      </span>
-                    )
+                  {clientKraPin && kraValidation.isValid && (
+                    <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 font-medium flex items-center gap-0.5">
+                      <CheckCircle2 className="w-2.5 h-2.5" /> Valid PIN
+                    </span>
                   )}
                 </div>
                 <input
                   type="text"
-                  value={clientKraPin}
-                  readOnly={isClientLocked}
-                  onChange={(e) => setClientKraPin(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
-                  placeholder="e.g. P051234567Z"
-                  maxLength={11}
-                  className={`w-full border rounded px-2.5 py-1.5 font-mono uppercase transition-colors ${
-                    isClientLocked
-                      ? 'bg-slate-100/90 text-slate-700 cursor-not-allowed border-slate-200 select-none'
-                      : 'border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-600 font-medium mb-1">Telephone / Mobile</label>
-                <input
-                  type="text"
-                  value={clientPhone}
-                  readOnly={isClientLocked}
-                  onChange={(e) => setClientPhone(e.target.value)}
-                  onBlur={(e) => setClientPhone(normalizeKenyanPhone(e.target.value))}
-                  placeholder="e.g. 0712 345 678 or +254 712 345 678"
-                  className={`w-full border rounded px-2.5 py-1.5 font-mono transition-colors ${
-                    isClientLocked
-                      ? 'bg-slate-100/90 text-slate-700 cursor-not-allowed border-slate-200 select-none'
-                      : 'border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-600 font-medium mb-1">Email Address</label>
-                <input
-                  type="email"
-                  value={clientEmail}
-                  readOnly={isClientLocked}
-                  onChange={(e) => setClientEmail(e.target.value.trim().toLowerCase())}
-                  placeholder="e.g. accounts@client.co.ke"
-                  className={`w-full border rounded px-2.5 py-1.5 transition-colors ${
-                    isClientLocked
-                      ? 'bg-slate-100/90 text-slate-700 cursor-not-allowed border-slate-200 select-none'
-                      : 'border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500'
-                  }`}
+                  value={clientKraPin || '—'}
+                  readOnly
+                  className="w-full border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50/80 text-slate-800 font-mono uppercase select-text cursor-default focus:outline-none"
                 />
               </div>
 
@@ -1242,15 +1348,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 <label className="block text-slate-600 font-medium mb-1">Physical / Postal Address</label>
                 <input
                   type="text"
-                  value={clientAddress}
-                  readOnly={isClientLocked}
-                  onChange={(e) => setClientAddress(e.target.value)}
-                  placeholder="e.g. P.O. Box 40241 - 00100 Nairobi / Machakos Road"
-                  className={`w-full border rounded px-2.5 py-1.5 transition-colors ${
-                    isClientLocked
-                      ? 'bg-slate-100/90 text-slate-700 cursor-not-allowed border-slate-200 select-none'
-                      : 'border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500'
-                  }`}
+                  value={clientAddress || '—'}
+                  readOnly
+                  className="w-full border border-slate-200 rounded px-2.5 py-1.5 bg-slate-50/80 text-slate-800 select-text cursor-default focus:outline-none"
                 />
               </div>
             </div>
@@ -1337,26 +1437,77 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                       <td className="px-2 py-1.5 text-center text-slate-400 font-mono font-bold">
                         {idx + 1}
                       </td>
-                      <td className="px-1.5 py-1">
+                      <td className="px-1.5 py-1 relative">
                         <input
                           type="text"
+                          ref={idx === 0 ? firstParticularsRef : undefined}
                           value={item.particulars}
-                          onFocus={() => handleCellFocus(idx)}
-                          onChange={(e) => handleItemChange(idx, 'particulars', e.target.value)}
+                          onFocus={() => {
+                            handleCellFocus(idx);
+                            setActiveAutocompleteRow(idx);
+                          }}
+                          onChange={(e) => {
+                            handleItemChange(idx, 'particulars', e.target.value);
+                            setActiveAutocompleteRow(idx);
+                          }}
                           onBlur={(e) => {
                             const normalized = normalizeLineItemParticulars(e.target.value);
                             if (normalized !== e.target.value) {
                               handleItemChange(idx, 'particulars', normalized);
                             }
+                            setTimeout(() => {
+                              setActiveAutocompleteRow(null);
+                            }, 200);
                           }}
                           onKeyDown={(e) => handleCellKeyDown(e, idx, 'particulars')}
                           placeholder={
                             idx === lineItems.length - 1 && !item.particulars
-                              ? 'Type particulars here...'
+                              ? 'Type particulars (predictive autocomplete active)...'
                               : 'Particulars...'
                           }
                           className="w-full border border-transparent hover:border-slate-300 focus:border-amber-500 rounded px-2 py-1 text-xs text-slate-900 bg-transparent focus:bg-white focus:outline-none"
                         />
+
+                        {/* Predictive Autocomplete Suggestions Popover */}
+                        {activeAutocompleteRow === idx && item.particulars.trim().length >= 1 && (
+                          (() => {
+                            const q = item.particulars.trim().toLowerCase();
+                            const matches = catalogSuggestions
+                              .filter((c) => c.particulars.toLowerCase().includes(q))
+                              .slice(0, 6);
+                            if (matches.length === 0) return null;
+                            return (
+                              <div className="absolute left-0 top-full mt-1 w-96 max-w-lg bg-white border border-slate-300 rounded shadow-xl z-50 py-1 divide-y divide-slate-100">
+                                <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-50 flex items-center justify-between">
+                                  <span>Suggested Services</span>
+                                  <span>Rate</span>
+                                </div>
+                                {matches.map((suggestion, sIdx) => (
+                                  <div
+                                    key={sIdx}
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      handleSelectAutocomplete(idx, suggestion);
+                                    }}
+                                    className="px-2.5 py-1.5 hover:bg-amber-50 cursor-pointer flex items-center justify-between gap-3 text-xs"
+                                  >
+                                    <div className="flex flex-col min-w-0">
+                                      <span className="font-semibold text-slate-900 truncate">
+                                        {suggestion.particulars}
+                                      </span>
+                                      <span className="text-[10px] text-slate-400">
+                                        {suggestion.category} &bull; {suggestion.defaultDays || 1} day(s)
+                                      </span>
+                                    </div>
+                                    <span className="font-mono font-bold text-amber-900 shrink-0">
+                                      {formatKsh(suggestion.rate)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()
+                        )}
                       </td>
                       <td className="px-1 py-1">
                         <input
@@ -1365,6 +1516,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                           value={item.quantity}
                           onFocus={() => handleCellFocus(idx)}
                           onChange={(e) => handleItemChange(idx, 'quantity', Number(e.target.value))}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            handleItemChange(idx, 'quantity', isNaN(val) || val < 1 ? 1 : val);
+                          }}
                           onKeyDown={(e) => handleCellKeyDown(e, idx, 'quantity')}
                           className="w-full border border-transparent hover:border-stone-300 focus:border-stone-500 rounded px-1.5 py-1 text-xs text-center text-stone-800 bg-transparent focus:bg-white focus:outline-none"
                         />
@@ -1376,6 +1531,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                           value={item.days}
                           onFocus={() => handleCellFocus(idx)}
                           onChange={(e) => handleItemChange(idx, 'days', Number(e.target.value))}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            handleItemChange(idx, 'days', isNaN(val) || val < 1 ? 1 : val);
+                          }}
                           onKeyDown={(e) => handleCellKeyDown(e, idx, 'days')}
                           className="w-full border border-transparent hover:border-stone-300 focus:border-stone-500 rounded px-1.5 py-1 text-xs text-center text-stone-800 bg-transparent focus:bg-white focus:outline-none"
                         />
@@ -1388,6 +1547,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                           value={item.rate}
                           onFocus={() => handleCellFocus(idx)}
                           onChange={(e) => handleItemChange(idx, 'rate', Number(e.target.value))}
+                          onBlur={(e) => {
+                            const corrected = autoCorrectNumericAmount(e.target.value);
+                            handleItemChange(idx, 'rate', corrected);
+                          }}
                           onKeyDown={(e) => handleCellKeyDown(e, idx, 'rate')}
                           className="w-full border border-transparent hover:border-stone-300 focus:border-stone-500 rounded px-1.5 py-1 text-xs text-right font-mono text-stone-800 bg-transparent focus:bg-white focus:outline-none"
                         />
@@ -1414,11 +1577,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             {/* 4. FINANCIAL SUMMARY CALCULATION PANEL */}
             <div id="editor-totals-breakdown" className="bg-slate-50/90 border border-slate-200/90 rounded-lg p-4 flex flex-col items-end space-y-2 text-xs shadow-2xs">
               <div className="flex justify-between items-center w-80 text-slate-600">
-                <span className="font-medium">Gross Subtotal (Excl. VAT):</span>
-                <span className="font-mono font-semibold text-slate-900">{formatKsh(totals.grossSubtotal)}</span>
-              </div>
-              <div className="flex justify-between items-center w-80 text-slate-600">
-                <span className="text-emerald-800 font-medium">Negotiated Discount (Ksh):</span>
+                <span className="text-emerald-800 font-medium">Discount (Ksh):</span>
                 <div className="flex items-center gap-1.5">
                   <span className="text-slate-400 font-mono text-[11px]">-</span>
                   <input
@@ -1426,20 +1585,18 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                     min="0"
                     step="50"
                     value={discount === 0 ? '' : discount}
-                    onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))}
+                    onChange={(e) => setDiscount(Math.max(0, roundToTwoDecimals(Number(e.target.value) || 0)))}
                     placeholder="0"
                     className="w-28 text-right font-mono font-semibold border border-slate-300 rounded px-2.5 py-1 bg-white text-emerald-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-2xs"
                   />
                 </div>
               </div>
-              {totals.discount > 0 && (
-                <div className="flex justify-between items-center w-80 text-slate-600">
-                  <span className="font-medium">Net Taxable Base:</span>
-                  <span className="font-mono font-semibold text-slate-900">{formatKsh(totals.subtotal)}</span>
-                </div>
-              )}
               <div className="flex justify-between items-center w-80 text-slate-600">
-                <span className="font-medium">VAT (16% Kenya Standard):</span>
+                <span className="font-medium">Subtotal:</span>
+                <span className="font-mono font-semibold text-slate-900">{formatKsh(totals.subtotal)}</span>
+              </div>
+              <div className="flex justify-between items-center w-80 text-slate-600">
+                <span className="font-medium">VAT (16%):</span>
                 <span className="font-mono font-semibold text-slate-900">{formatKsh(totals.vatAmount)}</span>
               </div>
               <div className="flex justify-between items-center w-80 text-slate-950 font-bold border-t border-slate-300 pt-2 text-sm">
@@ -1591,33 +1748,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
         {/* 6. DYNAMIC VIEWPORT AUTO-SCALING A4 PDF PREVIEW SECTION (CONTINUOUS VERTICAL FLOW) */}
         <div id="editor-live-a4-preview" className="max-w-5xl mx-auto pt-2">
-          <AutoScalingA4Container
-            title={`Live Static A4 ${docType} Preview`}
-            subtitle="Accurate 210mm × 297mm print & PDF output • Dynamic viewport auto-scaling"
-            documentNumber={fullDocumentNumber}
-            actions={
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleDownloadPdfChained}
-                  disabled={isSaving || isGeneratingPdf}
-                  className="px-2.5 py-1 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 transition-colors shadow-2xs"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download PDF</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDirectPrintChained}
-                  disabled={isSaving}
-                  className="px-2.5 py-1 text-xs font-semibold bg-stone-800 hover:bg-stone-700 text-stone-200 rounded flex items-center gap-1 transition-colors border border-stone-700 shadow-2xs"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print</span>
-                </button>
-              </div>
-            }
-          >
+          <AutoScalingA4Container hideHeaderBar={true}>
             <div ref={a4PreviewRef}>
               <A4DocumentPreview doc={currentDoc} profile={profile} />
             </div>

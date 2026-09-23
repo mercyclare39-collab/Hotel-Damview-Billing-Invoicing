@@ -63,39 +63,17 @@ export function calculateDueDate(issueDateStr: string, validityDays: number): st
   }
 }
 
-/**
- * Line item calculation: Amount = Quantity * Days * Rate
- */
-export function calculateLineItemAmount(item: Partial<LineItem>): number {
-  const qty = Number(item.quantity) || 0;
-  const days = Number(item.days) || 1;
-  const rate = Number(item.rate) || 0;
-  const raw = qty * days * rate;
-  return Math.max(0, Math.round(raw * 100) / 100);
-}
-
-/**
- * Financial calculation engine for full document with discount row
- */
-export function calculateTotals(items: LineItem[], discount: number = 0, vatRatePercent: number = 16) {
-  const grossSubtotal = items.reduce((sum, item) => {
-    return sum + (Number(item.amount) || 0);
-  }, 0);
-
-  const roundedGrossSubtotal = Math.round(grossSubtotal * 100) / 100;
-  const discountAmount = Math.min(roundedGrossSubtotal, Math.max(0, Number(discount) || 0));
-  const taxableSubtotal = Math.max(0, roundedGrossSubtotal - discountAmount);
-  const vatAmount = Math.round(taxableSubtotal * (vatRatePercent / 100) * 100) / 100;
-  const grandTotal = Math.round((taxableSubtotal + vatAmount) * 100) / 100;
-
-  return {
-    grossSubtotal: roundedGrossSubtotal,
-    discount: discountAmount,
-    subtotal: taxableSubtotal,
-    vatAmount,
-    grandTotal,
-  };
-}
+export {
+  DEFAULT_KENYAN_VAT_RATE,
+  roundToTwoDecimals,
+  calculateLineItemAmount,
+  calculateTaxableSubtotal,
+  calculateVatAmount,
+  calculateVatBreakdown,
+  calculateTotals,
+  calculateBalanceDue,
+} from './financial';
+export type { VatBreakdown, DocumentTotals } from './financial';
 
 /**
  * Standard PDF file naming convention: [DocumentNumber]_[ClientName]_[IssueDate(YYYY-MM-DD)].pdf
@@ -153,43 +131,113 @@ export function normalizeLineItemParticulars(text: string): string {
 }
 
 /**
- * Clean and standardize Kenyan phone inputs into consistent formats:
- * Supports 07XX..., 01XX..., +254 7XX..., 254 7XX...
+ * Live sanitization for Kenyan phone input as the operator types:
+ * - Allows leading '+' and numeric digits
+ * - Strips alphabetical letters and invalid symbols
+ * - Compresses redundant whitespace
  */
-export function normalizeKenyanPhone(phone: string | undefined | null): string {
+export function sanitizeKenyanPhoneLive(input: string | undefined | null): string {
+  if (!input) return '';
+  const str = String(input);
+  const hasLeadingPlus = str.trimStart().startsWith('+');
+  const sanitized = str.replace(/[^\d\s]/g, '').replace(/\s+/g, ' ');
+  return hasLeadingPlus ? `+${sanitized.trimStart()}` : sanitized;
+}
+
+/**
+ * Autonomous Kenyan Phone Normalization & Sanitization (Strict):
+ * Standardizes Kenyan mobile and telephone numbers into official formats:
+ * - Mobile international format: '+254 7XX XXXXXX' or '+254 1XX XXXXXX'
+ * - Local mobile format: '07XX XXXXXX' or '01XX XXXXXX'
+ * - Landline format: '+254 20 XXXXXXX' / '020 XXXXXXX'
+ * Automatically removes non-numeric noise, misplaced characters, and trailing spaces.
+ */
+export function normalizeKenyanPhone(
+  phone: string | undefined | null,
+  formatPreference: 'international' | 'local' = 'international'
+): string {
   if (!phone) return '';
   const raw = String(phone).trim();
-  // Strip non-digit characters except leading +
-  const hasPlus = raw.startsWith('+');
+  if (raw.length === 0) return '';
+
+  // Extract pure digits
   const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
 
-  if (!digits) return raw;
-
-  // Format 1: starts with 254 and has 12 digits total (e.g., 254712345678 or 254112345678)
+  // Format 1: starts with 254 and has 12 digits total (e.g. 254712345678, 254112345678)
   if (digits.startsWith('254') && digits.length === 12) {
-    const pfx = digits.slice(3, 5);
-    const mid = digits.slice(5, 8);
-    const end = digits.slice(8);
-    return `+254 ${pfx} ${mid} ${end}`;
+    const operatorCode = digits.slice(3, 5); // 71, 72, 11, etc.
+    const mid = digits.slice(5, 8);          // 345
+    const end = digits.slice(8);             // 678
+    if (formatPreference === 'local') {
+      return `0${operatorCode} ${mid} ${end}`;
+    }
+    return `+254 ${operatorCode} ${mid} ${end}`;
   }
 
-  // Format 2: local 10-digit number starting with 07 or 01 (e.g., 0712345678 or 0112345678)
+  // Format 2: local 10-digit number starting with 07 or 01 (e.g. 0712345678 or 0112345678)
   if ((digits.startsWith('07') || digits.startsWith('01')) && digits.length === 10) {
-    const pfx = digits.slice(0, 4);
-    const mid = digits.slice(4, 7);
-    const end = digits.slice(7);
-    return `${pfx} ${mid} ${end}`;
-  }
-
-  // Format 3: 9 digits without leading 0 (e.g., 712345678)
-  if ((digits.startsWith('7') || digits.startsWith('1')) && digits.length === 9) {
-    const pfx = '0' + digits.slice(0, 3);
+    const operatorCode = digits.slice(1, 3);
     const mid = digits.slice(3, 6);
     const end = digits.slice(6);
-    return `${pfx} ${mid} ${end}`;
+    if (formatPreference === 'local') {
+      return `${digits.slice(0, 4)} ${mid} ${end}`;
+    }
+    return `+254 ${operatorCode} ${mid} ${end}`;
   }
 
-  return raw;
+  // Format 3: 9 digits without leading 0 (e.g. 712345678, 112345678)
+  if ((digits.startsWith('7') || digits.startsWith('1')) && digits.length === 9) {
+    const operatorCode = digits.slice(0, 2);
+    const mid = digits.slice(2, 5);
+    const end = digits.slice(5);
+    if (formatPreference === 'local') {
+      return `0${operatorCode} ${mid} ${end}`;
+    }
+    return `+254 ${operatorCode} ${mid} ${end}`;
+  }
+
+  // Format 4: Kenyan landline / hotline starting with 020 (Nairobi) or 044 (Machakos)
+  if (digits.startsWith('0') && digits.length >= 8 && digits.length <= 10) {
+    const areaCode = digits.slice(0, 3);
+    const rest = digits.slice(3);
+    if (formatPreference === 'local') {
+      return `${areaCode} ${rest}`;
+    }
+    return `+254 ${digits.slice(1, 3)} ${rest}`;
+  }
+
+  // Fallback: sanitized digits with optional plus
+  const cleanFallback = raw.replace(/[^\d+ ]/g, '').replace(/\s+/g, ' ').trim();
+  return cleanFallback;
+}
+
+/**
+ * Validates Kenyan telephone number structure
+ */
+export function validateKenyanPhone(phone: string | undefined | null): {
+  isValid: boolean;
+  normalized: string;
+  message: string;
+} {
+  if (!phone) {
+    return { isValid: false, normalized: '', message: 'Phone number cannot be empty' };
+  }
+  const digits = String(phone).replace(/\D/g, '');
+  const is12With254 = digits.startsWith('254') && digits.length === 12;
+  const is10Local = (digits.startsWith('07') || digits.startsWith('01') || digits.startsWith('02') || digits.startsWith('04')) && digits.length === 10;
+  const is9Without0 = (digits.startsWith('7') || digits.startsWith('1')) && digits.length === 9;
+
+  const isValid = is12With254 || is10Local || is9Without0;
+  const normalized = normalizeKenyanPhone(phone);
+
+  return {
+    isValid,
+    normalized,
+    message: isValid
+      ? 'Valid Kenyan telephone format'
+      : 'Use standard Kenyan telephone (+254 7XX XXXXXX, 07XXXXXXXX, or 01XXXXXXXX)',
+  };
 }
 
 /**

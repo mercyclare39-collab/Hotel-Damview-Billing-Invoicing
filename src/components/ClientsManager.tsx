@@ -182,11 +182,7 @@ export const ClientsManager: React.FC<ClientsManagerProps> = ({
                         {/* Delete */}
                         <button
                           type="button"
-                          onClick={() => {
-                            if (window.confirm(`Delete client "${client.name}"?`)) {
-                              onDeleteClient(client.id);
-                            }
-                          }}
+                          onClick={() => onDeleteClient(client.id)}
                           className="p-1 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded"
                           title="Delete Client"
                         >

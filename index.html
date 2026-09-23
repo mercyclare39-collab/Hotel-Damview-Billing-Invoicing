@@ -19,6 +19,101 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="alternate icon" href="/favicon.ico" />
+    <script>
+      // Permanently neutralize Vite HMR & WebSocket connections
+      (function() {
+        try {
+          function NoopWebSocket(url, protocols) {
+            this.url = url || '';
+            this.protocol = Array.isArray(protocols) ? protocols[0] : (protocols || '');
+            this.readyState = 1; // Mark as OPEN so clients never attempt reconnect loops
+            this.bufferedAmount = 0;
+            this.extensions = '';
+            this.binaryType = 'blob';
+            this.onopen = null;
+            this.onclose = null;
+            this.onerror = null;
+            this.onmessage = null;
+
+            var self = this;
+            setTimeout(function() {
+              if (typeof self.onopen === 'function') {
+                try { self.onopen(new Event('open')); } catch(e) {}
+              }
+            }, 0);
+          }
+
+          NoopWebSocket.CONNECTING = 0;
+          NoopWebSocket.OPEN = 1;
+          NoopWebSocket.CLOSING = 2;
+          NoopWebSocket.CLOSED = 3;
+          NoopWebSocket.prototype.CONNECTING = 0;
+          NoopWebSocket.prototype.OPEN = 1;
+          NoopWebSocket.prototype.CLOSING = 2;
+          NoopWebSocket.prototype.CLOSED = 3;
+          NoopWebSocket.prototype.send = function() {};
+          NoopWebSocket.prototype.close = function() { this.readyState = 3; };
+          NoopWebSocket.prototype.addEventListener = function(event, handler) {
+            if (event === 'open' && typeof handler === 'function') {
+              setTimeout(function() {
+                try { handler(new Event('open')); } catch(e) {}
+              }, 0);
+            }
+          };
+          NoopWebSocket.prototype.removeEventListener = function() {};
+          NoopWebSocket.prototype.dispatchEvent = function() { return false; };
+
+          window.WebSocket = NoopWebSocket;
+        } catch(e) {}
+
+        var isWsOrViteNoise = function(str) {
+          if (!str || typeof str !== 'string') return false;
+          var s = str.toLowerCase();
+          return s.indexOf('websocket') !== -1 ||
+                 s.indexOf('ws://') !== -1 ||
+                 s.indexOf('wss://') !== -1 ||
+                 s.indexOf('[vite]') !== -1 ||
+                 s.indexOf('vite:') !== -1;
+        };
+
+        var origErr = console.error.bind(console);
+        var origWarn = console.warn.bind(console);
+        var origLog = console.log.bind(console);
+        var origDebug = console.debug.bind(console);
+        var origInfo = console.info.bind(console);
+
+        console.error = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origErr.apply(console, arguments);
+        };
+        console.warn = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origWarn.apply(console, arguments);
+        };
+        console.log = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origLog.apply(console, arguments);
+        };
+        console.debug = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origDebug.apply(console, arguments);
+        };
+        console.info = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origInfo.apply(console, arguments);
+        };
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -38,20 +38,24 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
     },
     ref
   ) => {
-    // Auto-fit calculations for similar monetary columns: Debit, Credit & Balance (equally distributed to identical width)
-    const maxStatementCurrencyChars = Math.max(
-      7, // "Balance"
-      ...(entries.length > 0
-        ? entries.map((e) =>
-            Math.max(
-              formatKsh(e.debit || 0).replace('Ksh ', '').length,
-              formatKsh(e.credit || 0).replace('Ksh ', '').length,
-              formatKsh(e.cumulativeBalance || 0).replace('Ksh ', '').length
-            )
-          )
-        : [8])
+    // Adaptive column width allocation
+    const maxDebitChars = Math.max(
+      5, // "Debit"
+      ...(entries.length > 0 ? entries.map((e) => formatKsh(e.debit || 0).replace('Ksh ', '').length) : [6])
     );
-    const similarCurrencyWidth = `${Math.max(88, maxStatementCurrencyChars * 8.5 + 16)}px`;
+    const dynamicDebitWidth = `${Math.max(82, maxDebitChars * 8 + 16)}px`;
+
+    const maxCreditChars = Math.max(
+      6, // "Credit"
+      ...(entries.length > 0 ? entries.map((e) => formatKsh(e.credit || 0).replace('Ksh ', '').length) : [6])
+    );
+    const dynamicCreditWidth = `${Math.max(82, maxCreditChars * 8 + 16)}px`;
+
+    const maxBalChars = Math.max(
+      7, // "Balance"
+      ...(entries.length > 0 ? entries.map((e) => formatKsh(e.cumulativeBalance || 0).replace('Ksh ', '').length) : [7])
+    );
+    const dynamicBalanceWidth = `${Math.max(88, maxBalChars * 8 + 18)}px`;
 
     return (
       <div
@@ -173,44 +177,45 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                 <thead>
                   <tr>
                     <th
-                      className="text-center whitespace-nowrap"
+                      className="text-center col-center whitespace-nowrap"
                       style={{ width: '36px', minWidth: '36px' }}
                     >
                       #
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
+                      className="text-center col-center whitespace-nowrap"
                       style={{ width: '85px', minWidth: '85px' }}
                     >
                       Date
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
+                      className="text-center col-center whitespace-nowrap"
                       style={{ width: '80px', minWidth: '80px' }}
                     >
                       Ref No.
                     </th>
                     <th
-                      className="text-left"
+                      className="text-left col-particulars"
+                      data-col="particulars"
                       style={{ width: 'auto' }}
                     >
                       Particulars
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: similarCurrencyWidth, minWidth: similarCurrencyWidth, maxWidth: similarCurrencyWidth }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: dynamicDebitWidth, minWidth: dynamicDebitWidth }}
                     >
                       Debit
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: similarCurrencyWidth, minWidth: similarCurrencyWidth, maxWidth: similarCurrencyWidth }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: dynamicCreditWidth, minWidth: dynamicCreditWidth }}
                     >
                       Credit
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: similarCurrencyWidth, minWidth: similarCurrencyWidth, maxWidth: similarCurrencyWidth }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: dynamicBalanceWidth, minWidth: dynamicBalanceWidth }}
                     >
                       Balance
                     </th>
@@ -247,19 +252,19 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                         </td>
                         <td
                           className="text-right tabular-decimal text-stone-900 whitespace-nowrap font-normal"
-                          style={{ width: similarCurrencyWidth, minWidth: similarCurrencyWidth, maxWidth: similarCurrencyWidth }}
+                          style={{ width: dynamicDebitWidth, minWidth: dynamicDebitWidth }}
                         >
                           {entry.debit > 0 ? formatKsh(entry.debit).replace('Ksh ', '') : '-'}
                         </td>
                         <td
                           className="text-right tabular-decimal text-emerald-800 font-medium whitespace-nowrap"
-                          style={{ width: similarCurrencyWidth, minWidth: similarCurrencyWidth, maxWidth: similarCurrencyWidth }}
+                          style={{ width: dynamicCreditWidth, minWidth: dynamicCreditWidth }}
                         >
                           {entry.credit > 0 ? formatKsh(entry.credit).replace('Ksh ', '') : '-'}
                         </td>
                         <td
                           className="text-right tabular-decimal font-semibold text-stone-950 whitespace-nowrap"
-                          style={{ width: similarCurrencyWidth, minWidth: similarCurrencyWidth, maxWidth: similarCurrencyWidth }}
+                          style={{ width: dynamicBalanceWidth, minWidth: dynamicBalanceWidth }}
                         >
                           {formatKsh(entry.cumulativeBalance).replace('Ksh ', '')}
                         </td>

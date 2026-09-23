@@ -15,11 +15,11 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
   ({ payment, profile, scale = 1, className = '', isPrintVersion = false }, ref) => {
     const phoneEmail = `${profile.phone || '+254 722 890 123'} | ${profile.email || 'reservations@damviewhotel.co.ke'}`;
 
-    // Auto-fit calculations for similar columns: Payment Method & Amount (equally distributed and auto-fitted to currency data)
-    const paymentModeLen = (payment.paymentMode || '').length;
+    // Adaptive column width allocation
+    const paymentModeLen = (payment.paymentMode || 'Bank Transfer').length;
+    const paymentMethodWidth = `${Math.max(120, paymentModeLen * 8 + 20)}px`;
     const amountLen = formatKsh(payment.amount || 0).replace('Ksh ', '').length;
-    const maxReceiptColChars = Math.max(14, paymentModeLen, amountLen);
-    const similarReceiptColWidth = `${Math.max(110, maxReceiptColChars * 8.5 + 16)}px`;
+    const amountColWidth = `${Math.max(95, amountLen * 8 + 20)}px`;
 
     return (
       <div
@@ -133,26 +133,27 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
                 <thead>
                   <tr>
                     <th
-                      className="text-center whitespace-nowrap"
+                      className="text-center col-center whitespace-nowrap"
                       style={{ width: '36px', minWidth: '36px' }}
                     >
                       #
                     </th>
                     <th
-                      className="text-left"
+                      className="text-left col-particulars"
+                      data-col="particulars"
                       style={{ width: 'auto' }}
                     >
                       Particulars
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: similarReceiptColWidth, minWidth: similarReceiptColWidth, maxWidth: similarReceiptColWidth }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: paymentMethodWidth, minWidth: paymentMethodWidth }}
                     >
                       Payment Method
                     </th>
                     <th
-                      className="text-center whitespace-nowrap"
-                      style={{ width: similarReceiptColWidth, minWidth: similarReceiptColWidth, maxWidth: similarReceiptColWidth }}
+                      className="text-center col-center whitespace-nowrap"
+                      style={{ width: amountColWidth, minWidth: amountColWidth }}
                     >
                       Amount
                     </th>
@@ -173,13 +174,13 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
                     </td>
                     <td
                       className="text-center text-stone-800 font-medium whitespace-nowrap"
-                      style={{ width: similarReceiptColWidth, minWidth: similarReceiptColWidth, maxWidth: similarReceiptColWidth }}
+                      style={{ width: paymentMethodWidth, minWidth: paymentMethodWidth }}
                     >
                       {payment.paymentMode}
                     </td>
                     <td
                       className="text-right font-bold text-stone-950 tabular-decimal whitespace-nowrap text-[11pt]"
-                      style={{ width: similarReceiptColWidth, minWidth: similarReceiptColWidth, maxWidth: similarReceiptColWidth }}
+                      style={{ width: amountColWidth, minWidth: amountColWidth }}
                     >
                       {formatKsh(payment.amount).replace('Ksh ', '')}
                     </td>

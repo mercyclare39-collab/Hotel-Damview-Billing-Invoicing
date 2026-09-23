@@ -152,10 +152,13 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       const validation = validatePdfBlob(res.blob, res.base64);
       if (validation.isValid) {
         localBackupService
-          .savePdfToLocalArchive(res.blob, res.fileName, {
-            documentNumber: currentLivePayment.receiptNumber,
-          })
-          .catch((err) => console.warn('Receipt local backup error:', err));
+          .mirrorDocumentDualLocalBackup(
+            res.blob,
+            res.fileName,
+            currentLivePayment,
+            currentLivePayment.receiptNumber
+          )
+          .catch((err) => console.warn('Receipt dual local backup error:', err));
       }
     } catch (err: any) {
       alert('Failed to generate receipt PDF: ' + err.message);
