@@ -235,10 +235,13 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     });
 
     // Listen for remote real-time data changes, sync completions, and renumbering notices
-    const handleDataChanged = () => {
+    const handleDataChanged = (e?: any) => {
       loadData();
-      loadLiveSheetData();
-      setIframeCacheBuster(Date.now());
+      const hasMutations = !e || !e.detail || e.detail.itemsPushed > 0 || e.detail.itemsPulled > 0;
+      if (hasMutations) {
+        loadLiveSheetData();
+        setIframeCacheBuster(Date.now());
+      }
     };
 
     window.addEventListener('damview:data-changed', handleDataChanged);
@@ -470,7 +473,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
         }
       } else {
         // Assume older version if no version string matches vX.X.X
-        setDetectedScriptVersion('Legacy / Pre-v4.7.0');
+        setDetectedScriptVersion('Legacy / Pre-v4.8.0');
         setShowVersionMismatchAlert(true);
       }
 

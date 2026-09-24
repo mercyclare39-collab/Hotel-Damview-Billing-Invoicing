@@ -480,11 +480,22 @@ export function prepareQueueItemPayloadForDispatch(item: SyncQueueItem): any {
     } else {
       action = 'FULL_SYNC';
     }
-  } else if (action === 'DELETE' || action === 'DELETE_DOCUMENT') {
-    action = 'CASCADE_DELETE_DOCUMENT';
-  } else if (action === 'DELETE_CLIENT') {
+  } else if (
+    action === 'DELETE' ||
+    action === 'DELETE_DOCUMENT' ||
+    action === 'CASCADE_DELETE' ||
+    action === 'CASCADE_DELETE_DOCUMENT'
+  ) {
+    if (item?.entityType === 'CLIENT' || rawPayload.clientId || rawPayload.clientName) {
+      action = 'CASCADE_DELETE_CLIENT';
+    } else if (item?.entityType === 'PAYMENT' || rawPayload.paymentId || rawPayload.receiptNumber) {
+      action = 'CASCADE_DELETE_PAYMENT';
+    } else {
+      action = 'CASCADE_DELETE_DOCUMENT';
+    }
+  } else if (action === 'DELETE_CLIENT' || action === 'CASCADE_DELETE_CLIENT') {
     action = 'CASCADE_DELETE_CLIENT';
-  } else if (action === 'DELETE_PAYMENT') {
+  } else if (action === 'DELETE_PAYMENT' || action === 'CASCADE_DELETE_PAYMENT') {
     action = 'CASCADE_DELETE_PAYMENT';
   } else if (action === 'ARCHIVE_STATEMENT' || action === 'STATEMENT_PDF') {
     action = 'ARCHIVE_STATEMENT_PDF';
@@ -600,6 +611,7 @@ class GoogleSyncManager {
   private pollingIntervalSeconds = 5; // Real-time 5-second polling
   private inflightFetchPromise: Promise<any> | null = null;
   private inflightQueuePromise: Promise<any> | null = null;
+  private lastTabGenerationTimestamp = 0;
 
   private currentState: RealtimeSyncState = {
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -2102,12 +2114,31 @@ class GoogleSyncManager {
             lastError = itemErr?.message || 'Sync network error';
             console.warn('Queue item sync failed:', itemErr);
 
-            await dbService.updateSyncQueueItem({
-              ...item,
-              status: 'failed',
-              retryCount: (item.retryCount || 0) + 1,
-              errorMessage: lastError,
-            });
+            const newRetryCount = (item.retryCount || 0) + 1;
+
+            // Auto-retire fatal/unrecoverable errors or items exceeding max retries to protect app health
+            const isFatal =
+              lastError.includes('Unrecognized sync action') ||
+              lastError.includes('Script function not found') ||
+              newRetryCount >= 5;
+
+            if (isFatal && item.id !== undefined) {
+              await dbService.recordAuditLog({
+                entityType: (item.entityType as any) || 'SYNC',
+                entityId: String(item.entityId || item.id),
+                action: 'ERROR',
+                details: `Sync queue item permanently retired after ${newRetryCount} attempt(s): ${lastError}`,
+                snapshot: { item, error: lastError },
+              }).catch(() => {});
+              await dbService.removeSyncQueueItem(item.id);
+            } else {
+              await dbService.updateSyncQueueItem({
+                ...item,
+                status: 'failed',
+                retryCount: newRetryCount,
+                errorMessage: lastError,
+              });
+            }
           }
         }
 
@@ -2872,8 +2903,12 @@ class GoogleSyncManager {
     this.notifyListeners({ isSyncing: true, statusText: 'Realtime Live Syncing & Tab Auto-Generation...' });
 
     try {
-      // Step 0: Auto Generate & Deduplicate All Module Tabs in Google Sheets
-      await this.autoGenerateTabs().catch(() => {});
+      // Step 0: Auto Generate & Deduplicate All Module Tabs in Google Sheets (throttled to once per 15 minutes to eliminate lock contention)
+      const nowMs = Date.now();
+      if (!this.lastTabGenerationTimestamp || nowMs - this.lastTabGenerationTimestamp > 15 * 60 * 1000) {
+        this.lastTabGenerationTimestamp = nowMs;
+        await this.autoGenerateTabs().catch(() => {});
+      }
 
       // Step 1: Push offline queued items to Google Sheets
       const pushResult = await this.processSyncQueue();
@@ -2903,9 +2938,13 @@ class GoogleSyncManager {
         statusText: 'Live Synced',
       });
 
-      // Dispatch global sync completion event for live worksheet auto-refresh
+      // Dispatch global sync completion event with mutation telemetry for selective UI refresh
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('damview-sync-completed', { detail: { timestamp: now } }));
+        window.dispatchEvent(
+          new CustomEvent('damview-sync-completed', {
+            detail: { timestamp: now, itemsPushed: pushedCount, itemsPulled: pulledCount },
+          })
+        );
       }
 
       return {

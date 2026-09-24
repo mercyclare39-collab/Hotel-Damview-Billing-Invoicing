@@ -1,16 +1,16 @@
 /**
  * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND SCRIPT
- * Version: v4.7.0
+ * Version: v4.8.0
  */
 
-export const GOOGLE_APPS_SCRIPT_VERSION = "v4.7.0";
+export const GOOGLE_APPS_SCRIPT_VERSION = "v4.8.0";
 
 export function getLatestAppsScriptVersion(): string {
   return GOOGLE_APPS_SCRIPT_VERSION;
 }
 
 export const GOOGLE_APPS_SCRIPT_CODE = `/**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v4.7.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v4.8.0)
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Universal Drive Archival Engine
  * Single Source of Truth for Hotel Damview ERP Across All App Workstations & Mobile Devices
  *
@@ -245,7 +245,7 @@ function doGet(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Central Backend v4.7.0 is active and ready.",
+      message: "Hotel Damview Google Apps Script Central Backend v4.8.0 is active and ready.",
       sheetName: ss ? ss.getName() : "Spreadsheet",
       sheetUrl: ss ? ss.getUrl() : "",
       timestamp: new Date().toISOString()
@@ -253,7 +253,7 @@ function doGet(e) {
   } catch (err) {
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Backend v4.7.0 is online.",
+      message: "Hotel Damview Google Apps Script Backend v4.8.0 is online.",
       error: err.toString(),
       timestamp: new Date().toISOString()
     });
@@ -324,7 +324,7 @@ function doPost(e) {
       var sheetList = getDiscoveredSheets(ss);
       return responseJSON({
         success: true,
-        message: "Hotel Damview Google Apps Script Central Backend v4.7.0 is active and connected.",
+        message: "Hotel Damview Google Apps Script Central Backend v4.8.0 is active and connected.",
         sheetName: ss.getName(),
         sheetUrl: ss.getUrl(),
         tabs: sheetList,
@@ -490,11 +490,11 @@ function doPost(e) {
     }
 
     // 5. CASCADE DOCUMENT DELETION
-    if (action === "CASCADE_DELETE_DOCUMENT" || action === "DELETE_DOCUMENT") {
+    if (action === "CASCADE_DELETE_DOCUMENT" || action === "DELETE_DOCUMENT" || (action === "CASCADE_DELETE" && (data.documentId || data.documentNumber || data.id || (!data.clientId && !data.paymentId && !data.receiptNumber)))) {
       try {
-        var delDocResult = cascadeDeleteDocument(ss, data.documentId, data.documentNumber, data.folderName);
+        var delDocResult = cascadeDeleteDocument(ss, data.documentId || data.id, data.documentNumber, data.folderName);
         refreshAllAnalyticsTabs(ss);
-        logAudit(ss, "CASCADE_DELETE_DOCUMENT", "Deleted " + (data.documentNumber || data.documentId), "SUCCESS", "", "");
+        logAudit(ss, "CASCADE_DELETE_DOCUMENT", "Deleted " + (data.documentNumber || data.documentId || data.id), "SUCCESS", "", "");
         return responseJSON({ success: true, result: delDocResult });
       } catch (delDocErr) {
         logAudit(ss, "CASCADE_DELETE_DOCUMENT", "Delete failed: " + delDocErr.toString(), "FAILURE", "", "");
@@ -503,11 +503,11 @@ function doPost(e) {
     }
 
     // 6. CASCADE CLIENT DELETION
-    if (action === "CASCADE_DELETE_CLIENT" || action === "DELETE_CLIENT") {
+    if (action === "CASCADE_DELETE_CLIENT" || action === "DELETE_CLIENT" || (action === "CASCADE_DELETE" && (data.clientId || data.clientName))) {
       try {
-        var delClientResult = cascadeDeleteClient(ss, data.clientId, data.clientName, data.kraPin);
+        var delClientResult = cascadeDeleteClient(ss, data.clientId || data.id, data.clientName, data.kraPin);
         refreshStatementsLedger(ss);
-        logAudit(ss, "CASCADE_DELETE_CLIENT", "Deleted Client " + (data.clientName || data.clientId), "SUCCESS", "", "");
+        logAudit(ss, "CASCADE_DELETE_CLIENT", "Deleted Client " + (data.clientName || data.clientId || data.id), "SUCCESS", "", "");
         return responseJSON({ success: true, result: delClientResult });
       } catch (delClientErr) {
         logAudit(ss, "CASCADE_DELETE_CLIENT", "Delete client failed: " + delClientErr.toString(), "FAILURE", "", "");
@@ -516,11 +516,11 @@ function doPost(e) {
     }
 
     // 7. CASCADE PAYMENT DELETION
-    if (action === "CASCADE_DELETE_PAYMENT" || action === "DELETE_PAYMENT") {
+    if (action === "CASCADE_DELETE_PAYMENT" || action === "DELETE_PAYMENT" || (action === "CASCADE_DELETE" && (data.paymentId || data.receiptNumber))) {
       try {
-        var delPayResult = cascadeDeletePayment(ss, data.paymentId, data.receiptNumber, data.documentNumber, data.folderName);
+        var delPayResult = cascadeDeletePayment(ss, data.paymentId || data.id, data.receiptNumber, data.documentNumber, data.folderName);
         refreshAllAnalyticsTabs(ss);
-        logAudit(ss, "CASCADE_DELETE_PAYMENT", "Deleted Payment " + (data.receiptNumber || data.paymentId), "SUCCESS", "", "");
+        logAudit(ss, "CASCADE_DELETE_PAYMENT", "Deleted Payment " + (data.receiptNumber || data.paymentId || data.id), "SUCCESS", "", "");
         return responseJSON({ success: true, result: delPayResult });
       } catch (delPayErr) {
         logAudit(ss, "CASCADE_DELETE_PAYMENT", "Delete payment failed: " + delPayErr.toString(), "FAILURE", "", "");

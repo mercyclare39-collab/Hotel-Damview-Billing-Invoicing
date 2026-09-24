@@ -780,8 +780,16 @@ class StorageEngine {
     }
 
     const nowIso = new Date().toISOString();
-    const queueAction: SyncActionType =
-      action || (isDelete ? 'CASCADE_DELETE' : 'UPSERT');
+    let queueAction: SyncActionType;
+    if (action) {
+      queueAction = action;
+    } else if (isDelete) {
+      if (entityType === 'CLIENT') queueAction = 'CASCADE_DELETE_CLIENT' as any;
+      else if (entityType === 'PAYMENT') queueAction = 'CASCADE_DELETE_PAYMENT' as any;
+      else queueAction = 'CASCADE_DELETE_DOCUMENT' as any;
+    } else {
+      queueAction = 'UPSERT';
+    }
 
     const queueItem: SyncQueueItem = {
       id: 'sq-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8),
@@ -1203,7 +1211,7 @@ class StorageEngine {
       storeName: 'clients',
       entity: target || { id: clientId },
       isDelete: true,
-      action: 'CASCADE_DELETE',
+      action: 'CASCADE_DELETE_CLIENT',
       auditDetails: `Deleted client: ${target?.name || clientId}`,
     });
   }
@@ -1364,7 +1372,7 @@ class StorageEngine {
       storeName: 'documents',
       entity: target || { id: docId },
       isDelete: true,
-      action: 'CASCADE_DELETE',
+      action: 'CASCADE_DELETE_DOCUMENT',
       auditDetails: `Deleted ${target?.documentType || 'DOCUMENT'} ${target?.documentNumber || docId}`,
     });
   }
@@ -1517,7 +1525,7 @@ class StorageEngine {
       storeName: 'payments',
       entity: payment || { id: paymentId },
       isDelete: true,
-      action: 'CASCADE_DELETE',
+      action: 'CASCADE_DELETE_PAYMENT',
       auditDetails: `Deleted payment receipt ${payment?.receiptNumber || paymentId}`,
     });
 
@@ -2375,7 +2383,7 @@ class StorageEngine {
         req.onerror = () => resolve([]);
       });
 
-      // Filter and permanently purge generic/invalid queue items (e.g. action: UPSERT)
+      // Filter, auto-heal, and permanently purge generic/invalid queue items
       const cleanList = list.filter((q) => {
         if (!q || !q.id) return false;
         const act = String(q.action || '').trim().toUpperCase();
@@ -2384,6 +2392,19 @@ class StorageEngine {
           this.removeSyncQueueItem(q.id).catch(() => {});
           return false;
         }
+
+        // Auto-heal any legacy un-suffixed CASCADE_DELETE actions in the queue
+        if (act === 'CASCADE_DELETE') {
+          if (q.entityType === 'CLIENT' || (q.payload && (q.payload.clientId || q.payload.clientName))) {
+            q.action = 'CASCADE_DELETE_CLIENT' as any;
+          } else if (q.entityType === 'PAYMENT' || (q.payload && (q.payload.paymentId || q.payload.receiptNumber))) {
+            q.action = 'CASCADE_DELETE_PAYMENT' as any;
+          } else {
+            q.action = 'CASCADE_DELETE_DOCUMENT' as any;
+          }
+          this.updateSyncQueueItem(q).catch(() => {});
+        }
+
         return true;
       });
 
@@ -2447,11 +2468,22 @@ class StorageEngine {
     const upperAction = resolvedAction.toUpperCase();
     if (!resolvedAction || upperAction === 'UPSERT' || upperAction === 'CREATE' || upperAction === 'UPDATE') {
       return '';
-    } else if (resolvedAction === 'DELETE' || resolvedAction === 'DELETE_DOCUMENT') {
-      resolvedAction = 'CASCADE_DELETE_DOCUMENT';
-    } else if (resolvedAction === 'DELETE_CLIENT') {
+    } else if (
+      resolvedAction === 'DELETE' ||
+      resolvedAction === 'DELETE_DOCUMENT' ||
+      resolvedAction === 'CASCADE_DELETE' ||
+      resolvedAction === 'CASCADE_DELETE_DOCUMENT'
+    ) {
+      if (item.entityType === 'CLIENT' || rawPayload.clientName || rawPayload.clientId) {
+        resolvedAction = 'CASCADE_DELETE_CLIENT';
+      } else if (item.entityType === 'PAYMENT' || rawPayload.receiptNumber || rawPayload.paymentId) {
+        resolvedAction = 'CASCADE_DELETE_PAYMENT';
+      } else {
+        resolvedAction = 'CASCADE_DELETE_DOCUMENT';
+      }
+    } else if (resolvedAction === 'DELETE_CLIENT' || resolvedAction === 'CASCADE_DELETE_CLIENT') {
       resolvedAction = 'CASCADE_DELETE_CLIENT';
-    } else if (resolvedAction === 'DELETE_PAYMENT') {
+    } else if (resolvedAction === 'DELETE_PAYMENT' || resolvedAction === 'CASCADE_DELETE_PAYMENT') {
       resolvedAction = 'CASCADE_DELETE_PAYMENT';
     } else if (resolvedAction === 'ARCHIVE_STATEMENT' || resolvedAction === 'STATEMENT_PDF') {
       resolvedAction = 'ARCHIVE_STATEMENT_PDF';
