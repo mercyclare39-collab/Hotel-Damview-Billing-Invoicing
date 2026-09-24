@@ -25,6 +25,7 @@ import {
   FileCheck,
   ChevronRight,
   TrendingUp,
+  MessageSquare,
 } from 'lucide-react';
 import {
   Client,
@@ -36,10 +37,11 @@ import {
   DocumentType,
 } from '../types';
 import { formatKsh, formatDate } from '../utils/formatters';
-import { generatePdfFromElement, shareDocumentPdf } from '../utils/pdfGenerator';
+import { generatePdfFromElement, shareDocumentPdf, getStatementWhatsAppShareUrl, getWhatsAppShareUrl, getReceiptWhatsAppShareUrl } from '../utils/pdfGenerator';
 import { dbService } from '../services/db';
 import { localBackupService } from '../services/localBackupService';
 import { syncManager } from '../services/sync';
+import { exportTableToXlsx } from '../utils/excelExporter';
 import { A4StatementPreview } from './A4StatementPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
 import { A4DocumentPreview } from './A4DocumentPreview';
@@ -478,12 +480,16 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    setIsPdfPreviewModalOpen(true);
+    setTimeout(() => {
+      window.print();
+    }, 250);
   };
 
   const handleShare = async () => {
     const targetElement = modalPreviewRef.current || statementPreviewRef.current;
     if (!targetElement || !selectedClient) return;
+    setIsPdfPreviewModalOpen(true);
     setIsGeneratingPdf(true);
     try {
       const { blob, fileName } = await generatePdfFromElement(
@@ -496,18 +502,58 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
       const shared = await shareDocumentPdf(
         blob,
         fileName,
-        `Statement of Account: ${selectedClient.name} - Hotel Damview`,
+        `Statement of Account: ${selectedClient.name} - ${profile.name}`,
         `Attached is the Statement of Account for ${selectedClient.name} covering ${startDate} to ${endDate}. Balance due: ${formatKsh(
           closingBalance
         )}.`
       );
       if (!shared) {
-        handleDownloadStatementPdf();
+        handleWhatsAppStatement();
       }
     } catch (err) {
       console.warn('Share error:', err);
     } finally {
       setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleWhatsAppStatement = () => {
+    if (!selectedClient) return;
+    setIsPdfPreviewModalOpen(true);
+    const waUrl = getStatementWhatsAppShareUrl(
+      {
+        statementNumber,
+        clientName: selectedClient.name,
+        startDate,
+        endDate,
+        closingBalance,
+        totalDebit,
+        totalCredit,
+      },
+      profile,
+      selectedClient.phone
+    );
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleWhatsAppItem = () => {
+    if (!previewItem) return;
+    if (previewItem.type === 'DOCUMENT' && previewItem.doc) {
+      const waUrl = getWhatsAppShareUrl(
+        previewItem.doc,
+        profile,
+        previewItem.doc.clientPhone,
+        previewItem.doc.driveFileUrl
+      );
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+    } else if (previewItem.type === 'RECEIPT' && previewItem.payment) {
+      const waUrl = getReceiptWhatsAppShareUrl(
+        previewItem.payment,
+        profile,
+        undefined,
+        previewItem.payment.driveFileUrl
+      );
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -652,6 +698,47 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
 
           {activeView === 'ledger' && selectedClient && (
             <>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (ledgerEntries.length === 0) {
+                    alert('No ledger transactions to export.');
+                    return;
+                  }
+                  const columns = [
+                    { header: 'Date', key: 'date', type: 'date' as const, width: 13 },
+                    { header: 'Particulars / Description', key: 'description', type: 'text' as const, width: 35 },
+                    { header: 'Ref / Doc #', key: 'reference', type: 'code' as const, width: 16 },
+                    { header: 'Debit (Invoiced Ksh)', key: 'debit', type: 'currency' as const, width: 18 },
+                    { header: 'Credit (Paid Ksh)', key: 'credit', type: 'currency' as const, width: 18 },
+                    { header: 'Running Balance (Ksh)', key: 'balance', type: 'currency' as const, width: 18 },
+                  ];
+
+                  const data = ledgerEntries.map((e) => ({
+                    date: e.date,
+                    description: e.description,
+                    reference: e.reference || '-',
+                    debit: e.debit,
+                    credit: e.credit,
+                    balance: e.cumulativeBalance,
+                  }));
+
+                  await exportTableToXlsx({
+                    title: `Statement of Account — ${selectedClient.name}`,
+                    sheetName: 'SOA_Ledger',
+                    profile,
+                    columns,
+                    data,
+                    filename: `HotelDamview_SOA_${selectedClient.name.replace(/[^a-zA-Z0-9]/g, '_')}_${formatDate()}.xlsx`,
+                  });
+                }}
+                className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-stone-300 text-stone-800 rounded bg-white hover:bg-stone-50 font-semibold transition-colors cursor-pointer"
+                title="Export Statement Ledger to Excel (.xlsx)"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Export Excel (.xlsx)</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setIsPdfPreviewModalOpen(true)}
@@ -1266,6 +1353,15 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={handleWhatsAppStatement}
+                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                title="Send Statement of Account via WhatsApp"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-white" />
+                <span className="hidden sm:inline">WhatsApp</span>
+              </button>
+              <button
+                type="button"
                 onClick={handleDownloadStatementPdf}
                 disabled={isGeneratingPdf}
                 className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
@@ -1349,6 +1445,15 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleWhatsAppItem}
+                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                title="Send Document / Receipt via WhatsApp"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-white" />
+                <span className="hidden sm:inline">WhatsApp</span>
+              </button>
               <button
                 type="button"
                 onClick={handleDownloadItemPdf}

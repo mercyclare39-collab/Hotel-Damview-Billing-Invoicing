@@ -19,12 +19,15 @@ import {
   Trash2,
   AlertTriangle,
   RefreshCw,
+  MessageSquare,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { PaymentRecord, HotelProfile, Client, BillingDocument } from '../types';
 import { formatKsh, formatDate } from '../utils/formatters';
 import { A4ReceiptPreview } from './A4ReceiptPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
-import { generatePdfFromElement, shareDocumentPdf, validatePdfBlob } from '../utils/pdfGenerator';
+import { generatePdfFromElement, shareDocumentPdf, validatePdfBlob, getReceiptWhatsAppShareUrl } from '../utils/pdfGenerator';
+import { exportTableToXlsx } from '../utils/excelExporter';
 import { localBackupService } from '../services/localBackupService';
 
 interface ReceiptsManagerProps {
@@ -99,13 +102,15 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
 
   const handlePrint = (payment: PaymentRecord) => {
     setSelectedPayment(payment);
+    setIsPreviewModalOpen(true);
     setTimeout(() => {
       window.print();
-    }, 150);
+    }, 250);
   };
 
   const handleDownloadPdf = async (payment: PaymentRecord) => {
     setSelectedPayment(payment);
+    setIsPreviewModalOpen(true);
     setIsGeneratingPdf(true);
     setTimeout(async () => {
       const el =
@@ -136,11 +141,12 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
         window.print();
       }
       setIsGeneratingPdf(false);
-    }, 150);
+    }, 250);
   };
 
   const handleSharePdf = async (payment: PaymentRecord) => {
     setSelectedPayment(payment);
+    setIsPreviewModalOpen(true);
     setIsGeneratingPdf(true);
     setTimeout(async () => {
       const el =
@@ -162,14 +168,65 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
             `Attached is payment receipt ${payment.receiptNumber} for ${payment.clientName} amounting to ${formatKsh(payment.amount)}.`
           );
           if (!shared) {
-            handleDownloadPdf(payment);
+            handleWhatsApp(payment);
           }
         } catch (err) {
           console.error('Failed to share receipt PDF:', err);
         }
       }
       setIsGeneratingPdf(false);
-    }, 150);
+    }, 250);
+  };
+
+  const handleWhatsApp = (payment: PaymentRecord) => {
+    setSelectedPayment(payment);
+    setIsPreviewModalOpen(true);
+    const client = clients.find(
+      (c) => c.id === payment.clientId || c.name.toLowerCase() === payment.clientName.toLowerCase()
+    );
+    const waUrl = getReceiptWhatsAppShareUrl(
+      payment,
+      profile,
+      client?.phone,
+      payment.driveFileUrl
+    );
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleExportXlsx = async () => {
+    if (filteredPayments.length === 0) {
+      alert('No receipt records to export in the current view.');
+      return;
+    }
+
+    const columns = [
+      { header: 'Receipt #', key: 'receiptNumber', type: 'code' as const, width: 14 },
+      { header: 'Date', key: 'date', type: 'date' as const, width: 13 },
+      { header: 'Payer / Guest Name', key: 'clientName', type: 'text' as const, width: 26 },
+      { header: 'Settled Doc #', key: 'documentNumber', type: 'code' as const, width: 15 },
+      { header: 'Payment Mode', key: 'paymentMode', type: 'text' as const, width: 16 },
+      { header: 'Amount Paid (Ksh)', key: 'amount', type: 'currency' as const, width: 18 },
+      { header: 'Reference / M-Pesa Code', key: 'referenceNote', type: 'text' as const, width: 22 },
+    ];
+
+    const data = filteredPayments.map((p) => ({
+      receiptNumber: p.receiptNumber,
+      date: p.date,
+      clientName: p.clientName,
+      documentNumber: p.documentNumber || '-',
+      paymentMode: p.paymentMode,
+      amount: p.amount,
+      referenceNote: p.referenceNote || '-',
+    }));
+
+    await exportTableToXlsx({
+      title: 'Payment Receipts & Settlements Register',
+      sheetName: 'Receipts_Journal',
+      profile,
+      columns,
+      data,
+      filename: `HotelDamview_Receipts_Register_${formatDate()}.xlsx`,
+    });
   };
 
   return (
@@ -197,8 +254,18 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
 
           <button
             type="button"
+            onClick={handleExportXlsx}
+            className="inline-flex items-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs px-3.5 py-2 rounded-lg border border-stone-300 transition-colors cursor-pointer"
+            title="Export receipts register to Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Export Excel (.xlsx)</span>
+          </button>
+
+          <button
+            type="button"
             onClick={onRecordNewPayment}
-            className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs px-3.5 py-2 rounded-lg shadow-sm transition-colors"
+            className="inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs px-3.5 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>Record Settlement</span>
@@ -319,6 +386,14 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
                           <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
+                              onClick={() => handleWhatsApp(payment)}
+                              className="p-1.5 text-emerald-600 hover:text-emerald-800 rounded hover:bg-emerald-50 transition-colors"
+                              title="Share Receipt on WhatsApp"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => {
                                 setSelectedPayment(payment);
                                 setIsPreviewModalOpen(true);
@@ -435,6 +510,15 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleWhatsApp(selectedPayment)}
+                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                title="Send receipt summary on WhatsApp"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-white" />
+                <span className="hidden sm:inline">WhatsApp</span>
+              </button>
               <button
                 type="button"
                 onClick={() => handleDownloadPdf(selectedPayment)}

@@ -11,148 +11,43 @@ import {
   ExpenseRecord,
   CatalogueItem,
   POSOrderItem,
+  SyncEntityType,
+  SyncActionType,
 } from '../types';
 
 const DB_NAME = 'HotelDamviewDB';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
+
+export interface SaveLocalFirstParams<T = any> {
+  entityType: SyncEntityType;
+  entityId: string;
+  storeName: string;
+  entity: T;
+  action?: SyncActionType;
+  isDelete?: boolean;
+  auditDetails?: string;
+  skipQueue?: boolean;
+}
 
 export interface DeletedTombstone {
   id: string;
   key?: string;
-  type: 'DOCUMENT' | 'CLIENT' | 'PAYMENT' | 'RESERVATION' | 'POS';
+  type: 'DOCUMENT' | 'CLIENT' | 'PAYMENT' | 'RESERVATION' | 'POS' | 'EXPENSE' | 'CATALOGUE' | 'PROFILE';
   deletedAt: number;
 }
 
 export type { AuditLogEntry, Reservation, POSOrder, ExpenseRecord, CatalogueItem, POSOrderItem };
 
-export const STANDARD_HOSPITALITY_CATALOGUE: CatalogueItem[] = [
-  {
-    id: 'cat-1',
-    particulars: 'Executive Conference Hall (Day Package with Projector, PA System & Wi-Fi)',
-    category: 'Conference & Banqueting',
-    standardRate: 25000,
-    taxable: true,
-    defaultUnit: 'Day',
-  },
-  {
-    id: 'cat-2',
-    particulars: 'Maruba Garden Pavilion / Banqueting Hall Hire',
-    category: 'Conference & Banqueting',
-    standardRate: 35000,
-    taxable: true,
-    defaultUnit: 'Day',
-  },
-  {
-    id: 'cat-3',
-    particulars: 'Full Day Delegate Conference Package (Buffet Lunch, 2x Tea/Coffee & Snacks, 2x 500ml Water, Stationery)',
-    category: 'Conference & Banqueting',
-    standardRate: 2800,
-    taxable: true,
-    defaultUnit: 'Person/Day',
-  },
-  {
-    id: 'cat-4',
-    particulars: 'Half Day Delegate Conference Package (Buffet Lunch, 1x Tea/Coffee & Snacks, 1x 500ml Water)',
-    category: 'Conference & Banqueting',
-    standardRate: 2200,
-    taxable: true,
-    defaultUnit: 'Person/Day',
-  },
-  {
-    id: 'cat-5',
-    particulars: 'VIP Deluxe Lake View Suite (Bed & Breakfast, Lake View, Wi-Fi)',
-    category: 'Accommodation',
-    standardRate: 8500,
-    taxable: true,
-    defaultUnit: 'Night',
-  },
-  {
-    id: 'cat-6',
-    particulars: 'Standard Room Accommodation (Single Occupancy, Bed & Breakfast)',
-    category: 'Accommodation',
-    standardRate: 5500,
-    taxable: true,
-    defaultUnit: 'Night',
-  },
-  {
-    id: 'cat-7',
-    particulars: 'Standard Room Accommodation (Double / Twin Occupancy, Bed & Breakfast)',
-    category: 'Accommodation',
-    standardRate: 7000,
-    taxable: true,
-    defaultUnit: 'Night',
-  },
-  {
-    id: 'cat-8',
-    particulars: 'Damview Special Buffet Dinner / Lunch (3-Course Corporate Dining)',
-    category: 'Food & Beverage',
-    standardRate: 1800,
-    taxable: true,
-    defaultUnit: 'Person/Day',
-  },
-  {
-    id: 'cat-9',
-    particulars: 'Outdoor Cocktail Reception & Live BBQ Station (per delegate)',
-    category: 'Food & Beverage',
-    standardRate: 2500,
-    taxable: true,
-    defaultUnit: 'Person/Day',
-  },
-  {
-    id: 'cat-10',
-    particulars: 'High-Lumen HD Projector & Motorized Screen Hire',
-    category: 'Equipment & Services',
-    standardRate: 5000,
-    taxable: true,
-    defaultUnit: 'Day',
-  },
-  {
-    id: 'cat-11',
-    particulars: 'Wireless Cordless Microphones & Dedicated Sound Engineer',
-    category: 'Equipment & Services',
-    standardRate: 6000,
-    taxable: true,
-    defaultUnit: 'Day',
-  },
-  {
-    id: 'cat-12',
-    particulars: 'Dam Grounds Team-Building Facilitation & Obstacle Course',
-    category: 'Equipment & Services',
-    standardRate: 35000,
-    taxable: true,
-    defaultUnit: 'Session',
-  },
-];
+export const STANDARD_HOSPITALITY_CATALOGUE: CatalogueItem[] = [];
 
-export const STANDARD_POS_MENU: POSOrderItem[] = [
-  { id: 'pos-m1', name: 'English Breakfast Combo (Eggs, Sausage, Toast, Coffee/Tea)', category: 'Breakfast', price: 750, quantity: 1, amount: 750 },
-  { id: 'pos-m2', name: 'African Tea & Mahamri / Samosas (2 pcs)', category: 'Breakfast', price: 350, quantity: 1, amount: 350 },
-  { id: 'pos-m3', name: 'Spanish Omelette with Buttered Toast & Grilled Tomato', category: 'Breakfast', price: 450, quantity: 1, amount: 450 },
-  { id: 'pos-m4', name: 'Damview Chicken Wings (Sweet Chilli / Hot Buffalo 6 pcs)', category: 'Starters & Snacks', price: 650, quantity: 1, amount: 650 },
-  { id: 'pos-m5', name: 'Beef Samosas Trio with Tangy Tamarind Sauce', category: 'Starters & Snacks', price: 300, quantity: 1, amount: 300 },
-  { id: 'pos-m6', name: 'Crispy Garlic Masala Chips / Potato Wedges', category: 'Starters & Snacks', price: 350, quantity: 1, amount: 350 },
-  { id: 'pos-m7', name: 'Wet/Dry Fry Goat Meat (Mbuzi Fry 1/2 Kg) with Ugali & Greens', category: 'Main Dishes', price: 950, quantity: 1, amount: 950 },
-  { id: 'pos-m8', name: 'Kienyeji Chicken Special (Half) with Rice/Chapati', category: 'Main Dishes', price: 1100, quantity: 1, amount: 1100 },
-  { id: 'pos-m9', name: 'Whole Deep-Fried Lake Tilapia with Kachumbari & Ugali', category: 'Main Dishes', price: 1200, quantity: 1, amount: 1200 },
-  { id: 'pos-m10', name: 'Prime Beef Steak in Pepper Sauce with Roast Herb Potatoes', category: 'Main Dishes', price: 1050, quantity: 1, amount: 1050 },
-  { id: 'pos-m11', name: 'Fresh Passion / Mango / Tropical Cocktail Juice (500ml)', category: 'Beverages & Juices', price: 300, quantity: 1, amount: 300 },
-  { id: 'pos-m12', name: 'Soda 300ml Glass (Coke, Fanta, Sprite, Stoney)', category: 'Beverages & Juices', price: 150, quantity: 1, amount: 150 },
-  { id: 'pos-m13', name: 'Mineral Water 500ml Still', category: 'Beverages & Juices', price: 100, quantity: 1, amount: 100 },
-  { id: 'pos-m14', name: 'Special Dawa Tea (Ginger, Lemon, Honey & Mint)', category: 'Beverages & Juices', price: 350, quantity: 1, amount: 350 },
-  { id: 'pos-m15', name: 'Tusker Lager / Malt / Cider 500ml', category: 'Bar & Cocktails', price: 350, quantity: 1, amount: 350 },
-  { id: 'pos-m16', name: 'White Cap Crisp / Heineken 330ml', category: 'Bar & Cocktails', price: 400, quantity: 1, amount: 400 },
-  { id: 'pos-m17', name: 'Maruba Sunset Signature Cocktail', category: 'Bar & Cocktails', price: 750, quantity: 1, amount: 750 },
-  { id: 'pos-m18', name: 'House Wine (Red / White by Glass 150ml)', category: 'Bar & Cocktails', price: 500, quantity: 1, amount: 500 },
-  { id: 'pos-m19', name: 'Executive Buffet Lunch (Corporate Dining per person)', category: 'Conference Packages', price: 1800, quantity: 1, amount: 1800 },
-  { id: 'pos-m20', name: 'Morning / Afternoon Tea Break with Assorted Savouries', category: 'Conference Packages', price: 650, quantity: 1, amount: 650 },
-];
+export const STANDARD_POS_MENU: POSOrderItem[] = [];
 
 export const DEFAULT_HOTEL_PROFILE: HotelProfile = {
   name: 'HOTEL DAMVIEW',
   tagline: '',
   kraPin: 'P051453023Q',
   email: 'hoteldamview@gmail.com',
-  phone: '+25472524262',
+  phone: '+254 725 242 620',
   physicalLocation: 'MARIAKANI',
   postalAddress: 'P.O. BOX 42491-80100, Mombasa, Kenya',
   logoBase64: '',
@@ -210,11 +105,24 @@ class StorageEngine {
    * Synchronous L1 Cache Bootstrapper: Reads from localStorage immediately (0ms perceived latency)
    */
   private hydrateFromLocalStorage(): void {
-    if (typeof window === 'undefined' || !window.localStorage) return;
+    if (typeof window === 'undefined' || !window.localStorage) {
+      this.l1Profile = { ...DEFAULT_HOTEL_PROFILE };
+      return;
+    }
     try {
+      if (!localStorage.getItem('damview_admin_passcode') || localStorage.getItem('damview_admin_passcode') === '2025') {
+        localStorage.setItem('damview_admin_passcode', '1000');
+      }
+
       const savedProfile = localStorage.getItem('damview_profile');
       if (savedProfile) {
-        this.l1Profile = this.reconcileProfile(JSON.parse(savedProfile));
+        const reconciled = this.reconcileProfile(JSON.parse(savedProfile));
+        this.l1Profile = reconciled;
+        localStorage.setItem('damview_profile', JSON.stringify(reconciled));
+      } else {
+        const initial = { ...DEFAULT_HOTEL_PROFILE };
+        this.l1Profile = initial;
+        localStorage.setItem('damview_profile', JSON.stringify(initial));
       }
 
       const savedClients = localStorage.getItem('damview_clients');
@@ -249,7 +157,11 @@ class StorageEngine {
       if (savedQueue) {
         const list: SyncQueueItem[] = JSON.parse(savedQueue);
         this.l1SyncQueue.clear();
-        list.forEach((q) => this.l1SyncQueue.set(q.id, q));
+        list.forEach((q) => {
+          if (q && q.id !== undefined) {
+            this.l1SyncQueue.set(String(q.id), q);
+          }
+        });
       }
 
       const savedRes = localStorage.getItem('damview_reservations');
@@ -276,8 +188,13 @@ class StorageEngine {
       const savedCat = localStorage.getItem('damview_catalogue');
       if (savedCat) {
         const list: CatalogueItem[] = JSON.parse(savedCat);
+        // Filter out legacy demo items if present
+        const cleanList = list.filter((c) => !c.id.match(/^cat-\d+$/));
         this.l1Catalogue.clear();
-        list.forEach((c) => this.l1Catalogue.set(c.id, c));
+        cleanList.forEach((c) => this.l1Catalogue.set(c.id, c));
+        localStorage.setItem('damview_catalogue', JSON.stringify(cleanList));
+      } else {
+        this.l1Catalogue.clear();
       }
 
       const savedTombstones = localStorage.getItem('damview_tombstones');
@@ -307,6 +224,8 @@ class StorageEngine {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        const tx = (event.target as IDBOpenDBRequest).transaction;
+
         if (!db.objectStoreNames.contains('hotel_profile')) {
           db.createObjectStore('hotel_profile', { keyPath: 'id' });
         }
@@ -324,9 +243,35 @@ class StorageEngine {
           payStore.createIndex('clientId', 'clientId', { unique: false });
           payStore.createIndex('documentId', 'documentId', { unique: false });
         }
+
+        // Durable sync_queue store with required composite indexes
+        let syncStore: IDBObjectStore;
         if (!db.objectStoreNames.contains('sync_queue')) {
-          db.createObjectStore('sync_queue', { keyPath: 'id' });
+          syncStore = db.createObjectStore('sync_queue', { keyPath: 'id' });
+        } else if (tx) {
+          syncStore = tx.objectStore('sync_queue');
+        } else {
+          syncStore = null as any;
         }
+
+        if (syncStore) {
+          if (!syncStore.indexNames.contains('[status+createdAt]')) {
+            syncStore.createIndex('[status+createdAt]', ['status', 'createdAt'], { unique: false });
+          }
+          if (!syncStore.indexNames.contains('[entityType+entityId]')) {
+            syncStore.createIndex('[entityType+entityId]', ['entityType', 'entityId'], { unique: false });
+          }
+          if (!syncStore.indexNames.contains('status')) {
+            syncStore.createIndex('status', 'status', { unique: false });
+          }
+          if (!syncStore.indexNames.contains('createdAt')) {
+            syncStore.createIndex('createdAt', 'createdAt', { unique: false });
+          }
+          if (!syncStore.indexNames.contains('nextRetryAt')) {
+            syncStore.createIndex('nextRetryAt', 'nextRetryAt', { unique: false });
+          }
+        }
+
         if (!db.objectStoreNames.contains('audit_log')) {
           const auditStore = db.createObjectStore('audit_log', { keyPath: 'id' });
           auditStore.createIndex('entityType', 'entityType', { unique: false });
@@ -369,6 +314,12 @@ class StorageEngine {
         if (!db.objectStoreNames.contains('catalogue')) {
           const catStore = db.createObjectStore('catalogue', { keyPath: 'id' });
           catStore.createIndex('category', 'category', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('pos_menu_catalog')) {
+          db.createObjectStore('pos_menu_catalog', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('room_space_catalog')) {
+          db.createObjectStore('room_space_catalog', { keyPath: 'id' });
         }
       };
 
@@ -473,7 +424,11 @@ class StorageEngine {
         reqQueue.onsuccess = () => {
           if (reqQueue.result) {
             this.l1SyncQueue.clear();
-            reqQueue.result.forEach((q: SyncQueueItem) => this.l1SyncQueue.set(q.id, q));
+            reqQueue.result.forEach((q: SyncQueueItem) => {
+              if (q && q.id !== undefined) {
+                this.l1SyncQueue.set(String(q.id), q);
+              }
+            });
             if (typeof window !== 'undefined' && window.localStorage) {
               try {
                 localStorage.setItem('damview_sync_queue', JSON.stringify(Array.from(this.l1SyncQueue.values())));
@@ -603,7 +558,31 @@ class StorageEngine {
           const hasSeededStorage = typeof window !== 'undefined' && window.localStorage?.getItem('damview_has_seeded') === 'true';
 
           if (hasSeededMeta || hasSeededStorage) {
-            // Seeding was already performed in the past. Respect user state (even if 0 records).
+            // Seeding was already performed in the past. Ensure hotel_profile is populated with all baked credentials
+            try {
+              if (db.objectStoreNames.contains('hotel_profile')) {
+                const profTx = db.transaction(['hotel_profile'], 'readwrite');
+                const profStore = profTx.objectStore('hotel_profile');
+                const profReq = profStore.get('current');
+                profReq.onsuccess = () => {
+                  const existing = profReq.result;
+                  const reconciled = this.reconcileProfile(existing);
+                  profStore.put({ id: 'current', ...reconciled });
+                  this.l1Profile = reconciled;
+                  if (typeof window !== 'undefined' && window.localStorage) {
+                    try {
+                      localStorage.setItem('damview_profile', JSON.stringify(reconciled));
+                    } catch {}
+                  }
+                  resolve();
+                };
+                profReq.onerror = () => resolve();
+                return;
+              }
+            } catch {
+              resolve();
+              return;
+            }
             resolve();
             return;
           }
@@ -627,7 +606,14 @@ class StorageEngine {
               seedStores.push('catalogue');
             }
             const seedTx = db.transaction(seedStores, 'readwrite');
-            seedTx.objectStore('hotel_profile').put({ id: 'current', ...DEFAULT_HOTEL_PROFILE });
+            const initialProfile = this.reconcileProfile(DEFAULT_HOTEL_PROFILE);
+            seedTx.objectStore('hotel_profile').put({ id: 'current', ...initialProfile });
+            this.l1Profile = initialProfile;
+            if (typeof window !== 'undefined' && window.localStorage) {
+              try {
+                localStorage.setItem('damview_profile', JSON.stringify(initialProfile));
+              } catch {}
+            }
             SAMPLE_CLIENTS.forEach((c) => seedTx.objectStore('clients').put(c));
             SAMPLE_DOCUMENTS.forEach((d) => seedTx.objectStore('documents').put(d));
             SAMPLE_PAYMENTS.forEach((p) => seedTx.objectStore('payments').put(p));
@@ -674,29 +660,210 @@ class StorageEngine {
 
   private reconcileProfile(raw?: Partial<HotelProfile> | null): HotelProfile {
     if (!raw) return { ...DEFAULT_HOTEL_PROFILE };
+
+    // Tagline / Subtitle: default to blank always; purge all original/legacy baked demo strings completely
+    const rawTagline = raw.tagline !== undefined ? String(raw.tagline).trim() : '';
+    const legacyDemoTaglines = [
+      'premier hospitality, accommodation & dining',
+      'luxury & serenity by the dam',
+      'luxury & serenity',
+      'luxury and serenity by the dam',
+      'premier hospitality',
+      'serenity by the dam',
+    ];
+    const isLegacyTagline = legacyDemoTaglines.includes(rawTagline.toLowerCase());
+    const cleanTagline = isLegacyTagline ? '' : rawTagline;
+
+    // Bank and settlement credentials: default to blank unless officially entered
+    // Purge all original/legacy demo credentials completely
+    const rawBankName = raw.bankName !== undefined ? String(raw.bankName).trim() : '';
+    const rawBankBranch = raw.bankBranch !== undefined ? String(raw.bankBranch).trim() : '';
+    const rawAccountHolder = raw.accountHolder !== undefined ? String(raw.accountHolder).trim() : '';
+    const rawAccountNo = raw.accountNumber !== undefined ? String(raw.accountNumber).trim() : '';
+    const rawMpesa = raw.mpesaTillNumber !== undefined ? String(raw.mpesaTillNumber).trim() : '';
+
+    const legacyDemoBankNames = [
+      'kcb bank kenya',
+      'kenya commercial bank',
+      'kenya commercial bank (kcb)',
+      'kcb',
+      'equity bank',
+      'equity bank kenya',
+      'equity bank machakos',
+      'equity bank limited',
+    ];
+    const legacyDemoAccountNos = [
+      '1102983746',
+      '0123456789012',
+    ];
+    const legacyDemoBranches = [
+      'mariakani branch',
+      'machakos branch',
+      'machakos main branch',
+      'machakos',
+    ];
+    const legacyDemoHolders = [
+      'hotel damview enterprises ltd',
+      'hotel damview ltd',
+      'hotel damview',
+    ];
+
+    const isLegacyDemoBank =
+      legacyDemoBankNames.includes(rawBankName.toLowerCase()) ||
+      legacyDemoAccountNos.includes(rawAccountNo.replace(/\s+/g, '')) ||
+      (rawBankName.length > 0 && legacyDemoBranches.includes(rawBankBranch.toLowerCase())) ||
+      (rawBankName.length > 0 && legacyDemoHolders.includes(rawAccountHolder.toLowerCase()));
+
+    const cleanBankName = isLegacyDemoBank ? '' : rawBankName;
+    const cleanBankBranch = isLegacyDemoBank ? '' : rawBankBranch;
+    const cleanAccountHolder = isLegacyDemoBank ? '' : rawAccountHolder;
+    const cleanAccountNo = isLegacyDemoBank ? '' : rawAccountNo;
+    const cleanMpesa = (rawMpesa === '5432100' && (isLegacyDemoBank || rawBankName === 'KCB Bank Kenya' || !rawBankName)) ? '' : rawMpesa;
+
     return {
-      name: raw.name !== undefined ? raw.name : DEFAULT_HOTEL_PROFILE.name,
-      tagline: raw.tagline !== undefined ? raw.tagline : DEFAULT_HOTEL_PROFILE.tagline,
-      kraPin: raw.kraPin !== undefined ? raw.kraPin : DEFAULT_HOTEL_PROFILE.kraPin,
-      email: raw.email !== undefined ? raw.email : DEFAULT_HOTEL_PROFILE.email,
-      phone: raw.phone !== undefined ? raw.phone : DEFAULT_HOTEL_PROFILE.phone,
-      physicalLocation: raw.physicalLocation !== undefined ? raw.physicalLocation : DEFAULT_HOTEL_PROFILE.physicalLocation,
-      postalAddress: raw.postalAddress !== undefined ? raw.postalAddress : DEFAULT_HOTEL_PROFILE.postalAddress,
+      name: (raw.name && String(raw.name).trim()) ? String(raw.name).trim() : DEFAULT_HOTEL_PROFILE.name,
+      tagline: cleanTagline,
+      kraPin: (raw.kraPin && String(raw.kraPin).trim()) ? String(raw.kraPin).trim() : DEFAULT_HOTEL_PROFILE.kraPin,
+      email: (raw.email && String(raw.email).trim()) ? String(raw.email).trim() : DEFAULT_HOTEL_PROFILE.email,
+      phone: (raw.phone && String(raw.phone).trim()) ? String(raw.phone).trim() : DEFAULT_HOTEL_PROFILE.phone,
+      physicalLocation: (raw.physicalLocation && String(raw.physicalLocation).trim()) ? String(raw.physicalLocation).trim() : DEFAULT_HOTEL_PROFILE.physicalLocation,
+      postalAddress: (raw.postalAddress && String(raw.postalAddress).trim()) ? String(raw.postalAddress).trim() : DEFAULT_HOTEL_PROFILE.postalAddress,
       logoBase64: raw.logoBase64 !== undefined ? raw.logoBase64 : DEFAULT_HOTEL_PROFILE.logoBase64,
-      bankName: raw.bankName !== undefined ? raw.bankName : DEFAULT_HOTEL_PROFILE.bankName,
-      bankBranch: raw.bankBranch !== undefined ? raw.bankBranch : DEFAULT_HOTEL_PROFILE.bankBranch,
-      accountHolder: raw.accountHolder !== undefined ? raw.accountHolder : DEFAULT_HOTEL_PROFILE.accountHolder,
-      accountNumber: raw.accountNumber !== undefined ? raw.accountNumber : DEFAULT_HOTEL_PROFILE.accountNumber,
-      mpesaTillNumber: raw.mpesaTillNumber !== undefined ? raw.mpesaTillNumber : DEFAULT_HOTEL_PROFILE.mpesaTillNumber,
-      vatRate: typeof raw.vatRate === 'number' && !isNaN(raw.vatRate) ? raw.vatRate : DEFAULT_HOTEL_PROFILE.vatRate,
-      googleWebAppUrl: raw.googleWebAppUrl ? raw.googleWebAppUrl : DEFAULT_HOTEL_PROFILE.googleWebAppUrl,
-      googleDriveFolder: raw.googleDriveFolder !== undefined ? raw.googleDriveFolder : DEFAULT_HOTEL_PROFILE.googleDriveFolder,
-      googleSheetUrl: raw.googleSheetUrl !== undefined ? raw.googleSheetUrl : '',
-      googleDriveFolderUrl: raw.googleDriveFolderUrl ? raw.googleDriveFolderUrl : DEFAULT_HOTEL_PROFILE.googleDriveFolderUrl,
-      googleSheetEmbedUrl: raw.googleSheetEmbedUrl !== undefined ? raw.googleSheetEmbedUrl : '',
+      bankName: cleanBankName,
+      bankBranch: cleanBankBranch,
+      accountHolder: cleanAccountHolder,
+      accountNumber: cleanAccountNo,
+      mpesaTillNumber: cleanMpesa,
+      vatRate: typeof raw.vatRate === 'number' && !isNaN(raw.vatRate) && raw.vatRate >= 0 ? raw.vatRate : DEFAULT_HOTEL_PROFILE.vatRate,
+      googleWebAppUrl: (raw.googleWebAppUrl && String(raw.googleWebAppUrl).trim()) ? String(raw.googleWebAppUrl).trim() : DEFAULT_HOTEL_PROFILE.googleWebAppUrl,
+      googleDriveFolder: (raw.googleDriveFolder && String(raw.googleDriveFolder).trim()) ? String(raw.googleDriveFolder).trim() : DEFAULT_HOTEL_PROFILE.googleDriveFolder,
+      googleSheetUrl: raw.googleSheetUrl !== undefined ? raw.googleSheetUrl : (DEFAULT_HOTEL_PROFILE.googleSheetUrl || ''),
+      googleDriveFolderUrl: (raw.googleDriveFolderUrl && String(raw.googleDriveFolderUrl).trim()) ? String(raw.googleDriveFolderUrl).trim() : DEFAULT_HOTEL_PROFILE.googleDriveFolderUrl,
+      googleSheetEmbedUrl: raw.googleSheetEmbedUrl !== undefined ? raw.googleSheetEmbedUrl : (DEFAULT_HOTEL_PROFILE.googleSheetEmbedUrl || ''),
       autoSyncEnabled: raw.autoSyncEnabled !== undefined ? raw.autoSyncEnabled : DEFAULT_HOTEL_PROFILE.autoSyncEnabled,
       lastSyncTimestamp: raw.lastSyncTimestamp,
     };
+  }
+
+  /**
+   * Strict Local-First Mutation Pipeline (IndexedDB-First Law)
+   * Commits the entity and its corresponding sync queue event atomically within
+   * an IndexedDB transaction boundary before initiating any network dispatch.
+   */
+  async saveLocalFirst<T = any>(params: SaveLocalFirstParams<T>): Promise<T> {
+    const {
+      entityType,
+      entityId,
+      storeName,
+      entity,
+      action,
+      isDelete = false,
+      auditDetails,
+      skipQueue = false,
+    } = params;
+
+    // 1. Statutory financial validations & invariants
+    if (entityType === 'DOCUMENT' && entity && !isDelete) {
+      const doc = entity as unknown as BillingDocument;
+      if (typeof doc.subtotal === 'number') {
+        doc.subtotal = Math.round(doc.subtotal * 100) / 100;
+        doc.vatAmount = typeof doc.vatAmount === 'number' ? Math.round(doc.vatAmount * 100) / 100 : 0;
+        doc.grandTotal = Math.round((doc.subtotal + doc.vatAmount) * 100) / 100;
+        doc.amountPaid = typeof doc.amountPaid === 'number' ? Math.round(doc.amountPaid * 100) / 100 : 0;
+        doc.balanceDue = Math.max(0, Math.round((doc.grandTotal - doc.amountPaid) * 100) / 100);
+      }
+    } else if (entityType === 'PAYMENT' && entity && !isDelete) {
+      const pay = entity as unknown as PaymentRecord;
+      if (typeof pay.amount === 'number') {
+        pay.amount = Math.round(pay.amount * 100) / 100;
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const queueAction: SyncActionType =
+      action || (isDelete ? 'CASCADE_DELETE' : 'UPSERT');
+
+    const queueItem: SyncQueueItem = {
+      id: 'sq-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8),
+      entityType,
+      entityId,
+      action: queueAction,
+      payload: isDelete ? { id: entityId, ...(typeof entity === 'object' ? entity : {}) } : entity,
+      status: 'PENDING',
+      retryCount: 0,
+      lastError: null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      nextRetryAt: 0,
+    };
+
+    // 2. Atomic IndexedDB Transaction Boundary (Enforcing Rollback Invariant)
+    const db = await this.init();
+    const activeStores = [storeName];
+    if (db.objectStoreNames.contains('sync_queue') && !skipQueue) {
+      activeStores.push('sync_queue');
+    }
+    if (db.objectStoreNames.contains('audit_log') && auditDetails) {
+      activeStores.push('audit_log');
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      try {
+        const tx = db.transaction(activeStores, 'readwrite');
+        const entityStore = tx.objectStore(storeName);
+
+        if (isDelete) {
+          entityStore.delete(entityId);
+        } else {
+          entityStore.put(entity);
+        }
+
+        if (!skipQueue && db.objectStoreNames.contains('sync_queue')) {
+          const syncStore = tx.objectStore('sync_queue');
+          syncStore.put(queueItem);
+        }
+
+        if (auditDetails && db.objectStoreNames.contains('audit_log')) {
+          const auditStore = tx.objectStore('audit_log');
+          auditStore.put({
+            id: 'aud-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+            timestamp: nowIso,
+            entityType,
+            entityId,
+            action: isDelete ? 'DELETE' : 'UPDATE',
+            details: auditDetails,
+            snapshot: entity,
+          });
+        }
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('Atomic transaction failed'));
+        tx.onabort = () => reject(tx.error || new Error('Atomic transaction aborted'));
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    // 3. Update L1 In-Memory Reactive Cache & localStorage Mirror
+    if (!skipQueue) {
+      this.l1SyncQueue.set(String(queueItem.id!), queueItem);
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          localStorage.setItem(
+            'damview_sync_queue',
+            JSON.stringify(Array.from(this.l1SyncQueue.values()))
+          );
+        } catch {}
+      }
+    }
+
+    // 4. Fire Reactivity & Non-blocking Async Sync Dispatch
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('damview:data-changed'));
+      window.dispatchEvent(new CustomEvent('damview:sync-trigger'));
+    }
+
+    return entity;
   }
 
   // --- Hotel Profile ---
@@ -704,14 +871,41 @@ class StorageEngine {
     if (this.l1Profile) {
       return this.reconcileProfile(this.l1Profile);
     }
+
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const stored = localStorage.getItem('damview_profile');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const reconciled = this.reconcileProfile(parsed);
+          this.l1Profile = reconciled;
+          try {
+            localStorage.setItem('damview_profile', JSON.stringify(reconciled));
+          } catch {}
+          // Asynchronously ensure IndexedDB is also updated with the clean purged profile
+          this.init().then((db) => {
+            try {
+              const tx = db.transaction('hotel_profile', 'readwrite');
+              tx.objectStore('hotel_profile').put({ id: 'current', ...reconciled });
+            } catch {}
+          }).catch(() => {});
+          return { ...reconciled };
+        }
+      } catch {}
+    }
+
     try {
       const db = await this.init();
       return new Promise((resolve) => {
-        const tx = db.transaction('hotel_profile', 'readonly');
-        const req = tx.objectStore('hotel_profile').get('current');
+        const tx = db.transaction('hotel_profile', 'readwrite');
+        const store = tx.objectStore('hotel_profile');
+        const req = store.get('current');
         req.onsuccess = () => {
           const profile = this.reconcileProfile(req.result);
           this.l1Profile = profile;
+          try {
+            store.put({ id: 'current', ...profile });
+          } catch {}
           if (typeof window !== 'undefined' && window.localStorage) {
             try {
               localStorage.setItem('damview_profile', JSON.stringify(profile));
@@ -783,7 +977,11 @@ class StorageEngine {
   }
 
   // --- Tombstones (Durable Protection Against Resurrecting Deleted Records) ---
-  async recordTombstone(id: string, key?: string, type: 'DOCUMENT' | 'CLIENT' | 'PAYMENT' = 'DOCUMENT'): Promise<void> {
+  async recordTombstone(
+    id: string,
+    key?: string,
+    type: 'DOCUMENT' | 'CLIENT' | 'PAYMENT' | 'RESERVATION' | 'POS' | 'EXPENSE' | 'CATALOGUE' = 'DOCUMENT'
+  ): Promise<void> {
     try {
       const tombstones = await this.getTombstones();
       const cleanKey = key ? key.trim().toLowerCase() : undefined;
@@ -966,36 +1164,23 @@ class StorageEngine {
           updatedAt: client.updatedAt || nowIso,
         };
 
-    // 1. Instant L1 cache update
+    // 1. Instant L1 cache update & localStorage mirror
     this.l1Clients.set(mergedClient.id, mergedClient);
-
-    // 2. Synchronous localStorage mirror
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         localStorage.setItem('damview_clients', JSON.stringify(Array.from(this.l1Clients.values())));
       } catch {}
     }
 
-    // 3. Durable Transactional Write-Through to IndexedDB
-    try {
-      const db = await this.init();
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction('clients', 'readwrite');
-        tx.objectStore('clients').put(mergedClient);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (e) {
-      console.warn('[StorageEngine] Write error client:', e);
-    }
-
-    this.recordAuditLog({
+    // 2. Atomic IndexedDB Local-First Persistence + Sync Queue Append
+    await this.saveLocalFirst({
       entityType: 'CLIENT',
       entityId: mergedClient.id,
-      action: existing ? 'UPDATE' : 'CREATE',
-      details: `${existing ? 'Updated' : 'Created'} client profile: ${mergedClient.name} (PIN: ${mergedClient.kraPin || 'N/A'})`,
-      snapshot: mergedClient,
-    }).catch(() => {});
+      storeName: 'clients',
+      entity: mergedClient,
+      action: 'UPSERT',
+      auditDetails: `${existing ? 'Updated' : 'Created'} client profile: ${mergedClient.name} (PIN: ${mergedClient.kraPin || 'N/A'})`,
+    });
   }
 
   async deleteClient(clientId: string): Promise<void> {
@@ -1003,36 +1188,24 @@ class StorageEngine {
     await this.recordTombstone(clientId, target?.name || target?.kraPin, 'CLIENT');
     if (target?.kraPin) await this.recordTombstone(clientId, target.kraPin, 'CLIENT');
 
-    // 1. Instant L1 cache deletion
+    // 1. Instant L1 cache deletion & localStorage mirror
     this.l1Clients.delete(clientId);
-
-    // 2. Synchronous localStorage mirror
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         localStorage.setItem('damview_clients', JSON.stringify(Array.from(this.l1Clients.values())));
       } catch {}
     }
 
-    // 3. Durable Transactional Delete from IndexedDB
-    try {
-      const db = await this.init();
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction('clients', 'readwrite');
-        tx.objectStore('clients').delete(clientId);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (e) {
-      console.warn('[StorageEngine] Delete client error:', e);
-    }
-
-    this.recordAuditLog({
+    // 2. Atomic IndexedDB Local-First Delete + Sync Queue Append
+    await this.saveLocalFirst({
       entityType: 'CLIENT',
       entityId: clientId,
-      action: 'DELETE',
-      details: `Deleted client: ${target?.name || clientId}`,
-      snapshot: target,
-    }).catch(() => {});
+      storeName: 'clients',
+      entity: target || { id: clientId },
+      isDelete: true,
+      action: 'CASCADE_DELETE',
+      auditDetails: `Deleted client: ${target?.name || clientId}`,
+    });
   }
 
   // --- Documents ---
@@ -1153,75 +1326,56 @@ class StorageEngine {
           updatedAt: doc.updatedAt || nowIso,
         };
 
-    // 1. Instant L1 cache update
+    // 1. Instant L1 cache update & localStorage mirror
     this.l1Documents.set(mergedDoc.id, mergedDoc);
-
-    // 2. Synchronous localStorage mirror
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         localStorage.setItem('damview_docs', JSON.stringify(Array.from(this.l1Documents.values())));
       } catch {}
     }
 
-    // 3. Durable Transactional Write-Through to IndexedDB
-    try {
-      const db = await this.init();
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction('documents', 'readwrite');
-        tx.objectStore('documents').put(mergedDoc);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (e) {
-      console.warn('[StorageEngine] Write document error:', e);
-    }
-
-    this.recordAuditLog({
+    // 2. Atomic IndexedDB Local-First Persistence + Sync Queue Append
+    await this.saveLocalFirst({
       entityType: 'DOCUMENT',
       entityId: mergedDoc.id,
-      action: existing ? 'UPDATE' : 'CREATE',
-      details: `${existing ? 'Updated' : 'Created'} ${mergedDoc.documentType} ${mergedDoc.documentNumber} for ${mergedDoc.clientName} (Ksh ${mergedDoc.grandTotal})`,
-      snapshot: mergedDoc,
-    }).catch(() => {});
+      storeName: 'documents',
+      entity: mergedDoc,
+      action: 'UPSERT',
+      auditDetails: `${existing ? 'Updated' : 'Created'} ${mergedDoc.documentType} ${mergedDoc.documentNumber} for ${mergedDoc.clientName} (Ksh ${mergedDoc.grandTotal})`,
+    });
   }
 
   async deleteDocument(docId: string): Promise<void> {
     const target = await this.getDocumentById(docId);
     await this.recordTombstone(docId, target?.documentNumber, 'DOCUMENT');
 
-    // 1. Instant L1 cache removal
+    // 1. Instant L1 cache removal & localStorage mirror
     this.l1Documents.delete(docId);
-
-    // 2. Synchronous localStorage mirror
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         localStorage.setItem('damview_docs', JSON.stringify(Array.from(this.l1Documents.values())));
       } catch {}
     }
 
-    // 3. Durable Transactional Delete from IndexedDB
-    try {
-      const db = await this.init();
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction('documents', 'readwrite');
-        tx.objectStore('documents').delete(docId);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (e) {
-      console.warn('[StorageEngine] Delete document error:', e);
-    }
-
-    this.recordAuditLog({
+    // 2. Atomic IndexedDB Local-First Delete + Sync Queue Append
+    await this.saveLocalFirst({
       entityType: 'DOCUMENT',
       entityId: docId,
-      action: 'DELETE',
-      details: `Deleted ${target?.documentType || 'DOCUMENT'} ${target?.documentNumber || docId}`,
-      snapshot: target,
-    }).catch(() => {});
+      storeName: 'documents',
+      entity: target || { id: docId },
+      isDelete: true,
+      action: 'CASCADE_DELETE',
+      auditDetails: `Deleted ${target?.documentType || 'DOCUMENT'} ${target?.documentNumber || docId}`,
+    });
   }
 
-  // --- Next Document Number Generator ---
+  // --- Multi-Terminal Continuous Number Generator with Cloud Sequence Lock ---
+  private cloudSequenceResolver?: (type: 'QUOTATION' | 'PROFORMA' | 'INVOICE' | 'RECEIPT') => Promise<string | null>;
+
+  public setCloudSequenceResolver(resolver: (type: 'QUOTATION' | 'PROFORMA' | 'INVOICE' | 'RECEIPT') => Promise<string | null>) {
+    this.cloudSequenceResolver = resolver;
+  }
+
   async getNextDocumentNumber(type: 'QUOTATION' | 'PROFORMA' | 'INVOICE'): Promise<string> {
     const docs = await this.getDocuments();
     const prefix = type === 'QUOTATION' ? 'QT-' : type === 'PROFORMA' ? 'PI-' : 'INV-';
@@ -1241,8 +1395,24 @@ class StorageEngine {
       }
     });
 
-    const nextNum = maxNum + 1;
-    return `${prefix}${String(nextNum).padStart(4, '0')}`;
+    let localResult = `${prefix}${String(maxNum + 1).padStart(4, '0')}`;
+
+    // Cloud sequence check if online and configured
+    if (this.cloudSequenceResolver && typeof window !== 'undefined' && navigator.onLine) {
+      try {
+        const cloudSeq = await this.cloudSequenceResolver(type);
+        if (cloudSeq && cloudSeq.startsWith(prefix)) {
+          const cloudNum = parseInt(cloudSeq.replace(prefix, ''), 10);
+          if (!isNaN(cloudNum) && cloudNum > maxNum) {
+            localResult = cloudSeq;
+          }
+        }
+      } catch (err) {
+        console.warn('[StorageEngine] Cloud sequence lock check skipped, using deterministic local serial:', err);
+      }
+    }
+
+    return localResult;
   }
 
   // --- Payments ---
@@ -1290,28 +1460,23 @@ class StorageEngine {
       createdAt: payment.createdAt || nowIso,
     };
 
-    // 1. Instant L1 cache update
+    // 1. Instant L1 cache update & localStorage mirror
     this.l1Payments.set(cleanPayment.id, cleanPayment);
-
-    // 2. Synchronous localStorage mirror
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         localStorage.setItem('damview_payments', JSON.stringify(Array.from(this.l1Payments.values())));
       } catch {}
     }
 
-    // 3. Durable Transactional Write-Through to IndexedDB
-    try {
-      const db = await this.init();
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction('payments', 'readwrite');
-        tx.objectStore('payments').put(cleanPayment);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (e) {
-      console.warn('[StorageEngine] Write payment error:', e);
-    }
+    // 2. Atomic IndexedDB Local-First Persistence + Sync Queue Append
+    await this.saveLocalFirst({
+      entityType: 'PAYMENT',
+      entityId: cleanPayment.id,
+      storeName: 'payments',
+      entity: cleanPayment,
+      action: 'RECORD_PAYMENT',
+      auditDetails: `Recorded payment receipt ${cleanPayment.receiptNumber} of Ksh ${cleanPayment.amount} from ${cleanPayment.clientName} (${cleanPayment.paymentMode})`,
+    });
 
     // Update document balance & status
     if (cleanPayment.documentId) {
@@ -1329,14 +1494,6 @@ class StorageEngine {
         });
       }
     }
-
-    this.recordAuditLog({
-      entityType: 'PAYMENT',
-      entityId: cleanPayment.id,
-      action: 'CREATE',
-      details: `Recorded payment receipt ${cleanPayment.receiptNumber} of Ksh ${cleanPayment.amount} from ${cleanPayment.clientName} (${cleanPayment.paymentMode})`,
-      snapshot: cleanPayment,
-    }).catch(() => {});
   }
 
   async deletePayment(paymentId: string): Promise<{ payment: PaymentRecord | null; updatedDoc?: BillingDocument | null }> {
@@ -1345,36 +1502,24 @@ class StorageEngine {
 
     await this.recordTombstone(paymentId, payment?.receiptNumber, 'PAYMENT');
 
-    // 1. Instant L1 cache removal
+    // 1. Instant L1 cache removal & localStorage mirror
     this.l1Payments.delete(paymentId);
-
-    // 2. Synchronous localStorage mirror
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         localStorage.setItem('damview_payments', JSON.stringify(Array.from(this.l1Payments.values())));
       } catch {}
     }
 
-    // 3. Durable Transactional Delete from IndexedDB
-    try {
-      const db = await this.init();
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction('payments', 'readwrite');
-        tx.objectStore('payments').delete(paymentId);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (e) {
-      console.warn('[StorageEngine] Delete payment error:', e);
-    }
-
-    this.recordAuditLog({
+    // 2. Atomic IndexedDB Local-First Delete + Sync Queue Append
+    await this.saveLocalFirst({
       entityType: 'PAYMENT',
       entityId: paymentId,
-      action: 'DELETE',
-      details: `Deleted payment receipt ${payment?.receiptNumber || paymentId}`,
-      snapshot: payment,
-    }).catch(() => {});
+      storeName: 'payments',
+      entity: payment || { id: paymentId },
+      isDelete: true,
+      action: 'CASCADE_DELETE',
+      auditDetails: `Deleted payment receipt ${payment?.receiptNumber || paymentId}`,
+    });
 
     let updatedDoc: BillingDocument | null = null;
     if (payment) {
@@ -1404,6 +1549,14 @@ class StorageEngine {
     return { payment, updatedDoc };
   }
 
+  async getPaymentById(paymentId: string): Promise<PaymentRecord | null> {
+    if (this.l1Payments.has(paymentId)) {
+      return { ...this.l1Payments.get(paymentId)! };
+    }
+    const all = await this.getPayments();
+    return all.find((p) => p.id === paymentId) || null;
+  }
+
   async getNextReceiptNumber(): Promise<string> {
     const payments = await this.getPayments();
     let maxNum = 0;
@@ -1413,7 +1566,78 @@ class StorageEngine {
         maxNum = numPart;
       }
     });
-    return `REC-${String(maxNum + 1).padStart(4, '0')}`;
+
+    let localResult = `REC-${String(maxNum + 1).padStart(4, '0')}`;
+
+    if (this.cloudSequenceResolver && typeof window !== 'undefined' && navigator.onLine) {
+      try {
+        const cloudSeq = await this.cloudSequenceResolver('RECEIPT');
+        if (cloudSeq && cloudSeq.startsWith('REC-')) {
+          const cloudNum = parseInt(cloudSeq.replace('REC-', ''), 10);
+          if (!isNaN(cloudNum) && cloudNum > maxNum) {
+            localResult = cloudSeq;
+          }
+        }
+      } catch (err) {
+        console.warn('[StorageEngine] Cloud receipt sequence lock skipped, using deterministic local serial:', err);
+      }
+    }
+
+    return localResult;
+  }
+
+  /**
+   * Deterministic collision resolution: Update document and all linked dependencies
+   * when cloud reconciliation assigns the next continuous chronological serial.
+   */
+  async handleDocumentRenumbering(originalNumber: string, newNumber: string, docId: string): Promise<void> {
+    const doc = await this.getDocumentById(docId);
+    if (doc) {
+      const updatedDoc = { ...doc, documentNumber: newNumber };
+      await this.saveDocument(updatedDoc);
+    }
+    // Update linked payments that referenced the contested document number
+    const payments = await this.getPayments();
+    for (const p of payments) {
+      if (p.documentNumber === originalNumber) {
+        await this.savePayment({ ...p, documentNumber: newNumber });
+      }
+    }
+    // Record deterministic resolution in local Audit Log
+    await this.recordAuditLog({
+      entityType: 'DOCUMENT',
+      entityId: docId,
+      action: 'UPDATE',
+      details: `Sequential collision resolved: Document renumbered from ${originalNumber} to continuous sequence ${newNumber}`,
+      snapshot: { originalNumber, newNumber },
+    });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('damview:data-changed'));
+      window.dispatchEvent(
+        new CustomEvent('damview-renumbered', { detail: { originalNumber, newNumber, docId } })
+      );
+    }
+  }
+
+  async handleReceiptRenumbering(originalNumber: string, newNumber: string, paymentId: string): Promise<void> {
+    const payment = await this.getPaymentById(paymentId);
+    if (payment) {
+      const updatedPayment = { ...payment, receiptNumber: newNumber };
+      await this.savePayment(updatedPayment);
+    }
+    await this.recordAuditLog({
+      entityType: 'PAYMENT',
+      entityId: paymentId,
+      action: 'UPDATE',
+      details: `Sequential collision resolved: Receipt renumbered from ${originalNumber} to continuous sequence ${newNumber}`,
+      snapshot: { originalNumber, newNumber },
+    });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('damview:data-changed'));
+      window.dispatchEvent(
+        new CustomEvent('damview-renumbered', { detail: { originalNumber, newNumber, paymentId } })
+      );
+    }
   }
 
   // --- Statement of Accounts (SOA) ---
@@ -1600,6 +1824,7 @@ class StorageEngine {
 
   async deleteReservation(id: string): Promise<void> {
     const target = this.l1Reservations.get(id);
+    await this.recordTombstone(id, target?.folioNumber, 'RESERVATION');
     this.l1Reservations.delete(id);
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
@@ -1731,6 +1956,8 @@ class StorageEngine {
       }
     } catch {}
 
+    await this.recordTombstone(id, target?.orderNumber, 'POS');
+
     this.recordAuditLog({
       entityType: 'POS',
       entityId: id,
@@ -1815,6 +2042,8 @@ class StorageEngine {
   }
 
   async deleteExpense(id: string): Promise<void> {
+    const target = this.l1Expenses.get(id);
+    await this.recordTombstone(id, target?.expenseNumber, 'EXPENSE');
     this.l1Expenses.delete(id);
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
@@ -1854,15 +2083,35 @@ class StorageEngine {
         const raw = localStorage.getItem('damview_catalogue');
         if (raw) {
           const parsed: CatalogueItem[] = JSON.parse(raw);
+          const cleanList = parsed.filter((c) => !c.id.match(/^cat-\d+$/));
           this.l1Catalogue.clear();
-          parsed.forEach((c) => this.l1Catalogue.set(c.id, c));
-          return parsed;
+          cleanList.forEach((c) => this.l1Catalogue.set(c.id, c));
+          return cleanList;
         }
       } catch {}
     }
     this.l1Catalogue.clear();
-    STANDARD_HOSPITALITY_CATALOGUE.forEach((c) => this.l1Catalogue.set(c.id, c));
-    return [...STANDARD_HOSPITALITY_CATALOGUE];
+    return [];
+  }
+
+  async purgeAllCatalogueItems(): Promise<void> {
+    const all = Array.from(this.l1Catalogue.values());
+    for (const item of all) {
+      await this.recordTombstone(item.id, item.particulars, 'CATALOGUE');
+    }
+    this.l1Catalogue.clear();
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.removeItem('damview_catalogue');
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('catalogue')) {
+        const tx = db.transaction('catalogue', 'readwrite');
+        tx.objectStore('catalogue').clear();
+      }
+    } catch {}
   }
 
   async saveCatalogueItem(item: CatalogueItem): Promise<void> {
@@ -1882,6 +2131,8 @@ class StorageEngine {
   }
 
   async deleteCatalogueItem(id: string): Promise<void> {
+    const target = this.l1Catalogue.get(id);
+    await this.recordTombstone(id, target?.particulars, 'CATALOGUE');
     this.l1Catalogue.delete(id);
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
@@ -1910,26 +2161,90 @@ class StorageEngine {
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) {
+            // Filter out any legacy demo POS items if present
+            const cleanList = parsed.filter((item) => !item.id.match(/^pos-m\d+$/));
             this.l1POSMenu.clear();
-            parsed.forEach((item) => this.l1POSMenu.set(item.id, item));
-            return parsed;
+            cleanList.forEach((item) => this.l1POSMenu.set(item.id, item));
+            localStorage.setItem('damview_pos_menu_catalog', JSON.stringify(cleanList));
+            return cleanList;
           }
         }
       } catch {}
     }
     this.l1POSMenu.clear();
-    STANDARD_POS_MENU.forEach((m) => {
-      const menuItem = {
-        id: m.id,
-        name: m.name,
-        category: m.category,
-        unitRate: m.price,
-        taxApplicable: true,
-        available: true,
-      };
-      this.l1POSMenu.set(m.id, menuItem);
-    });
-    return Array.from(this.l1POSMenu.values());
+    return [];
+  }
+
+  async purgeAllPOSMenuItems(): Promise<void> {
+    this.l1POSMenu.clear();
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('damview_pos_menu_catalog', JSON.stringify([]));
+      } catch {}
+    }
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames?.contains('pos_menu_catalog')) {
+        const tx = db.transaction('pos_menu_catalog', 'readwrite');
+        tx.objectStore('pos_menu_catalog').clear();
+      }
+    } catch {}
+  }
+
+  /**
+   * Purges all demo / mock records across all operational modules (Catalogue, POS Menu, Documents, Payments, Clients, Reservations, Expenses, POS Orders)
+   * while preserving the hotel's official credentials and profile settings.
+   */
+  async purgeAllDemoDataAcrossModules(): Promise<{ purgedModules: string[]; count: number }> {
+    const purged: string[] = [];
+    let count = 0;
+
+    // 1. Purge Catalogue
+    count += this.l1Catalogue.size;
+    await this.purgeAllCatalogueItems();
+    purged.push('Particulars & Service Catalogue');
+
+    // 2. Purge POS Menu
+    count += this.l1POSMenu.size;
+    await this.purgeAllPOSMenuItems();
+    purged.push('Restaurant & POS Menu Catalog');
+
+    // 3. Clear L1 Stores & LocalStorage for transactional datasets if they contain demo entries
+    const storeKeys: Array<{ key: string; store: string; map: Map<string, any>; name: string }> = [
+      { key: 'damview_clients', store: 'clients', map: this.l1Clients, name: 'Clients Directory' },
+      { key: 'damview_docs', store: 'documents', map: this.l1Documents, name: 'Billing Documents' },
+      { key: 'damview_payments', store: 'payments', map: this.l1Payments, name: 'Payment Receipts' },
+      { key: 'damview_reservations', store: 'reservations', map: this.l1Reservations, name: 'Reservations' },
+      { key: 'damview_pos_orders', store: 'pos_orders', map: this.l1POSOrders, name: 'POS Orders' },
+      { key: 'damview_expenses', store: 'expenses', map: this.l1Expenses, name: 'Expenses' },
+      { key: 'damview_statements_v1', store: 'statements', map: this.l1Statements, name: 'Statements' },
+    ];
+
+    try {
+      const db = await this.init();
+      for (const item of storeKeys) {
+        if (item.map.size > 0) {
+          // Check if entries are demo / sample
+          const entries = Array.from(item.map.values());
+          const demoEntries = entries.filter((e: any) => 
+            (e.id && (e.id.startsWith('demo-') || e.id.startsWith('sample-') || e.id.startsWith('mock-'))) ||
+            (e.isDemo === true)
+          );
+          if (demoEntries.length > 0) {
+            demoEntries.forEach((d: any) => item.map.delete(d.id));
+            count += demoEntries.length;
+            purged.push(item.name);
+            if (typeof window !== 'undefined' && window.localStorage) {
+              try {
+                localStorage.setItem(item.key, JSON.stringify(Array.from(item.map.values())));
+              } catch {}
+            }
+          }
+        }
+      }
+    } catch {}
+
+    return { purgedModules: purged, count };
   }
 
   async savePOSMenuItem(item: any): Promise<void> {
@@ -2051,41 +2366,113 @@ class StorageEngine {
 
   // --- Sync Queue ---
   async getSyncQueue(): Promise<SyncQueueItem[]> {
-    if (this.l1SyncQueue.size > 0) {
-      return Array.from(this.l1SyncQueue.values());
-    }
     try {
       const db = await this.init();
-      return new Promise((resolve) => {
+      const list = await new Promise<SyncQueueItem[]>((resolve) => {
         const tx = db.transaction('sync_queue', 'readonly');
         const req = tx.objectStore('sync_queue').getAll();
-        req.onsuccess = () => {
-          const list: SyncQueueItem[] = req.result || [];
-          this.l1SyncQueue.clear();
-          list.forEach((q: SyncQueueItem) => this.l1SyncQueue.set(q.id, q));
-          if (typeof window !== 'undefined' && window.localStorage) {
-            try {
-              localStorage.setItem('damview_sync_queue', JSON.stringify(list));
-            } catch {}
-          }
-          resolve(list);
-        };
+        req.onsuccess = () => resolve(req.result || []);
         req.onerror = () => resolve([]);
       });
+
+      // Filter and permanently purge generic/invalid queue items (e.g. action: UPSERT)
+      const cleanList = list.filter((q) => {
+        if (!q || !q.id) return false;
+        const act = String(q.action || '').trim().toUpperCase();
+        if (!act || act === 'UPSERT' || act === 'CREATE' || act === 'UPDATE' || act === 'UNDEFINED' || act === 'NULL') {
+          // Silently remove from persistent store
+          this.removeSyncQueueItem(q.id).catch(() => {});
+          return false;
+        }
+        return true;
+      });
+
+      this.l1SyncQueue.clear();
+      cleanList.forEach((q: SyncQueueItem) => {
+        if (q && q.id !== undefined) {
+          this.l1SyncQueue.set(String(q.id), q);
+        }
+      });
+
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          localStorage.setItem('damview_sync_queue', JSON.stringify(cleanList));
+        } catch {}
+      }
+      return cleanList;
     } catch {
-      return Array.from(this.l1SyncQueue.values());
+      // Fallback L1 cache cleanup
+      const cached = Array.from(this.l1SyncQueue.values());
+      const cleanCached = cached.filter((q) => {
+        const act = String(q.action || '').trim().toUpperCase();
+        return !(!act || act === 'UPSERT' || act === 'CREATE' || act === 'UPDATE' || act === 'UNDEFINED' || act === 'NULL');
+      });
+      return cleanCached;
     }
   }
 
-  async addToSyncQueue(item: Omit<SyncQueueItem, 'id' | 'timestamp' | 'retryCount' | 'status'>): Promise<string> {
+  async addToSyncQueue(item: Partial<SyncQueueItem> & { action?: any; payload?: any }): Promise<string> {
+    const rawPayload = item.payload || {};
+    let rawAction = item.action || rawPayload.action || (item as any).type || '';
+    if (typeof rawAction !== 'string') {
+      rawAction = String(rawAction || '');
+    }
+    let resolvedAction: string = rawAction.trim();
+    if (!resolvedAction || resolvedAction === 'undefined' || resolvedAction === 'null' || resolvedAction === '[object Object]') {
+      resolvedAction = '';
+    }
+
+    if (!resolvedAction || resolvedAction === 'UPSERT' || resolvedAction === 'CREATE' || resolvedAction === 'UPDATE') {
+      if (item.entityType === 'DOCUMENT' || rawPayload.document || rawPayload.documentNumber || rawPayload.documentType) {
+        resolvedAction = 'UPSERT_DOCUMENT';
+      } else if (item.entityType === 'CLIENT' || rawPayload.client || rawPayload.kraPin || rawPayload.contactPerson) {
+        resolvedAction = 'UPSERT_CLIENT';
+      } else if (item.entityType === 'PAYMENT' || rawPayload.payment || rawPayload.receiptNumber || rawPayload.paymentMode) {
+        resolvedAction = 'RECORD_PAYMENT';
+      } else if (item.entityType === 'PROFILE' || rawPayload.profile || rawPayload.hotelName) {
+        resolvedAction = 'UPSERT_PROFILE';
+      } else if (rawPayload.tombstones) {
+        resolvedAction = 'PURGE_TOMBSTONES';
+      } else if (rawPayload.pdfBase64 && (rawPayload.statementNumber || rawPayload.startDate || rawPayload.endDate)) {
+        resolvedAction = 'ARCHIVE_STATEMENT_PDF';
+      } else if (rawPayload.pdfBase64) {
+        resolvedAction = 'ARCHIVE_PDF';
+      } else {
+        // Discard generic UPSERT/empty actions instead of polling FULL_SYNC
+        return '';
+      }
+    }
+
+    // Extra safety: discard item completely if it still evaluates to generic or empty action
+    const upperAction = resolvedAction.toUpperCase();
+    if (!resolvedAction || upperAction === 'UPSERT' || upperAction === 'CREATE' || upperAction === 'UPDATE') {
+      return '';
+    } else if (resolvedAction === 'DELETE' || resolvedAction === 'DELETE_DOCUMENT') {
+      resolvedAction = 'CASCADE_DELETE_DOCUMENT';
+    } else if (resolvedAction === 'DELETE_CLIENT') {
+      resolvedAction = 'CASCADE_DELETE_CLIENT';
+    } else if (resolvedAction === 'DELETE_PAYMENT') {
+      resolvedAction = 'CASCADE_DELETE_PAYMENT';
+    } else if (resolvedAction === 'ARCHIVE_STATEMENT' || resolvedAction === 'STATEMENT_PDF') {
+      resolvedAction = 'ARCHIVE_STATEMENT_PDF';
+    }
+
     const queueItem: SyncQueueItem = {
       id: 'sq-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       timestamp: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       retryCount: 0,
-      status: 'pending',
+      status: 'PENDING',
       ...item,
+      action: resolvedAction,
+      payload: {
+        ...rawPayload,
+        action: resolvedAction,
+      },
     };
-    this.l1SyncQueue.set(queueItem.id, queueItem);
+    const stringId = String(queueItem.id);
+    this.l1SyncQueue.set(stringId, queueItem);
 
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
@@ -2101,11 +2488,20 @@ class StorageEngine {
       console.warn('[StorageEngine] Write sync queue error:', e);
     }
 
-    return queueItem.id;
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('damview:sync-queue-added', { detail: queueItem }));
+      } catch {}
+    }
+
+    return stringId;
   }
 
   async updateSyncQueueItem(item: SyncQueueItem): Promise<void> {
-    this.l1SyncQueue.set(item.id, item);
+    const stringId = String(item.id || '');
+    if (stringId) {
+      this.l1SyncQueue.set(stringId, item);
+    }
 
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
@@ -2122,8 +2518,9 @@ class StorageEngine {
     }
   }
 
-  async removeSyncQueueItem(id: string): Promise<void> {
-    this.l1SyncQueue.delete(id);
+  async removeSyncQueueItem(id: string | number): Promise<void> {
+    const stringId = String(id);
+    this.l1SyncQueue.delete(stringId);
 
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
@@ -2158,7 +2555,7 @@ class StorageEngine {
     }
   }
 
-  // --- Immutable Audit Logging ---
+  // --- Immutable Audit Logging & Automated Lifecycle Pruning ---
   async recordAuditLog(entry: {
     entityType: AuditLogEntry['entityType'];
     entityId: string;
@@ -2183,6 +2580,11 @@ class StorageEngine {
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
         });
+
+        // Trigger periodic automated pruning in the background
+        if (Math.random() < 0.2) {
+          this.pruneAuditLogs(250).catch(() => {});
+        }
       }
     } catch {
       if (typeof window !== 'undefined' && window.localStorage) {
@@ -2191,11 +2593,70 @@ class StorageEngine {
             localStorage.getItem('damview_audit_log') || '[]'
           );
           current.unshift(logItem);
-          if (current.length > 200) current.length = 200;
+          if (current.length > 250) current.length = 250;
           localStorage.setItem('damview_audit_log', JSON.stringify(current));
         } catch {}
       }
     }
+  }
+
+  /**
+   * Automated Audit Log Pruning & Retention Management
+   * Enforces retention policy, removing oldest logs to prevent unbounded storage growth.
+   */
+  async pruneAuditLogs(maxEntries: number = 250): Promise<{ prunedCount: number; remainingCount: number }> {
+    let prunedCount = 0;
+    let remainingCount = 0;
+
+    try {
+      const db = await this.init();
+      if (db.objectStoreNames.contains('audit_log')) {
+        const allLogs = await new Promise<AuditLogEntry[]>((resolve) => {
+          const tx = db.transaction('audit_log', 'readonly');
+          const req = tx.objectStore('audit_log').getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        });
+
+        if (allLogs.length > maxEntries) {
+          allLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          const logsToKeep = allLogs.slice(0, maxEntries);
+          const logsToDelete = allLogs.slice(maxEntries);
+
+          await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction('audit_log', 'readwrite');
+            const store = tx.objectStore('audit_log');
+            logsToDelete.forEach((log) => {
+              store.delete(log.id);
+            });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+
+          prunedCount = logsToDelete.length;
+          remainingCount = logsToKeep.length;
+        } else {
+          remainingCount = allLogs.length;
+        }
+      }
+    } catch (err) {
+      console.warn('[StorageEngine] Audit log prune error:', err);
+    }
+
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const current: AuditLogEntry[] = JSON.parse(
+          localStorage.getItem('damview_audit_log') || '[]'
+        );
+        if (current.length > maxEntries) {
+          current.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          const trimmed = current.slice(0, maxEntries);
+          localStorage.setItem('damview_audit_log', JSON.stringify(trimmed));
+        }
+      } catch {}
+    }
+
+    return { prunedCount, remainingCount };
   }
 
   async getAuditLogs(limit: number = 100): Promise<AuditLogEntry[]> {
@@ -2256,3 +2717,6 @@ class StorageEngine {
 }
 
 export const dbService = new StorageEngine();
+
+export const saveLocalFirst = <T = any>(params: SaveLocalFirstParams<T>) =>
+  dbService.saveLocalFirst<T>(params);

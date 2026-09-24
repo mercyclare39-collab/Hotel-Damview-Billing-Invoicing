@@ -6,14 +6,10 @@ import {
   Users,
   Settings,
   Plus,
-  Wifi,
-  WifiOff,
-  Cloud,
-  CloudOff,
-  RefreshCw,
 } from 'lucide-react';
 import { HotelLogo } from './HotelLogo';
 import { HotelProfile } from '../types';
+import { SyncTelemetryBadge } from './SyncTelemetryBadge';
 
 export type NavTab =
   | 'dashboard'
@@ -134,39 +130,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right Section: Status Pills & Action Button */}
         <div className="flex items-center gap-2 text-xs">
-          {/* Online/Offline status pill */}
-          <div
-            className={`px-2 py-1 rounded-full text-[11px] font-medium flex items-center gap-1 border ${
-              isOnline
-                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
-                : 'bg-rose-950/80 text-rose-300 border-rose-800/80'
-            }`}
-            title={isOnline ? 'Internet connection active' : 'Working offline (IndexedDB local cache active)'}
-          >
-            {isOnline ? <Wifi className="w-3 h-3 text-emerald-400" /> : <WifiOff className="w-3 h-3 text-rose-400" />}
-            <span className="hidden sm:inline">{isOnline ? 'Online' : 'Offline Mode'}</span>
-          </div>
-
-          {/* Sync Status Button */}
-          {profile.googleWebAppUrl && (
-            <button
-              type="button"
-              onClick={onTriggerSync}
-              className="px-2 py-1 bg-stone-800 hover:bg-stone-700 rounded text-[11px] text-stone-300 hover:text-white border border-stone-700 flex items-center gap-1.5 transition-colors"
-              title={
-                pendingSyncCount > 0
-                  ? `${pendingSyncCount} changes waiting to sync to Google Sheets`
-                  : 'Google Sheets webhook connected and up to date'
-              }
-            >
-              <Cloud className="w-3 h-3 text-blue-400" />
-              {pendingSyncCount > 0 ? (
-                <span className="font-bold text-amber-400">{pendingSyncCount} pending</span>
-              ) : (
-                <span className="text-stone-400 hidden sm:inline">Synced</span>
-              )}
-            </button>
-          )}
+          {/* Reactive Sync Telemetry Badge */}
+          <SyncTelemetryBadge compact={true} showForceSyncButton={true} />
 
           {/* Quick New Document Button */}
           <button

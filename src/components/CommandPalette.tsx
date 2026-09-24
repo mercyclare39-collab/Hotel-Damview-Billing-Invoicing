@@ -191,7 +191,43 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
         category: 'Actions' as const,
         action: () => {
-          onTriggerSync();
+          onNavigateToModule('sync');
+          onClose();
+        },
+      },
+      {
+        id: 'action-excel-workstation',
+        title: 'Excel Workstation & Master Spreadsheets',
+        subtitle: 'Edit offline XLSX journals, formulas & generate multi-tab workbooks',
+        badge: 'EXCEL',
+        badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+        category: 'Actions' as const,
+        action: () => {
+          onNavigateToModule('excel');
+          onClose();
+        },
+      },
+      {
+        id: 'action-clients-dir',
+        title: 'Client Directory & KRA Tax Ledgers',
+        subtitle: 'Search corporate accounts, update contact info & PINs',
+        badge: 'CLIENTS',
+        badgeColor: 'bg-stone-500/20 text-stone-300 border-stone-500/40',
+        category: 'Actions' as const,
+        action: () => {
+          onNavigateToModule('clients');
+          onClose();
+        },
+      },
+      {
+        id: 'action-settings-profile',
+        title: 'Hotel Profile, Tax & Bank Settings',
+        subtitle: 'Update business identity, KRA PIN, bank settlement accounts & passcode',
+        badge: 'SETTINGS',
+        badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+        category: 'Actions' as const,
+        action: () => {
+          onNavigateToModule('settings');
           onClose();
         },
       },

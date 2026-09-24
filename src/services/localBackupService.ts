@@ -234,6 +234,18 @@ class LocalBackupService {
    * Trigger the browser download fallback when native filesystem access is unavailable.
    */
   private triggerDownloadFallback(blob: Blob, fileName: string): SaveLocalResult {
+    if (!blob || blob.size === 0) {
+      console.warn('[LocalBackupService] Zero-byte payload prevented from write:', fileName);
+      return {
+        success: false,
+        method: 'BROWSER_DOWNLOAD_FALLBACK',
+        fileName,
+        path: 'Browser Downloads',
+        byteLength: 0,
+        error: 'Zero-byte file guard: Blob payload is empty or invalid.',
+      };
+    }
+
     try {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -264,7 +276,7 @@ class LocalBackupService {
     } catch (err: any) {
       this.recordBackup({
         fileName,
-        byteLength: blob.size,
+        byteLength: blob?.size || 0,
         method: 'BROWSER_DOWNLOAD_FALLBACK',
         status: 'FAILED',
         path: 'Browser Downloads',
@@ -276,7 +288,7 @@ class LocalBackupService {
         method: 'BROWSER_DOWNLOAD_FALLBACK',
         fileName,
         path: 'Browser Downloads',
-        byteLength: blob.size,
+        byteLength: blob?.size || 0,
         error: err.message,
       };
     }
@@ -293,6 +305,18 @@ class LocalBackupService {
     options?: { forceFallback?: boolean; documentNumber?: string }
   ): Promise<SaveLocalResult> {
     const designatedPath = this.getTargetDirectoryPath();
+
+    // Zero-byte guard & binary verification
+    if (!blob || blob.size === 0) {
+      return {
+        success: false,
+        method: 'FILE_SYSTEM_ACCESS_API',
+        fileName,
+        path: designatedPath,
+        byteLength: 0,
+        error: 'Zero-byte file guard: Prevented write of empty PDF binary.',
+      };
+    }
 
     if (options?.forceFallback || !this.isFileSystemAccessSupported()) {
       return this.triggerDownloadFallback(blob, fileName);
@@ -349,8 +373,32 @@ class LocalBackupService {
     options?: { documentNumber?: string }
   ): Promise<SaveLocalResult> {
     const designatedPath = this.getTargetDirectoryPath();
+    
+    // Zero-byte and empty data guards
+    if (!data || (typeof data === 'object' && Object.keys(data).length === 0)) {
+      return {
+        success: false,
+        method: 'FILE_SYSTEM_ACCESS_API',
+        fileName,
+        path: designatedPath,
+        byteLength: 0,
+        error: 'Zero-byte state guard: Attempted to mirror empty payload.',
+      };
+    }
+
     const jsonStr = JSON.stringify(data, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
+
+    if (blob.size === 0) {
+      return {
+        success: false,
+        method: 'FILE_SYSTEM_ACCESS_API',
+        fileName,
+        path: designatedPath,
+        byteLength: 0,
+        error: 'Zero-byte guard: Serialized JSON payload is 0 bytes.',
+      };
+    }
 
     if (!this.isFileSystemAccessSupported()) {
       return {

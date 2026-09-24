@@ -129,6 +129,84 @@
   border-color: #e2e8f0;
 }
 
+/* ==========================================================================
+   Headerless Financial Summary Block (Executive Print & Screen Typography)
+   ========================================================================== */
+.financial-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  font-family: 'Times New Roman', Times, 'Nimbus Roman No9 L', serif;
+  font-size: 11.5pt;
+  line-height: 1.4;
+  background-color: #ffffff;
+}
+
+.financial-summary-table tr {
+  page-break-inside: avoid;
+}
+
+.financial-summary-table td {
+  padding: 5px 10px;
+  vertical-align: middle;
+  font-family: inherit;
+}
+
+.financial-summary-table td.label-cell {
+  text-align: left;
+  white-space: nowrap;
+}
+
+.financial-summary-table td.value-cell {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Intermediate Calculation Rows (Discount, Subtotal, VAT, Paid/Credited) */
+.financial-summary-row-intermediate {
+  border-bottom: 1px solid #e2e8f0;
+  color: #334155;
+  font-size: 11.5pt;
+  font-weight: 500;
+}
+
+.financial-summary-row-intermediate td {
+  font-size: 11.5pt;
+  font-weight: 500;
+  color: #334155;
+}
+
+/* Authoritative Rows: Grand Total */
+.financial-summary-row-total {
+  border-top: 1.5px solid #0f172a;
+  border-bottom: 1px solid #94a3b8;
+  background-color: #f8fafc;
+  color: #020617;
+  font-size: 12.5pt;
+}
+
+.financial-summary-row-total td {
+  font-size: 12.5pt;
+  font-weight: 700;
+  color: #020617;
+}
+
+/* Final Authoritative Rows: Balance Due / Net Closing Balance */
+.financial-summary-row-balance {
+  border-top: 1.5px solid #94a3b8;
+  border-bottom: 3.5px double #0f172a;
+  background-color: #f1f5f9;
+  color: #020617;
+  font-size: 13.5pt;
+}
+
+.financial-summary-row-balance td {
+  font-size: 13.5pt;
+  font-weight: 800;
+  color: #09090b;
+}
+
 @media print {
   body {
     background: transparent !important;
@@ -206,6 +284,69 @@
 
   .document-divider {
     border-color: #e2e8f0 !important;
+  }
+
+  /* Two-column parallel details table grid print preservation */
+  .details-grid-container {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 12pt !important;
+    width: 100% !important;
+  }
+
+  .details-grid-container > div {
+    flex: 1 1 50% !important;
+    width: 50% !important;
+  }
+
+  .financial-summary-table {
+    font-size: 11.5pt !important;
+    font-family: 'Times New Roman', Times, 'Nimbus Roman No9 L', serif !important;
+  }
+
+  .financial-summary-table td {
+    padding: 4pt 7pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .financial-summary-row-intermediate {
+    border-bottom: 0.5pt solid #cbd5e1 !important;
+    font-size: 11.5pt !important;
+    font-weight: 500 !important;
+  }
+
+  .financial-summary-row-intermediate td {
+    font-size: 11.5pt !important;
+    font-weight: 500 !important;
+  }
+
+  .financial-summary-row-total {
+    border-top: 1.5pt solid #0f172a !important;
+    border-bottom: 0.75pt solid #94a3b8 !important;
+    background-color: #f8fafc !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-size: 12.5pt !important;
+  }
+
+  .financial-summary-row-total td {
+    font-size: 12.5pt !important;
+    font-weight: 700 !important;
+  }
+
+  .financial-summary-row-balance {
+    border-top: 1pt solid #94a3b8 !important;
+    border-bottom: 2.5pt double #0f172a !important;
+    background-color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-size: 13.5pt !important;
+  }
+
+  .financial-summary-row-balance td {
+    font-size: 13.5pt !important;
+    font-weight: 800 !important;
   }
 
   @page {

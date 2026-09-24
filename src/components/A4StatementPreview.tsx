@@ -57,6 +57,9 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
     );
     const dynamicBalanceWidth = `${Math.max(88, maxBalChars * 8 + 18)}px`;
 
+    const contactParts = [profile.phone?.trim(), profile.email?.trim()].filter(Boolean);
+    const phoneEmail = contactParts.join(' | ');
+
     return (
       <div
         className={`a4-document-wrapper flex justify-center ${className}`}
@@ -104,15 +107,18 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                 >
                   {profile.name || 'HOTEL DAMVIEW'}
                 </h1>
+                {profile.tagline?.trim() && (
+                  <div className="text-[10pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
+                    {profile.tagline.trim()}
+                  </div>
+                )}
 
                 {/* Sub-details: Physical Location, Postal Address, Phone | Email, and KRA PIN */}
                 <div className="text-[11pt] text-stone-800 leading-snug space-y-0.5">
-                  <div>{profile.physicalLocation || 'MARIAKANI'}</div>
-                  <div>{profile.postalAddress || 'P.O. BOX 42491-80100, Mombasa, Kenya'}</div>
-                  <div>
-                    {(profile.phone || '+25472524262')} | {(profile.email || 'hoteldamview@gmail.com')}
-                  </div>
-                  <div className="font-semibold tracking-wider">KRA PIN: {profile.kraPin || 'P051453023Q'}</div>
+                  {profile.physicalLocation?.trim() && <div>{profile.physicalLocation.trim()}</div>}
+                  {profile.postalAddress?.trim() && <div>{profile.postalAddress.trim()}</div>}
+                  {phoneEmail && <div>{phoneEmail}</div>}
+                  {profile.kraPin?.trim() && <div className="font-semibold tracking-wider">KRA PIN: {profile.kraPin.trim()}</div>}
                 </div>
               </div>
             </div>
@@ -124,66 +130,86 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN METADATA GRID (Unified Structural Table Architecture) */}
-            <table className="document-table sync-meta-table mb-4 text-[11pt] w-full" style={{ tableLayout: 'fixed' }}>
-              <thead>
-                <tr className="bg-stone-100 border-b border-stone-800 text-stone-900">
-                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5 border-r border-stone-800">
-                    STATEMENT TO
-                  </th>
-                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5">
-                    DOCUMENT PARTICULARS
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e2e8f0]">
-                {/* Row 1: Client Name vs Statement No */}
-                <tr className="sync-row">
-                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
-                    Client Name:
-                  </td>
-                  <td className="w-[32%] font-bold text-stone-900 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
-                    {client?.name || 'Selected Client'}
-                  </td>
-                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
-                    Statement No:
-                  </td>
-                  <td className="w-[32%] font-bold text-stone-900 py-1.5 px-2.5 align-top font-mono">
-                    {statementNumber}
-                  </td>
-                </tr>
-                {/* Row 2: KRA PIN vs Issue Date */}
-                <tr className="sync-row">
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    KRA PIN:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top tracking-wider font-mono">
-                    {client?.kraPin || 'N/A'}
-                  </td>
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Issue Date:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 align-top">
-                    {issueDate ? formatDate(issueDate) : formatDate()}
-                  </td>
-                </tr>
-                {/* Row 3: Physical Address vs Period Covered */}
-                <tr className="sync-row">
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Physical Address:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
-                    {client?.address || 'N/A'}
-                  </td>
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Period Covered:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 align-top font-medium">
-                    {formatDate(startDate)} to {formatDate(endDate)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            {/* 3. PARALLEL TWO-COLUMN DETAILS TABLES (Separated by Gutter, Borderless Key-Value Pairs) */}
+            <div className="details-grid-container grid grid-cols-2 gap-4 mb-4 text-[11pt] w-full items-stretch">
+              {/* Left Table: Statement To */}
+              <div className="border border-stone-400 rounded overflow-hidden bg-white flex flex-col">
+                <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr className="bg-stone-100 border-b border-stone-400 text-stone-900">
+                      <th colSpan={2} className="text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-3">
+                        STATEMENT TO
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-200">
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Client Name:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-bold text-stone-900 break-words align-middle">
+                        {client?.name || 'Selected Client'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        KRA PIN:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-mono text-stone-800 tracking-wider align-middle">
+                        {client?.kraPin || 'N/A'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Physical Address:
+                      </td>
+                      <td className="py-1.5 px-3 text-right text-stone-800 break-words align-middle">
+                        {client?.address || 'N/A'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Right Table: Document Details */}
+              <div className="border border-stone-400 rounded overflow-hidden bg-white flex flex-col">
+                <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr className="bg-stone-100 border-b border-stone-400 text-stone-900">
+                      <th colSpan={2} className="text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-3">
+                        DOCUMENT DETAILS
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-200">
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Statement No:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-bold font-mono text-stone-950 align-middle">
+                        {statementNumber}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Issue Date:
+                      </td>
+                      <td className="py-1.5 px-3 text-right text-stone-800 align-middle">
+                        {issueDate ? formatDate(issueDate) : formatDate()}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Period Covered:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-medium text-stone-800 align-middle">
+                        {formatDate(startDate)} to {formatDate(endDate)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             {/* 4. LEDGER TABLE: Dynamic Table Layout Engine */}
             <div className="mb-4 w-full">
@@ -295,26 +321,26 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
               </table>
             </div>
 
-            {/* 5. FINANCIALS: Compact Summary */}
-            <div className="flex justify-end mb-4">
-              <div className="w-80">
-                <table className="document-table text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+            {/* 5. HEADERLESS FINANCIAL SUMMARY BLOCK */}
+            <div className="flex justify-end mb-4 w-full">
+              <div className="w-[50%] min-w-[320px] max-w-[380px]">
+                <table className="financial-summary-table border border-stone-300 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <tbody>
-                    <tr className="bg-stone-50/50">
-                      <td className="px-2.5 py-1 text-stone-600 font-normal">Total Invoiced (Debit):</td>
-                      <td className="px-2.5 py-1 text-right tabular-decimal font-semibold text-stone-900">
+                    <tr className="financial-summary-row-intermediate">
+                      <td className="px-3 py-1 label-cell text-stone-600 font-normal">Total Invoiced (Debit):</td>
+                      <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-800">
                         {formatKsh(totalDebit)}
                       </td>
                     </tr>
-                    <tr className="bg-emerald-50/20">
-                      <td className="px-2.5 py-1 text-emerald-800 font-normal">Total Settled (Credit):</td>
-                      <td className="px-2.5 py-1 text-right tabular-decimal font-medium text-emerald-700">
+                    <tr className="financial-summary-row-intermediate">
+                      <td className="px-3 py-1 label-cell text-stone-600 font-normal">Total Settled (Credit):</td>
+                      <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-800">
                         {formatKsh(totalCredit)}
                       </td>
                     </tr>
-                    <tr className="bg-[#f1f5f9] text-[12.5pt]">
-                      <td className="px-2.5 py-1.5 text-stone-950 font-bold uppercase tracking-tight">Closing Balance Due:</td>
-                      <td className="px-2.5 py-1.5 text-right tabular-decimal font-extrabold text-rose-950">
+                    <tr className="financial-summary-row-balance">
+                      <td className="px-3 py-1.5 label-cell text-stone-950 font-bold">Closing Balance Due:</td>
+                      <td className="px-3 py-1.5 value-cell tabular-nums font-bold text-rose-950">
                         {formatKsh(closingBalance)}
                       </td>
                     </tr>
@@ -342,7 +368,7 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
             {/* 7. FIXED PAGE FOOTER */}
             <div className="pt-2 border-t border-stone-800 flex items-center justify-between text-[11pt] text-stone-600">
               <div>Official computer generated document</div>
-              <div className="font-bold text-stone-800">Thank you for choosing HOTEL DAMVIEW</div>
+              <div className="font-bold text-stone-800">Thank you for choosing {profile.name || 'HOTEL DAMVIEW'}</div>
             </div>
           </div>
         </div>

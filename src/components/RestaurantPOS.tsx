@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { POSOrder, POSOrderItem, HotelProfile, Client, BillingDocument } from '../types';
 import { dbService, STANDARD_POS_MENU } from '../services/db';
+import { exportTableToXlsx } from '../utils/excelExporter';
+import { formatDate } from '../utils/formatters';
 
 interface RestaurantPOSProps {
   profile: HotelProfile;
@@ -62,13 +64,112 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
   const [posCatalog, setPosCatalog] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  const [cart, setCart] = useState<POSOrderItem[]>([]);
-  const [tableOrRoom, setTableOrRoom] = useState(TABLE_OPTIONS[0]);
-  const [guestName, setGuestName] = useState('Walk-in Guest');
-  const [paymentMode, setPaymentMode] = useState<POSOrder['paymentMode']>('M-Pesa');
-  const [discountPercent, setDiscountPercent] = useState(0);
+
+  // Persist active tab across refreshes
+  const [activeTab, setActiveTabState] = useState<'pos' | 'history' | 'catalog'>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = localStorage.getItem('damview_pos_active_tab') as any;
+      if (saved && ['pos', 'history', 'catalog'].includes(saved)) return saved;
+    }
+    return 'pos';
+  });
+
+  const setActiveTab = (tab: 'pos' | 'history' | 'catalog') => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('damview_pos_active_tab', tab);
+    } catch {}
+  };
+
+  // Restore ongoing draft cart & guest info if refreshed mid-entry
+  const [cart, setCart] = useState<POSOrderItem[]>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const saved = localStorage.getItem('damview_pos_draft_cart');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed.cart)) return parsed.cart;
+        }
+      } catch {}
+    }
+    return [];
+  });
+
+  const [tableOrRoom, setTableOrRoom] = useState<string>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const saved = localStorage.getItem('damview_pos_draft_cart');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.tableOrRoom) return parsed.tableOrRoom;
+        }
+      } catch {}
+    }
+    return TABLE_OPTIONS[0];
+  });
+
+  const [guestName, setGuestName] = useState<string>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const saved = localStorage.getItem('damview_pos_draft_cart');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.guestName) return parsed.guestName;
+        }
+      } catch {}
+    }
+    return 'Walk-in Guest';
+  });
+
+  const [paymentMode, setPaymentMode] = useState<POSOrder['paymentMode']>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const saved = localStorage.getItem('damview_pos_draft_cart');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.paymentMode) return parsed.paymentMode;
+        }
+      } catch {}
+    }
+    return 'M-Pesa';
+  });
+
+  const [discountPercent, setDiscountPercent] = useState<number>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const saved = localStorage.getItem('damview_pos_draft_cart');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (typeof parsed.discountPercent === 'number') return parsed.discountPercent;
+        }
+      } catch {}
+    }
+    return 0;
+  });
+
+  // Auto-sync draft POS cart to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        if (cart.length > 0 || guestName !== 'Walk-in Guest' || discountPercent > 0) {
+          localStorage.setItem(
+            'damview_pos_draft_cart',
+            JSON.stringify({
+              cart,
+              tableOrRoom,
+              guestName,
+              paymentMode,
+              discountPercent,
+            })
+          );
+        } else {
+          localStorage.removeItem('damview_pos_draft_cart');
+        }
+      } catch {}
+    }
+  }, [cart, tableOrRoom, guestName, paymentMode, discountPercent]);
+
   const [recentOrders, setRecentOrders] = useState<POSOrder[]>([]);
-  const [activeTab, setActiveTab] = useState<'pos' | 'history' | 'catalog'>('pos');
   const [successOrder, setSuccessOrder] = useState<POSOrder | null>(null);
 
   // Catalog Form Modal State
@@ -144,6 +245,12 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
   const handleDeleteCatalogItem = async (id: string) => {
     if (!window.confirm('Are you sure you want to remove this item from the POS menu catalog?')) return;
     await dbService.deletePOSMenuItem(id);
+    await loadData();
+  };
+
+  const handlePurgePOSMenu = async () => {
+    if (!window.confirm('Are you sure you want to purge all POS menu items? This will remove all demo and current food/beverage presets.')) return;
+    await dbService.purgeAllPOSMenuItems();
     await loadData();
   };
 
@@ -332,41 +439,59 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
             </div>
 
             {/* Menu Items Tiles Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {filteredMenuItems.map((item) => {
-                const inCart = cart.find((i) => i.id === item.id);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => addToCart(item)}
-                    className={`text-left p-3.5 rounded-lg border transition-all flex flex-col justify-between h-28 relative cursor-pointer ${
-                      inCart
-                        ? 'bg-amber-50 border-amber-400 shadow-xs'
-                        : 'bg-white border-stone-200 hover:border-amber-300 hover:shadow-xs'
-                    }`}
-                  >
-                    <div>
-                      <span className="text-[10px] font-semibold uppercase text-stone-400 tracking-wider block">
-                        {item.category}
-                      </span>
-                      <h4 className="text-xs font-bold text-stone-900 leading-tight mt-0.5 line-clamp-2">
-                        {item.name}
-                      </h4>
-                    </div>
-
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-stone-100">
-                      <span className="font-mono font-bold text-stone-900 text-xs">
-                        Ksh {item.price.toLocaleString()}
-                      </span>
-                      <div className="p-1 bg-amber-500 text-stone-950 rounded font-bold text-xs flex items-center justify-center w-5 h-5 shadow-xs">
-                        {inCart ? inCart.quantity : '+'}
+            {filteredMenuItems.length === 0 ? (
+              <div className="bg-white border border-stone-200 rounded-lg p-8 text-center space-y-3">
+                <Utensils className="w-8 h-8 mx-auto text-stone-300 stroke-1" />
+                <h4 className="text-sm font-bold text-stone-700">No Menu Items Found</h4>
+                <p className="text-xs text-stone-500 max-w-sm mx-auto">
+                  All demo records have been purged. Add your hotel&apos;s food, beverage, or conference catering items to begin rapid POS ticketing.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleOpenNewCatalogItem}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs rounded-md shadow-xs cursor-pointer transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add First Menu Item
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {filteredMenuItems.map((item) => {
+                  const inCart = cart.find((i) => i.id === item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => addToCart(item)}
+                      className={`text-left p-3.5 rounded-lg border transition-all flex flex-col justify-between h-28 relative cursor-pointer ${
+                        inCart
+                          ? 'bg-amber-50 border-amber-400 shadow-xs'
+                          : 'bg-white border-stone-200 hover:border-amber-300 hover:shadow-xs'
+                      }`}
+                    >
+                      <div>
+                        <span className="text-[10px] font-semibold uppercase text-stone-400 tracking-wider block">
+                          {item.category}
+                        </span>
+                        <h4 className="text-xs font-bold text-stone-900 leading-tight mt-0.5 line-clamp-2">
+                          {item.name}
+                        </h4>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-stone-100">
+                        <span className="font-mono font-bold text-stone-900 text-xs">
+                          Ksh {item.price.toLocaleString()}
+                        </span>
+                        <div className="p-1 bg-amber-500 text-stone-950 rounded font-bold text-xs flex items-center justify-center w-5 h-5 shadow-xs">
+                          {inCart ? inCart.quantity : '+'}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* RIGHT: Active Order Cart & Terminal Checkout (5 Cols) */}
@@ -532,10 +657,23 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
               <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded text-[11px] text-emerald-900 space-y-0.5">
                 <div className="font-bold flex items-center gap-1">
                   <Smartphone className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>M-Pesa Buy Goods Till: {profile.mpesaTillNumber || '(Configure in Hotel Settings)'}</span>
+                  <span>
+                    {profile.mpesaTillNumber?.trim()
+                      ? `M-Pesa Buy Goods Till: ${profile.mpesaTillNumber.trim()}`
+                      : 'M-Pesa Mobile Settlement'}
+                  </span>
                 </div>
                 <p className="text-emerald-800">
-                  Ask guest to pay <strong>Ksh {grandTotal.toLocaleString()}</strong> to Hotel Damview Till.
+                  {profile.mpesaTillNumber?.trim() ? (
+                    <>
+                      Ask guest to pay <strong>Ksh {grandTotal.toLocaleString()}</strong> to{' '}
+                      <strong>Till {profile.mpesaTillNumber.trim()}</strong>.
+                    </>
+                  ) : (
+                    <>
+                      Ask guest to settle <strong>Ksh {grandTotal.toLocaleString()}</strong> via M-Pesa.
+                    </>
+                  )}
                 </p>
               </div>
             )}
@@ -577,11 +715,62 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
       {/* History Tab */}
       {activeTab === 'history' && (
         <div className="bg-white border border-stone-200 rounded-lg shadow-xs overflow-hidden">
-          <div className="p-4 border-b border-stone-200 bg-stone-50 flex items-center justify-between">
-            <h3 className="font-bold text-sm text-stone-900">POS Order & Receipt History</h3>
-            <span className="text-xs text-stone-500">
-              Total Recorded Orders: <strong>{recentOrders.length}</strong>
-            </span>
+          <div className="p-4 border-b border-stone-200 bg-stone-50 flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h3 className="font-bold text-sm text-stone-900">POS Order &amp; Receipt History</h3>
+              <span className="text-xs text-stone-500">
+                Total Recorded Orders: <strong>{recentOrders.length}</strong>
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={async () => {
+                if (recentOrders.length === 0) {
+                  alert('No POS orders to export.');
+                  return;
+                }
+                const columns = [
+                  { header: 'Order #', key: 'orderNumber', type: 'code' as const, width: 14 },
+                  { header: 'Table / Room', key: 'tableOrRoom', type: 'text' as const, width: 18 },
+                  { header: 'Guest / Payer', key: 'guestOrClientName', type: 'text' as const, width: 22 },
+                  { header: 'Items Summary', key: 'itemsSummary', type: 'text' as const, width: 35 },
+                  { header: 'Subtotal (Ksh)', key: 'subtotal', type: 'currency' as const, width: 16 },
+                  { header: 'Tax / VAT (Ksh)', key: 'vatAmount', type: 'currency' as const, width: 14 },
+                  { header: 'Grand Total (Ksh)', key: 'grandTotal', type: 'currency' as const, width: 18 },
+                  { header: 'Payment Mode', key: 'paymentMode', type: 'text' as const, width: 16 },
+                  { header: 'Receipt #', key: 'receiptNumber', type: 'code' as const, width: 15 },
+                  { header: 'Status', key: 'status', type: 'status' as const, width: 12 },
+                  { header: 'Recorded Date', key: 'createdAt', type: 'text' as const, width: 20 },
+                ];
+
+                const data = recentOrders.map((ord) => ({
+                  orderNumber: ord.orderNumber,
+                  tableOrRoom: ord.tableOrRoom,
+                  guestOrClientName: ord.guestOrClientName || '-',
+                  itemsSummary: ord.items.map((i) => `${i.quantity}x ${i.name}`).join(', '),
+                  subtotal: ord.subtotal,
+                  vatAmount: ord.vatAmount,
+                  grandTotal: ord.grandTotal,
+                  paymentMode: ord.paymentMode,
+                  receiptNumber: ord.receiptNumber || '-',
+                  status: ord.status,
+                  createdAt: ord.createdAt,
+                }));
+
+                await exportTableToXlsx({
+                  title: 'Restaurant & Bar POS Orders Ledger',
+                  sheetName: 'POS_Orders',
+                  profile,
+                  columns,
+                  data,
+                  filename: `HotelDamview_POS_Orders_${formatDate()}.xlsx`,
+                });
+              }}
+              className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs rounded border border-stone-300 transition-colors cursor-pointer"
+            >
+              Export Excel (.xlsx)
+            </button>
           </div>
 
           <div className="overflow-x-auto">
@@ -655,79 +844,110 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
                 Manage food items, beverages, bar offerings, and catering package rates synchronized with Google Sheets.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleOpenNewCatalogItem}
-              className="px-3.5 py-2 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Menu Item</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {posCatalog.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handlePurgePOSMenu}
+                  className="px-3 py-2 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Purge all POS menu items"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Purge Menu</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleOpenNewCatalogItem}
+                className="px-3.5 py-2 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Menu Item</span>
+              </button>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-stone-100 text-stone-700 border-b border-stone-200">
-                  <th className="p-3 font-bold">Item Name</th>
-                  <th className="p-3 font-bold">Category</th>
-                  <th className="p-3 font-bold text-right">Standard Rate (Ksh)</th>
-                  <th className="p-3 font-bold">Tax Applicability</th>
-                  <th className="p-3 font-bold">Status</th>
-                  <th className="p-3 font-bold text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-200">
-                {posCatalog.map((item) => (
-                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
-                    <td className="p-3 font-bold text-stone-900">{item.name}</td>
-                    <td className="p-3 text-stone-600">
-                      <span className="bg-stone-100 border border-stone-200 px-2 py-0.5 rounded text-[11px] font-medium text-stone-700">
-                        {item.category}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right font-mono font-bold text-amber-700">
-                      Ksh {(item.unitRate || item.price || 0).toLocaleString()}
-                    </td>
-                    <td className="p-3 text-stone-600">
-                      {item.taxApplicable !== false ? '16% VAT Included' : 'Tax Exempt'}
-                    </td>
-                    <td className="p-3">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          item.available !== false
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}
-                      >
-                        {item.available !== false ? 'Active' : 'Unavailable'}
-                      </span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditCatalogItem(item)}
-                          className="p-1 text-stone-600 hover:text-amber-700 rounded hover:bg-stone-100 transition-colors cursor-pointer"
-                          title="Edit Item"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCatalogItem(item.id)}
-                          className="p-1 text-stone-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="Remove Item"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
+          {posCatalog.length === 0 ? (
+            <div className="py-12 px-4 text-center space-y-3 bg-stone-50 rounded-lg border border-dashed border-stone-300">
+              <Utensils className="w-10 h-10 mx-auto text-stone-300 stroke-1" />
+              <h4 className="text-sm font-bold text-stone-700">POS Menu Catalog is Empty</h4>
+              <p className="text-xs text-stone-500 max-w-sm mx-auto">
+                All demo POS items have been purged. Add your hotel&apos;s breakfast dishes, main courses, snacks, bar drinks, and juices to populate the live point-of-sale terminal.
+              </p>
+              <button
+                type="button"
+                onClick={handleOpenNewCatalogItem}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs rounded-md shadow-xs cursor-pointer transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Add Your First Menu Item
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-stone-100 text-stone-700 border-b border-stone-200">
+                    <th className="p-3 font-bold">Item Name</th>
+                    <th className="p-3 font-bold">Category</th>
+                    <th className="p-3 font-bold text-right">Standard Rate (Ksh)</th>
+                    <th className="p-3 font-bold">Tax Applicability</th>
+                    <th className="p-3 font-bold">Status</th>
+                    <th className="p-3 font-bold text-center">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-stone-200">
+                  {posCatalog.map((item) => (
+                    <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                      <td className="p-3 font-bold text-stone-900">{item.name}</td>
+                      <td className="p-3 text-stone-600">
+                        <span className="bg-stone-100 border border-stone-200 px-2 py-0.5 rounded text-[11px] font-medium text-stone-700">
+                          {item.category}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-amber-700">
+                        Ksh {(item.unitRate || item.price || 0).toLocaleString()}
+                      </td>
+                      <td className="p-3 text-stone-600">
+                        {item.taxApplicable !== false ? '16% VAT Included' : 'Tax Exempt'}
+                      </td>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            item.available !== false
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {item.available !== false ? 'Active' : 'Unavailable'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditCatalogItem(item)}
+                            className="p-1 text-stone-600 hover:text-amber-700 rounded hover:bg-stone-100 transition-colors cursor-pointer"
+                            title="Edit Item"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCatalogItem(item.id)}
+                            className="p-1 text-stone-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Remove Item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

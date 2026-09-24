@@ -27,6 +27,7 @@ import {
   ChevronDown,
   Columns,
   Rows,
+  MessageSquare,
 } from 'lucide-react';
 import { BillingDocument, DocumentType, LineItem, Client, HotelProfile, CatalogueItem } from '../types';
 import { ClientModal } from './ClientModal';
@@ -51,7 +52,7 @@ import {
   roundToTwoDecimals,
   DEFAULT_KENYAN_VAT_RATE,
 } from '../utils/financial';
-import { generatePdfFromElement, shareDocumentPdf, validatePdfBlob } from '../utils/pdfGenerator';
+import { generatePdfFromElement, shareDocumentPdf, validatePdfBlob, getWhatsAppShareUrl } from '../utils/pdfGenerator';
 import { dbService } from '../services/db';
 import { syncManager } from '../services/sync';
 import { localBackupService } from '../services/localBackupService';
@@ -129,25 +130,35 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     return fullNumber.replace(/^(QT-|Q-|PI-|INV-)/, '');
   };
 
+  // Recover uncommitted draft from localStorage if creating a new document
+  const savedDraft = useMemo(() => {
+    if (initialDocument || typeof window === 'undefined' || !window.localStorage) return null;
+    try {
+      const raw = localStorage.getItem('damview_draft_document_editor');
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return null;
+  }, [initialDocument]);
+
   const [numberSuffix, setNumberSuffix] = useState<string>(
-    parseInitialSuffix(initialDocument?.documentNumber, initialDocument?.documentType || defaultType)
+    savedDraft?.numberSuffix || parseInitialSuffix(initialDocument?.documentNumber, initialDocument?.documentType || defaultType)
   );
 
-  const [selectedClientId, setSelectedClientId] = useState(initialDocument?.clientId || '');
-  const [clientName, setClientName] = useState(initialDocument?.clientName || '');
-  const [clientKraPin, setClientKraPin] = useState(initialDocument?.clientKraPin || '');
-  const [clientAddress, setClientAddress] = useState(initialDocument?.clientAddress || '');
-  const [clientPhone, setClientPhone] = useState(initialDocument?.clientPhone || '');
-  const [clientEmail, setClientEmail] = useState(initialDocument?.clientEmail || '');
-  const [issueDate, setIssueDate] = useState(initialDocument?.issueDate || formatDate());
-  const [validityDays, setValidityDays] = useState(initialDocument?.validityDays || 14);
+  const [selectedClientId, setSelectedClientId] = useState(initialDocument?.clientId || savedDraft?.selectedClientId || '');
+  const [clientName, setClientName] = useState(initialDocument?.clientName || savedDraft?.clientName || '');
+  const [clientKraPin, setClientKraPin] = useState(initialDocument?.clientKraPin || savedDraft?.clientKraPin || '');
+  const [clientAddress, setClientAddress] = useState(initialDocument?.clientAddress || savedDraft?.clientAddress || '');
+  const [clientPhone, setClientPhone] = useState(initialDocument?.clientPhone || savedDraft?.clientPhone || '');
+  const [clientEmail, setClientEmail] = useState(initialDocument?.clientEmail || savedDraft?.clientEmail || '');
+  const [issueDate, setIssueDate] = useState(initialDocument?.issueDate || savedDraft?.issueDate || formatDate());
+  const [validityDays, setValidityDays] = useState(initialDocument?.validityDays || savedDraft?.validityDays || 14);
   const [dueDate, setDueDate] = useState(
-    initialDocument?.dueDate || calculateDueDate(initialDocument?.issueDate || formatDate(), 14)
+    initialDocument?.dueDate || savedDraft?.dueDate || calculateDueDate(initialDocument?.issueDate || formatDate(), 14)
   );
-  const [status, setStatus] = useState<BillingDocument['status']>(initialDocument?.status || 'Draft');
-  const [notes, setNotes] = useState(initialDocument?.notes || '');
-  const [terms, setTerms] = useState(initialDocument?.terms || '');
-  const [discount, setDiscount] = useState<number>(initialDocument?.discount || 0);
+  const [status, setStatus] = useState<BillingDocument['status']>(initialDocument?.status || savedDraft?.status || 'Draft');
+  const [notes, setNotes] = useState(initialDocument?.notes || savedDraft?.notes || '');
+  const [terms, setTerms] = useState(initialDocument?.terms || savedDraft?.terms || '');
+  const [discount, setDiscount] = useState<number>(initialDocument?.discount ?? (savedDraft?.discount ?? 0));
   const [relatedDocNumber, setRelatedDocNumber] = useState(initialDocument?.relatedDocNumber || '');
   const [relatedDocId, setRelatedDocId] = useState(initialDocument?.relatedDocId || '');
 
@@ -174,12 +185,11 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   // Scrolling Ref
   const formScrollRef = useRef<HTMLDivElement>(null);
 
-  // Spreadsheet Line Items: always begin with a clean blank slate when creating a new document
+  // Spreadsheet Line Items: restore draft or blank slate
   const [lineItems, setLineItems] = useState<LineItem[]>(
     initialDocument?.lineItems && initialDocument.lineItems.length > 0
       ? [
           ...initialDocument.lineItems,
-          // Add empty trailing row for quick continuation if the last row is filled
           ...(initialDocument.lineItems[initialDocument.lineItems.length - 1].particulars?.trim()
             ? [
                 {
@@ -194,18 +204,76 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               ]
             : []),
         ]
-      : [
-          {
-            id: 'li-1',
-            particulars: '',
-            quantity: 1,
-            days: 1,
-            rate: 0,
-            discount: 0,
-            amount: 0,
-          },
-        ]
+      : (savedDraft?.lineItems && savedDraft.lineItems.length > 0
+          ? savedDraft.lineItems
+          : [
+              {
+                id: 'li-1',
+                particulars: '',
+                quantity: 1,
+                days: 1,
+                rate: 0,
+                discount: 0,
+                amount: 0,
+              },
+            ])
   );
+
+  // Auto-sync draft document state to prevent data loss across refreshes
+  useEffect(() => {
+    if (!initialDocument && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const hasContent =
+          clientName.trim() ||
+          clientPhone.trim() ||
+          notes.trim() ||
+          lineItems.some((li) => li.particulars?.trim() || li.rate > 0);
+        if (hasContent) {
+          localStorage.setItem(
+            'damview_draft_document_editor',
+            JSON.stringify({
+              docType,
+              numberSuffix,
+              selectedClientId,
+              clientName,
+              clientKraPin,
+              clientAddress,
+              clientPhone,
+              clientEmail,
+              issueDate,
+              validityDays,
+              dueDate,
+              status,
+              notes,
+              terms,
+              discount,
+              lineItems,
+            })
+          );
+        } else {
+          localStorage.removeItem('damview_draft_document_editor');
+        }
+      } catch {}
+    }
+  }, [
+    initialDocument,
+    docType,
+    numberSuffix,
+    selectedClientId,
+    clientName,
+    clientKraPin,
+    clientAddress,
+    clientPhone,
+    clientEmail,
+    issueDate,
+    validityDays,
+    dueDate,
+    status,
+    notes,
+    terms,
+    discount,
+    lineItems,
+  ]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
@@ -731,6 +799,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
       // 2. Instant Local Journal Record (L1 Cache & IndexedDB in < 1ms)
       await dbService.saveDocument(docToPersist);
+      try {
+        localStorage.removeItem('damview_draft_document_editor');
+      } catch {}
       onSave(docToPersist);
 
       if (!silent) {
@@ -823,11 +894,14 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   //   Step 2: Once committed, immediately execute requested secondary action!
   // =========================================================================
 
+  // State for Auto-Firing action upon Modal Launch
+  const [modalAutoAction, setModalAutoAction] = useState<'NONE' | 'PRINT' | 'DOWNLOAD' | 'SHARE' | 'WHATSAPP'>('NONE');
+
   // Direct Trigger: Save & Record
   const handleSaveAndRecordDirect = async () => {
     const saved = await runSaveAndRecordPipeline(false);
     if (saved) {
-      // Automatically launch Full-Screen Live PDF Preview Modal!
+      setModalAutoAction('NONE');
       setShowFullPreviewModal(true);
     }
   };
@@ -836,15 +910,19 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const handleLivePreviewModalChained = async () => {
     const saved = await runSaveAndRecordPipeline(true);
     if (saved) {
+      setModalAutoAction('NONE');
       setShowFullPreviewModal(true);
     }
   };
 
-  // Chained Trigger: Download PDF
+  // Chained Trigger: Download PDF (Single-click Save -> Launch Modal -> Auto-fire Download)
   const handleDownloadPdfChained = async () => {
     const saved = await runSaveAndRecordPipeline(true);
     if (!saved) return;
-    const targetElement = a4PreviewRef.current;
+    setModalAutoAction('DOWNLOAD');
+    setShowFullPreviewModal(true);
+
+    const targetElement = modalA4PreviewRef.current || a4PreviewRef.current;
     if (!targetElement) return;
 
     setIsGeneratingPdf(true);
@@ -863,18 +941,24 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
-  // Chained Trigger: Direct Print
+  // Chained Trigger: Direct Print (Single-click Save -> Launch Modal -> Auto-fire Native Print Dialog)
   const handleDirectPrintChained = async () => {
     const saved = await runSaveAndRecordPipeline(true);
     if (!saved) return;
-    window.print();
+    setModalAutoAction('PRINT');
+    setShowFullPreviewModal(true);
+    setTimeout(() => {
+      window.print();
+    }, 350);
   };
 
-  // Chained Trigger: Web Share
+  // Chained Trigger: Web Share (Single-click Save -> Launch Modal -> Auto-fire Web Share API with attached PDF binary)
   const handleShareChained = async () => {
     const saved = await runSaveAndRecordPipeline(true);
     if (!saved) return;
-    const targetElement = a4PreviewRef.current;
+    setModalAutoAction('SHARE');
+    setShowFullPreviewModal(true);
+    const targetElement = modalA4PreviewRef.current || a4PreviewRef.current;
     if (!targetElement) return;
 
     setIsGeneratingPdf(true);
@@ -889,17 +973,29 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       const shared = await shareDocumentPdf(
         blob,
         fileName,
-        `${saved.documentType}: ${saved.documentNumber} - Hotel Damview`,
+        `${saved.documentType}: ${saved.documentNumber} - ${profile.name}`,
         `Please find attached ${saved.documentType} ${saved.documentNumber} for ${saved.clientName} amounting to ${formatKsh(saved.grandTotal)}.`
       );
       if (!shared) {
-        handleDownloadPdfChained();
+        // Fallback to WhatsApp link with Drive download URL
+        const waUrl = getWhatsAppShareUrl(saved, profile, saved.clientPhone, saved.driveFileUrl);
+        window.open(waUrl, '_blank', 'noopener,noreferrer');
       }
     } catch (err: any) {
       console.warn('Share error:', err);
     } finally {
       setIsGeneratingPdf(false);
     }
+  };
+
+  // Chained Trigger: Direct WhatsApp Dispatch (Single-click Save -> Launch Modal -> Auto-fire WhatsApp with summary + Drive URL)
+  const handleWhatsAppChained = async () => {
+    const saved = await runSaveAndRecordPipeline(true);
+    if (!saved) return;
+    setModalAutoAction('WHATSAPP');
+    setShowFullPreviewModal(true);
+    const waUrl = getWhatsAppShareUrl(saved, profile, saved.clientPhone, saved.driveFileUrl);
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
   };
 
   // Chained Trigger: Conversion Trigger (e.g. Quotation -> Proforma -> Invoice)
@@ -1034,10 +1130,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             onClick={handleLivePreviewModalChained}
             disabled={isSaving}
             className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-stone-300 text-stone-700 rounded bg-white hover:bg-stone-50 transition-colors shadow-2xs"
-            title="Saves & opens live full-screen A4 PDF preview modal"
+            title="Saves in background & opens live full-screen PDF preview modal"
           >
             <Eye className="w-3.5 h-3.5 text-amber-700" />
-            <span>Preview A4</span>
+            <span>Preview</span>
           </button>
 
           {/* Chained Trigger: Direct Print */}
@@ -1064,13 +1160,25 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
           </button>
 
+          {/* Chained Trigger: WhatsApp */}
+          <button
+            type="button"
+            onClick={handleWhatsAppChained}
+            disabled={isSaving}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-emerald-300 text-emerald-800 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer"
+            title="Saves & dispatches PDF summary directly via WhatsApp"
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+            <span className="hidden sm:inline">WhatsApp</span>
+          </button>
+
           {/* Chained Trigger: Share */}
           <button
             type="button"
             onClick={handleShareChained}
             disabled={isSaving || isGeneratingPdf}
             className="inline-flex items-center gap-1 text-xs px-2 py-1.5 border border-stone-300 text-stone-700 rounded bg-white hover:bg-stone-50 transition-colors"
-            title="Saves & triggers Web Share API"
+            title="Saves & triggers Web Share API with PDF attachment"
           >
             <Share2 className="w-3.5 h-3.5 text-stone-600" />
             <span className="hidden md:inline">Share</span>
@@ -1774,9 +1882,18 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={handleWhatsAppChained}
+                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
+                title="Send document summary and direct PDF link on WhatsApp"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-white" />
+                <span className="hidden sm:inline">WhatsApp</span>
+              </button>
+              <button
+                type="button"
                 onClick={handleDownloadPdfChained}
                 disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1 shadow-xs"
+                className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1 shadow-xs cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
@@ -1784,7 +1901,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               <button
                 type="button"
                 onClick={handleDirectPrintChained}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded flex items-center gap-1 border border-stone-200"
+                className="px-3 py-1.5 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded flex items-center gap-1 border border-stone-200 cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print</span>
@@ -1793,7 +1910,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 type="button"
                 onClick={handleShareChained}
                 disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-stone-50 text-stone-700 border border-stone-300 rounded flex items-center gap-1"
+                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-stone-50 text-stone-700 border border-stone-300 rounded flex items-center gap-1 cursor-pointer"
               >
                 <Share2 className="w-3.5 h-3.5" />
                 <span>Share</span>
@@ -1801,7 +1918,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               <button
                 type="button"
                 onClick={() => setShowFullPreviewModal(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 rounded hover:bg-stone-100"
+                className="p-1.5 text-stone-400 hover:text-stone-700 rounded hover:bg-stone-100 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>

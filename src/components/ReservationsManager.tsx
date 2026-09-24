@@ -21,9 +21,12 @@ import {
   AlertCircle,
   ArrowRight,
   Filter,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { Reservation, HotelProfile, Client, BillingDocument } from '../types';
 import { dbService } from '../services/db';
+import { exportTableToXlsx } from '../utils/excelExporter';
+import { formatDate } from '../utils/formatters';
 
 interface ReservationsManagerProps {
   profile: HotelProfile;
@@ -418,6 +421,57 @@ export const ReservationsManager: React.FC<ReservationsManagerProps> = ({
               Rooms & Spaces Catalog ({roomSpaces.length})
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={async () => {
+              if (reservations.length === 0) {
+                alert('No reservations to export.');
+                return;
+              }
+              const columns = [
+                { header: 'Folio #', key: 'folioNumber', type: 'code' as const, width: 14 },
+                { header: 'Guest Name', key: 'guestName', type: 'text' as const, width: 22 },
+                { header: 'Unit / Space', key: 'unitName', type: 'text' as const, width: 22 },
+                { header: 'Type', key: 'unitType', type: 'text' as const, width: 12 },
+                { header: 'Check-In', key: 'checkInDate', type: 'date' as const, width: 13 },
+                { header: 'Check-Out', key: 'checkOutDate', type: 'date' as const, width: 13 },
+                { header: 'Duration', key: 'nightsOrDays', type: 'number' as const, width: 12 },
+                { header: 'Total (Ksh)', key: 'totalAmount', type: 'currency' as const, width: 16 },
+                { header: 'Paid (Ksh)', key: 'amountPaid', type: 'currency' as const, width: 16 },
+                { header: 'Balance (Ksh)', key: 'balanceDue', type: 'currency' as const, width: 16 },
+                { header: 'Status', key: 'status', type: 'status' as const, width: 14 },
+              ];
+
+              const data = reservations.map((r) => ({
+                folioNumber: r.folioNumber,
+                guestName: r.guestName,
+                unitName: r.unitName,
+                unitType: r.unitType,
+                checkInDate: r.checkInDate,
+                checkOutDate: r.checkOutDate,
+                nightsOrDays: r.nightsOrDays,
+                totalAmount: r.totalAmount,
+                amountPaid: r.amountPaid || 0,
+                balanceDue: r.balanceDue || 0,
+                status: r.status,
+              }));
+
+              await exportTableToXlsx({
+                title: 'Reservations & Folios Schedule',
+                sheetName: 'Reservations_Ledger',
+                profile,
+                columns,
+                data,
+                filename: `HotelDamview_Reservations_${formatDate()}.xlsx`,
+              });
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-lg border border-stone-300 transition-colors cursor-pointer"
+            title="Export reservations register to formatted Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Export Excel (.xlsx)</span>
+          </button>
 
           <button
             type="button"

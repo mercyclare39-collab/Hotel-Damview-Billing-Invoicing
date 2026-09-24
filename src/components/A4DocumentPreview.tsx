@@ -60,7 +60,17 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
     };
 
     // Formatted phone & email line
-    const phoneEmail = `${profile.phone || '+25472524262'} | ${profile.email || 'hoteldamview@gmail.com'}`;
+    const contactParts = [profile.phone?.trim(), profile.email?.trim()].filter(Boolean);
+    const phoneEmail = contactParts.join(' | ');
+
+    // Credentials presence checks (Zero-placeholder discipline)
+    const hasBankName = Boolean(profile.bankName && profile.bankName.trim());
+    const hasAccountNo = Boolean(profile.accountNumber && profile.accountNumber.trim());
+    const hasBankBranch = Boolean(profile.bankBranch && profile.bankBranch.trim());
+    const hasAccountHolder = Boolean(profile.accountHolder && profile.accountHolder.trim());
+    const hasBankRemittance = hasBankName || hasAccountNo || hasBankBranch || hasAccountHolder;
+    const hasMpesa = Boolean(profile.mpesaTillNumber && profile.mpesaTillNumber.trim());
+    const hasPaymentSettlement = hasBankRemittance || hasMpesa;
 
     // Adaptive, content-based column width calculation:
     // 1. Item #: compact fixed width
@@ -145,13 +155,18 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                 >
                   {profile.name || 'HOTEL DAMVIEW'}
                 </h1>
+                {profile.tagline?.trim() && (
+                  <div className="text-[10pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
+                    {profile.tagline.trim()}
+                  </div>
+                )}
 
                 {/* Sub-details: Physical Location, Postal Address, Phone | Email, and KRA PIN */}
                 <div className="text-[11pt] text-stone-800 leading-snug space-y-0.5">
-                  <div>{profile.physicalLocation || 'MARIAKANI'}</div>
-                  <div>{profile.postalAddress || 'P.O. BOX 42491-80100, Mombasa, Kenya'}</div>
-                  <div>{phoneEmail}</div>
-                  <div className="font-semibold tracking-wider">KRA PIN: {profile.kraPin || 'P051453023Q'}</div>
+                  {profile.physicalLocation?.trim() && <div>{profile.physicalLocation.trim()}</div>}
+                  {profile.postalAddress?.trim() && <div>{profile.postalAddress.trim()}</div>}
+                  {phoneEmail && <div>{phoneEmail}</div>}
+                  {profile.kraPin?.trim() && <div className="font-semibold tracking-wider">KRA PIN: {profile.kraPin.trim()}</div>}
                 </div>
               </div>
             </div>
@@ -163,66 +178,86 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN METADATA GRID (Unified Structural Table Architecture) */}
-            <table className="document-table sync-meta-table mb-4 text-[11pt] w-full" style={{ tableLayout: 'fixed' }}>
-              <thead>
-                <tr className="bg-stone-100 border-b border-stone-800 text-stone-900">
-                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5 border-r border-stone-800">
-                    {clientBoxTitle}
-                  </th>
-                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5">
-                    DOCUMENT PARTICULARS
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e2e8f0]">
-                {/* Row 1: Client Name vs Document Number */}
-                <tr className="sync-row">
-                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
-                    Client Name:
-                  </td>
-                  <td className="w-[32%] font-bold text-stone-900 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
-                    {doc.clientName || 'Cash / Walk-In Customer'}
-                  </td>
-                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
-                    {isQuotation ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:'}
-                  </td>
-                  <td className="w-[32%] font-bold text-stone-950 py-1.5 px-2.5 align-top font-mono">
-                    {doc.documentNumber || 'DRAFT'}
-                  </td>
-                </tr>
-                {/* Row 2: KRA PIN vs Date */}
-                <tr className="sync-row">
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    KRA PIN:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top tracking-wider font-mono">
-                    {doc.clientKraPin || 'N/A'}
-                  </td>
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Date:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 align-top">
-                    {formatDate(doc.issueDate)}
-                  </td>
-                </tr>
-                {/* Row 3: Physical Address vs Due Date */}
-                <tr className="sync-row">
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Physical Address:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
-                    {doc.clientAddress || 'N/A'}
-                  </td>
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Due Date:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 align-top font-medium">
-                    {formatDate(doc.dueDate)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            {/* 3. PARALLEL TWO-COLUMN DETAILS TABLES (Separated by Gutter, Borderless Key-Value Pairs) */}
+            <div className="details-grid-container grid grid-cols-2 gap-4 mb-4 text-[11pt] w-full items-stretch">
+              {/* Left Table: Client Details */}
+              <div className="border border-stone-400 rounded overflow-hidden bg-white flex flex-col">
+                <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr className="bg-stone-100 border-b border-stone-400 text-stone-900">
+                      <th colSpan={2} className="text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-3">
+                        {clientBoxTitle}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-200">
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Client Name:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-bold text-stone-900 break-words align-middle">
+                        {doc.clientName || 'Cash / Walk-In Customer'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        KRA PIN:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-mono text-stone-800 tracking-wider align-middle">
+                        {doc.clientKraPin || 'N/A'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Physical Address:
+                      </td>
+                      <td className="py-1.5 px-3 text-right text-stone-800 break-words align-middle">
+                        {doc.clientAddress || 'N/A'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Right Table: Document Details */}
+              <div className="border border-stone-400 rounded overflow-hidden bg-white flex flex-col">
+                <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr className="bg-stone-100 border-b border-stone-400 text-stone-900">
+                      <th colSpan={2} className="text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-3">
+                        DOCUMENT DETAILS
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-200">
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        {isQuotation ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:'}
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-bold font-mono text-stone-950 align-middle">
+                        {doc.documentNumber || 'DRAFT'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Date:
+                      </td>
+                      <td className="py-1.5 px-3 text-right text-stone-800 align-middle">
+                        {formatDate(doc.issueDate)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Due Date:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-medium text-stone-800 align-middle">
+                        {formatDate(doc.dueDate)}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             {/* 4. TRANSACTION LINE-ITEM GRID: Adaptive Dynamic Column Widths */}
             <div className="mb-4 w-full">
@@ -331,107 +366,165 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
               </table>
             </div>
 
-            {/* 5. FINANCIAL SUMMARY & SETTLEMENT ACCOUNTS GRID (Unified Structural Layout) */}
+            {/* 5. HEADERLESS FINANCIAL SUMMARY & OPTIONAL SETTLEMENT BLOCK */}
             <div className="mb-4 w-full">
-              <table className="document-table text-[11pt] w-full" style={{ tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}>
-                <thead>
-                  <tr className="bg-stone-100 border-b border-stone-800 text-stone-900">
-                    <th className="w-[52%] text-left uppercase font-bold py-1.5 px-2.5 border-r border-stone-800 text-[10.5pt] tracking-wider">
-                      PAYMENT SETTLEMENT & BANK INSTRUCTIONS
-                    </th>
-                    <th className="w-[48%] text-left uppercase font-bold py-1.5 px-2.5 text-[10.5pt] tracking-wider">
-                      FINANCIAL SUMMARY & TAX BREAKDOWN
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="sync-row">
-                    <td className="p-2.5 border-r-2 border-stone-800 align-top bg-stone-50/30">
-                      <div className="text-[10pt] text-stone-800 leading-tight space-y-1">
-                        <div className="font-bold text-stone-900 border-b border-stone-200 pb-0.5 uppercase tracking-wide text-[9.5pt]">
-                          Bank Remittance Details
+              {hasPaymentSettlement ? (
+                <div className="flex items-start justify-between gap-4 w-full">
+                  {/* Left: Clean, headerless Settlement Instructions card */}
+                  <div className="flex-1 border border-stone-300 rounded p-2.5 bg-stone-50/40 text-[10pt] leading-tight space-y-1">
+                    {hasBankRemittance && (
+                      <>
+                        <div className="font-bold text-stone-900 border-b border-stone-200 pb-0.5 uppercase tracking-wider text-[9pt]">
+                          Bank Remittance Instructions
                         </div>
-                        <div className="grid grid-cols-2 gap-x-1">
-                          <span className="font-semibold text-stone-600">Bank:</span>
-                          <span className="font-medium text-stone-900 truncate">{profile.bankName || 'KCB Bank Kenya'}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-1">
-                          <span className="font-semibold text-stone-600">Branch:</span>
-                          <span className="text-stone-800 truncate">{profile.bankBranch || 'Machakos Branch'}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-1">
-                          <span className="font-semibold text-stone-600">Account Name:</span>
-                          <span className="font-medium text-stone-900 truncate">{profile.accountHolder || profile.name || 'Hotel Damview'}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-1">
-                          <span className="font-semibold text-stone-600">Account No:</span>
-                          <span className="font-mono font-bold text-stone-900">{profile.accountNumber || '1102983746'}</span>
-                        </div>
-                        {profile.mpesaTillNumber && (
-                          <div className="grid grid-cols-2 gap-x-1 pt-1 border-t border-stone-200/80">
-                            <span className="font-semibold text-emerald-800">M-Pesa Buy Goods Till:</span>
-                            <span className="font-mono font-bold text-emerald-900">{profile.mpesaTillNumber}</span>
+                        {hasBankName && (
+                          <div className="grid grid-cols-2 gap-x-1">
+                            <span className="font-semibold text-stone-600">Bank:</span>
+                            <span className="font-medium text-stone-900 truncate">{profile.bankName.trim()}</span>
                           </div>
                         )}
+                        {hasBankBranch && (
+                          <div className="grid grid-cols-2 gap-x-1">
+                            <span className="font-semibold text-stone-600">Branch:</span>
+                            <span className="text-stone-800 truncate">{profile.bankBranch.trim()}</span>
+                          </div>
+                        )}
+                        {hasAccountHolder && (
+                          <div className="grid grid-cols-2 gap-x-1">
+                            <span className="font-semibold text-stone-600">Account Name:</span>
+                            <span className="font-medium text-stone-900 truncate">{profile.accountHolder.trim()}</span>
+                          </div>
+                        )}
+                        {hasAccountNo && (
+                          <div className="grid grid-cols-2 gap-x-1">
+                            <span className="font-semibold text-stone-600">Account No:</span>
+                            <span className="font-mono font-bold text-stone-900">{profile.accountNumber.trim()}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {hasMpesa && (
+                      <div className={`grid grid-cols-2 gap-x-1 ${hasBankRemittance ? 'pt-1 border-t border-stone-200/80' : ''}`}>
+                        <span className="font-semibold text-emerald-800">M-Pesa Buy Goods Till:</span>
+                        <span className="font-mono font-bold text-emerald-900">{profile.mpesaTillNumber.trim()}</span>
                       </div>
-                    </td>
-                    <td className="p-0 align-top">
-                      <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
-                        <tbody className="divide-y divide-[#e2e8f0]">
-                          {/* Dedicated Discount row with distinct italic typography */}
-                          {docDiscount > 0 && (
-                            <tr className="bg-emerald-50/30">
-                              <td className="px-2.5 py-1 font-semibold text-emerald-800 italic">Discount:</td>
-                              <td className="px-2.5 py-1 text-right text-emerald-700 font-semibold">
-                                {renderAlignedCurrency(-docDiscount)}
+                    )}
+                  </div>
+
+                  {/* Right: Headerless Financial Summary */}
+                  <div className="w-[48%] min-w-[310px] max-w-[380px]">
+                    <table className="financial-summary-table border border-stone-300 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
+                      <tbody>
+                        {docDiscount > 0 && (
+                          <tr className="financial-summary-row-intermediate">
+                            <td className="px-3 py-1 label-cell text-stone-600 font-normal">Discount:</td>
+                            <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-700">
+                              {formatKsh(-docDiscount)}
+                            </td>
+                          </tr>
+                        )}
+
+                        <tr className="financial-summary-row-intermediate">
+                          <td className="px-3 py-1 label-cell text-stone-600 font-normal">Subtotal:</td>
+                          <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-800">
+                            {formatKsh(doc.subtotal)}
+                          </td>
+                        </tr>
+
+                        <tr className="financial-summary-row-intermediate">
+                          <td className="px-3 py-1 label-cell text-stone-600 font-normal">
+                            VAT ({profile.vatRate || 16}%):
+                          </td>
+                          <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-800">
+                            {formatKsh(doc.vatAmount)}
+                          </td>
+                        </tr>
+
+                        <tr className={isQuotation ? "financial-summary-row-balance" : "financial-summary-row-total"}>
+                          <td className="px-3 py-1.5 label-cell text-stone-950 font-bold">Grand Total:</td>
+                          <td className="px-3 py-1.5 value-cell tabular-nums font-bold text-stone-950">
+                            {formatKsh(doc.grandTotal)}
+                          </td>
+                        </tr>
+
+                        {(isInvoice || isProforma) && (
+                          <>
+                            <tr className="financial-summary-row-intermediate">
+                              <td className="px-3 py-1 label-cell text-stone-600 font-normal">Paid / Credited:</td>
+                              <td className="px-3 py-1 value-cell tabular-nums font-normal text-emerald-800">
+                                {formatKsh(doc.amountPaid || 0)}
                               </td>
                             </tr>
-                          )}
-
-                          <tr>
-                            <td className="px-2.5 py-1 text-stone-600 font-medium">Subtotal:</td>
-                            <td className="px-2.5 py-1 text-right text-stone-700 font-medium">
-                              {renderAlignedCurrency(doc.subtotal)}
+                            <tr className="financial-summary-row-balance">
+                              <td className="px-3 py-1.5 label-cell text-stone-950 font-bold">Balance Due:</td>
+                              <td className="px-3 py-1.5 value-cell tabular-nums font-bold text-rose-950">
+                                {formatKsh(doc.balanceDue !== undefined ? doc.balanceDue : doc.grandTotal)}
+                              </td>
+                            </tr>
+                          </>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-end w-full">
+                  <div className="w-[50%] min-w-[320px] max-w-[380px]">
+                    <table className="financial-summary-table border border-stone-300 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
+                      <tbody>
+                        {docDiscount > 0 && (
+                          <tr className="financial-summary-row-intermediate">
+                            <td className="px-3 py-1 label-cell text-stone-600 font-normal">Discount:</td>
+                            <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-700">
+                              {formatKsh(-docDiscount)}
                             </td>
                           </tr>
+                        )}
 
-                          <tr>
-                            <td className="px-2.5 py-1 text-stone-600 font-medium uppercase tracking-wide">
-                              VAT ({profile.vatRate || 16}%):
-                            </td>
-                            <td className="px-2.5 py-1 text-right text-stone-600 font-normal">
-                              {renderAlignedCurrency(doc.vatAmount)}
-                            </td>
-                          </tr>
-                          <tr className="bg-[#f1f5f9] text-[12.5pt] font-extrabold" style={{ borderTop: '1px solid #cbd5e1' }}>
-                            <td className="px-2.5 py-1.5 text-stone-950 font-bold uppercase tracking-tight">Grand Total:</td>
-                            <td className="px-2.5 py-1.5 text-right text-stone-950 font-black">
-                              {renderAlignedCurrency(doc.grandTotal, true)}
-                            </td>
-                          </tr>
+                        <tr className="financial-summary-row-intermediate">
+                          <td className="px-3 py-1 label-cell text-stone-600 font-normal">Subtotal:</td>
+                          <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-800">
+                            {formatKsh(doc.subtotal)}
+                          </td>
+                        </tr>
 
-                          {(isInvoice || isProforma) && (
-                            <>
-                              <tr className="bg-stone-50/40">
-                                <td className="px-2.5 py-1 text-emerald-800 font-medium">Amount Settled:</td>
-                                <td className="px-2.5 py-1 text-right text-emerald-700 font-semibold">
-                                  {renderAlignedCurrency(doc.amountPaid || 0)}
-                                </td>
-                              </tr>
-                              <tr className="bg-rose-50/70 text-[12pt]">
-                                <td className="px-2.5 py-1.5 text-rose-950 font-bold uppercase tracking-tight">Balance Due:</td>
-                                <td className="px-2.5 py-1.5 text-right text-rose-900 font-black">
-                                  {renderAlignedCurrency(doc.balanceDue !== undefined ? doc.balanceDue : doc.grandTotal, true)}
-                                </td>
-                              </tr>
-                            </>
-                          )}
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                        <tr className="financial-summary-row-intermediate">
+                          <td className="px-3 py-1 label-cell text-stone-600 font-normal">
+                            VAT ({profile.vatRate || 16}%):
+                          </td>
+                          <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-800">
+                            {formatKsh(doc.vatAmount)}
+                          </td>
+                        </tr>
+
+                        <tr className={isQuotation ? "financial-summary-row-balance" : "financial-summary-row-total"}>
+                          <td className="px-3 py-1.5 label-cell text-stone-950 font-bold">Grand Total:</td>
+                          <td className="px-3 py-1.5 value-cell tabular-nums font-bold text-stone-950">
+                            {formatKsh(doc.grandTotal)}
+                          </td>
+                        </tr>
+
+                        {(isInvoice || isProforma) && (
+                          <>
+                            <tr className="financial-summary-row-intermediate">
+                              <td className="px-3 py-1 label-cell text-stone-600 font-normal">Paid / Credited:</td>
+                              <td className="px-3 py-1 value-cell tabular-nums font-normal text-emerald-800">
+                                {formatKsh(doc.amountPaid || 0)}
+                              </td>
+                            </tr>
+                            <tr className="financial-summary-row-balance">
+                              <td className="px-3 py-1.5 label-cell text-stone-950 font-bold">Balance Due:</td>
+                              <td className="px-3 py-1.5 value-cell tabular-nums font-bold text-rose-950">
+                                {formatKsh(doc.balanceDue !== undefined ? doc.balanceDue : doc.grandTotal)}
+                              </td>
+                            </tr>
+                          </>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

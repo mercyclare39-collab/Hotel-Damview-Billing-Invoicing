@@ -134,23 +134,73 @@ export interface StatementRecord {
   updatedAt?: string;
 }
 
+export type SyncEntityType =
+  | 'DOCUMENT'
+  | 'CLIENT'
+  | 'PAYMENT'
+  | 'RESERVATION'
+  | 'POS_ORDER'
+  | 'EXPENSE'
+  | 'CATALOGUE'
+  | 'PROFILE';
+
+export type SyncActionType =
+  | 'UPSERT'
+  | 'CASCADE_DELETE'
+  | 'ARCHIVE_PDF'
+  | 'UPSERT_CLIENT'
+  | 'UPSERT_DOCUMENT'
+  | 'RECORD_PAYMENT'
+  | 'ARCHIVE_STATEMENT_PDF'
+  | 'CASCADE_DELETE_DOCUMENT'
+  | 'CASCADE_DELETE_CLIENT'
+  | 'CASCADE_DELETE_PAYMENT'
+  | 'UPSERT_PROFILE';
+
+export type SyncItemStatus =
+  | 'PENDING'
+  | 'SYNCING'
+  | 'FAILED'
+  | 'COMPLETED'
+  | 'pending'
+  | 'syncing'
+  | 'failed';
+
 export interface SyncQueueItem {
-  id: string;
-  action:
-    | 'UPSERT_CLIENT'
-    | 'UPSERT_DOCUMENT'
-    | 'RECORD_PAYMENT'
-    | 'ARCHIVE_PDF'
-    | 'ARCHIVE_STATEMENT_PDF'
-    | 'CASCADE_DELETE_DOCUMENT'
-    | 'CASCADE_DELETE_CLIENT'
-    | 'CASCADE_DELETE_PAYMENT'
-    | 'UPSERT_PROFILE';
+  id?: number | string; // Auto-increment integer primary key (or string)
+  entityType?: SyncEntityType;
+  entityId?: string;
+  action: SyncActionType | string;
   payload: any;
-  timestamp: string;
-  retryCount: number;
-  status: 'pending' | 'syncing' | 'failed';
-  errorMessage?: string;
+  status?: SyncItemStatus;
+  retryCount?: number;
+  lastError?: string | null;
+  errorMessage?: string; // Backward compatibility alias
+  createdAt?: string; // ISO 8601 string
+  updatedAt?: string; // ISO 8601 string
+  timestamp?: string; // Backward compatibility alias
+  nextRetryAt?: number; // Milliseconds timestamp for exponential backoff scheduling
+}
+
+export type SyncHumanStatus =
+  | 'All Changes Saved Locally'
+  | 'Syncing'
+  | 'Cloud Synced'
+  | 'Offline - Queued'
+  | 'Offline - Local Secure'
+  | 'Sync Paused - Retrying';
+
+export interface SyncTelemetry {
+  isOnline: boolean;
+  isSyncing: boolean;
+  pendingCount: number;
+  syncingCount: number;
+  failedCount: number;
+  totalQueuedCount: number;
+  lastSyncTimestamp: string | null;
+  lastError: string | null;
+  statusText: string;
+  humanStatus: SyncHumanStatus;
 }
 
 export interface DashboardMetrics {

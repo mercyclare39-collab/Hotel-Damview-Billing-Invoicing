@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hotel Damview Management Suite</title>
+    <script>
+      // Single Page Apps for GitHub Pages & Static Hosts
+      // MIT License
+      // https://github.com/rafgraph/spa-github-pages
+      // This script takes the current url and converts the path and query
+      // string into just a query string, and then redirects the browser
+      // to the new url with only a query string and hash fragment
+      var pathSegmentsToKeep = 1; // For repo path: /Hotel-Damview-Billing-Invoicing/
+
+      var l = window.location;
+      var repoBase = '/Hotel-Damview-Billing-Invoicing/';
+      
+      // If we are at the repo root or subpath
+      var path = l.pathname;
+      if (path.indexOf(repoBase) === 0) {
+        path = path.slice(repoBase.length - 1);
+      }
+
+      l.replace(
+        l.protocol +
+          '//' +
+          l.hostname +
+          (l.port ? ':' + l.port : '') +
+          repoBase +
+          '?p=/' +
+          l.pathname
+            .slice(1)
+            .split('/')
+            .slice(pathSegmentsToKeep)
+            .join('/')
+            .replace(/&/g, '~and~') +
+          (l.search ? '&q=' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+          l.hash
+      );
+    </script>
+  </head>
+  <body>
+    <p>Redirecting to Hotel Damview Management Suite...</p>
+  </body>
+</html>

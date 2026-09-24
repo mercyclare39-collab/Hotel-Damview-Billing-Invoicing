@@ -4,8 +4,11 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  const basePath = process.env.VITE_BASE_PATH || './';
+  const pwaScope = process.env.VITE_BASE_PATH || '/';
+
   return {
-    base: '/Hotel-Damview-Billing-Invoicing/',
+    base: basePath,
     plugins: [
       react(),
       tailwindcss(),
@@ -20,7 +23,7 @@ export default defineConfig(() => {
           'pwa-maskable-512x512.png',
         ],
         manifest: {
-          id: '/Hotel-Damview-Billing-Invoicing/',
+          id: pwaScope,
           name: 'Hotel Damview Billing & Invoicing Suite',
           short_name: 'Damview ERP',
           description:
@@ -29,8 +32,8 @@ export default defineConfig(() => {
           background_color: '#1c1917',
           display: 'standalone',
           orientation: 'any',
-          start_url: '/Hotel-Damview-Billing-Invoicing/',
-          scope: '/Hotel-Damview-Billing-Invoicing/',
+          start_url: pwaScope,
+          scope: pwaScope,
           icons: [
             {
               src: 'pwa-192x192.png',

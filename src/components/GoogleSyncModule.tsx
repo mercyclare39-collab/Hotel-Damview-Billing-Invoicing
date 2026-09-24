@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BillingDocument,
   Client,
@@ -14,7 +14,10 @@ import {
   DiscoveredTab,
   SyncVerificationResult,
 } from '../services/sync';
-import { GOOGLE_APPS_SCRIPT_CODE } from '../services/googleScriptCode';
+import {
+  GOOGLE_APPS_SCRIPT_VERSION,
+  GOOGLE_APPS_SCRIPT_CODE,
+} from '../services/googleScriptCode';
 import {
   FileSpreadsheet,
   CheckCircle2,
@@ -26,8 +29,6 @@ import {
   Trash2,
   Copy,
   Check,
-  Code,
-  ShieldCheck,
   Search,
   Wifi,
   WifiOff,
@@ -41,15 +42,14 @@ import {
   Sparkles,
   Info,
   FolderOpen,
-  Settings,
   Link,
-  Save,
   History,
   Eye,
   X,
 } from 'lucide-react';
 import { A4DocumentPreview } from './A4DocumentPreview';
 import { A4ReceiptPreview } from './A4ReceiptPreview';
+import { SyncTelemetryBadge } from './SyncTelemetryBadge';
 
 interface GoogleSyncModuleProps {
   profile?: HotelProfile;
@@ -88,9 +88,24 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
   }, [propIsOnline]);
 
   // Active sub-tab
-  const [activeTab, setActiveTab] = useState<
-    'LiveSheets' | 'Queue' | 'Audit' | 'Config' | 'Script'
-  >('LiveSheets');
+  const [activeTab, setActiveTabState] = useState<
+    'LiveSheets' | 'Queue' | 'Audit'
+  >(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = localStorage.getItem('damview_googlesync_active_tab') as any;
+      if (saved && ['LiveSheets', 'Queue', 'Audit'].includes(saved)) {
+        return saved;
+      }
+    }
+    return 'LiveSheets';
+  });
+
+  const setActiveTab = (tab: 'LiveSheets' | 'Queue' | 'Audit') => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('damview_googlesync_active_tab', tab);
+    } catch {}
+  };
 
   // Google Drive File Browser & Previewer state
   const [driveFilterType, setDriveFilterType] = useState<'ALL' | 'INVOICE' | 'QUOTATION' | 'PROFORMA' | 'RECEIPT'>('ALL');
@@ -117,78 +132,15 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
   const [verificationResult, setVerificationResult] = useState<SyncVerificationResult | null>(null);
   const [isRunningE2ETest, setIsRunningE2ETest] = useState(false);
 
-  // Config local form state & dirty tracking
-  const [configForm, setConfigForm] = useState<{
-    googleWebAppUrl: string;
-    googleSheetUrl: string;
-    googleDriveFolderUrl: string;
-    googleDriveFolder: string;
-    googleSheetEmbedUrl: string;
-    autoSyncEnabled: boolean;
-  }>({
-    googleWebAppUrl: initialProfile?.googleWebAppUrl || '',
-    googleSheetUrl: initialProfile?.googleSheetUrl || '',
-    googleDriveFolderUrl: initialProfile?.googleDriveFolderUrl || '',
-    googleDriveFolder: initialProfile?.googleDriveFolder || 'Hotel Damview Archives',
-    googleSheetEmbedUrl: initialProfile?.googleSheetEmbedUrl || '',
-    autoSyncEnabled: initialProfile?.autoSyncEnabled !== false,
-  });
-
-  const isFormDirtyRef = useRef(false);
-  const [isFormDirty, setIsFormDirty] = useState(false);
-  const isInitializedRef = useRef(false);
-
-  // Sync profile to configForm ONLY on initial load or when not dirty
-  useEffect(() => {
-    if (profile && (!isInitializedRef.current || !isFormDirtyRef.current)) {
-      setConfigForm({
-        googleWebAppUrl: profile.googleWebAppUrl || '',
-        googleSheetUrl: profile.googleSheetUrl || '',
-        googleDriveFolderUrl: profile.googleDriveFolderUrl || '',
-        googleDriveFolder: profile.googleDriveFolder || 'Hotel Damview Archives',
-        googleSheetEmbedUrl: profile.googleSheetEmbedUrl || '',
-        autoSyncEnabled: profile.autoSyncEnabled !== false,
-      });
-      isInitializedRef.current = true;
-    }
-  }, [profile]);
-
-  const updateConfigField = (field: keyof typeof configForm, value: any) => {
-    isFormDirtyRef.current = true;
-    setIsFormDirty(true);
-    setConfigForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleSaveConfig = async () => {
-    try {
-      await dbService.saveHotelProfile(configForm);
-      const updated = await dbService.getHotelProfile();
-      setProfile(updated);
-      isFormDirtyRef.current = false;
-      setIsFormDirty(false);
-      if (onUpdateProfile) {
-        await onUpdateProfile(updated);
-      }
-      setSyncFeedback({
-        type: 'success',
-        message: 'Headless Webhook credentials & URLs saved successfully.',
-        timestamp: new Date().toLocaleTimeString(),
-      });
-    } catch (err: any) {
-      setSyncFeedback({
-        type: 'error',
-        message: err.message || 'Failed to save configuration.',
-        timestamp: new Date().toLocaleTimeString(),
-      });
-    }
-  };
-
   // Search filter inside tables
   const [searchTerm, setSearchTerm] = useState('');
 
   // Sync operations state
   const [isSyncing, setIsSyncing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  const [detectedScriptVersion, setDetectedScriptVersion] = useState<string | null>(null);
+  const [showVersionMismatchAlert, setShowVersionMismatchAlert] = useState<boolean>(false);
+  const [isCopiedGSCode, setIsCopiedGSCode] = useState<boolean>(false);
   const [isUploadingTestPdf, setIsUploadingTestPdf] = useState(false);
   const [testPdfResult, setTestPdfResult] = useState<{
     success?: boolean;
@@ -214,6 +166,12 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
   const [liveSheetFilter, setLiveSheetFilter] = useState('');
   const [showEmbeddedIframe, setShowEmbeddedIframe] = useState(false);
 
+  // Auto Refresh State for Live Google Spreadsheet & Drive Live Preview
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(true);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(15); // seconds
+  const [autoRefreshCountdown, setAutoRefreshCountdown] = useState<number>(15);
+  const [iframeCacheBuster, setIframeCacheBuster] = useState<number>(Date.now());
+
   // Live Worksheet Entry Deletion State
   const [liveEntryToDelete, setLiveEntryToDelete] = useState<{
     tabName: string;
@@ -227,9 +185,6 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     recNum?: string;
   } | null>(null);
   const [isDeletingLiveEntry, setIsDeletingLiveEntry] = useState(false);
-
-  // Script copy state
-  const [copiedScript, setCopiedScript] = useState(false);
 
   // Cascade delete modal state
   const [itemToDelete, setItemToDelete] = useState<{
@@ -273,23 +228,48 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     const unsubscribeSync = syncManager.subscribe((syncState) => {
       setIsOnline(syncState.isOnline);
       setIsSyncing(syncState.isSyncing);
+      // Auto-refresh when background sync completes
+      if (!syncState.isSyncing) {
+        loadData();
+      }
     });
 
-    // Listen for remote real-time data changes
+    // Listen for remote real-time data changes, sync completions, and renumbering notices
     const handleDataChanged = () => {
       loadData();
-      if (activeTab === 'LiveSheets') {
-        loadLiveSheetData();
-      }
+      loadLiveSheetData();
+      setIframeCacheBuster(Date.now());
     };
 
     window.addEventListener('damview:data-changed', handleDataChanged);
+    window.addEventListener('damview-sync-completed', handleDataChanged);
+    window.addEventListener('damview-renumbered', handleDataChanged);
 
     return () => {
       unsubscribeSync();
       window.removeEventListener('damview:data-changed', handleDataChanged);
+      window.removeEventListener('damview-sync-completed', handleDataChanged);
+      window.removeEventListener('damview-renumbered', handleDataChanged);
     };
-  }, [loadData, activeTab]);
+  }, [loadData]);
+
+  // Automated live spreadsheet & Drive live preview auto-refresh interval effect
+  useEffect(() => {
+    if (!autoRefreshEnabled || !isOnline) return;
+
+    const timer = setInterval(() => {
+      setAutoRefreshCountdown((prev) => {
+        if (prev <= 1) {
+          loadLiveSheetData();
+          setIframeCacheBuster(Date.now());
+          return autoRefreshInterval;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [autoRefreshEnabled, autoRefreshInterval, isOnline]);
 
   // Filtered documents by type
   const invoices = useMemo(
@@ -459,22 +439,41 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
   // 2. Trigger Connection Test
   const handleTestConnection = async () => {
-    const targetUrl = configForm.googleWebAppUrl || profile?.googleWebAppUrl;
+    const targetUrl = profile?.googleWebAppUrl;
     if (!targetUrl) {
       setSyncFeedback({
         type: 'error',
-        message: 'No Google Apps Script Web App URL configured. Please set it in Configuration or Hotel Settings.',
+        message: 'No Google Apps Script Web App URL configured. Please set it in Hotel Settings.',
         timestamp: new Date().toLocaleTimeString(),
       });
       return;
     }
 
     setIsTesting(true);
+    setDetectedScriptVersion(null);
+    setShowVersionMismatchAlert(false);
+
     try {
       const result = await syncManager.testConnection(targetUrl);
-      if (result.ok && result.sheetUrl) {
-        updateConfigField('googleSheetUrl', result.sheetUrl);
+      if (result.ok && result.sheetUrl && profile && onUpdateProfile) {
+        onUpdateProfile({ ...profile, googleSheetUrl: result.sheetUrl });
       }
+
+      // Try to detect version from the returned message (e.g. "v4.4.0" or "v4.7.0")
+      const versionMatch = result.message.match(/v\d+\.\d+\.\d+/);
+      const detectedVer = versionMatch ? versionMatch[0] : null;
+      
+      if (detectedVer) {
+        setDetectedScriptVersion(detectedVer);
+        if (detectedVer !== GOOGLE_APPS_SCRIPT_VERSION) {
+          setShowVersionMismatchAlert(true);
+        }
+      } else {
+        // Assume older version if no version string matches vX.X.X
+        setDetectedScriptVersion('Legacy / Pre-v4.7.0');
+        setShowVersionMismatchAlert(true);
+      }
+
       setSyncFeedback({
         type: result.ok ? 'success' : 'error',
         message: result.message,
@@ -487,11 +486,11 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
   // 2b. Trigger Test PDF Upload to Google Drive
   const handleUploadTestPdf = async () => {
-    const targetUrl = configForm.googleWebAppUrl || profile?.googleWebAppUrl;
+    const targetUrl = profile?.googleWebAppUrl;
     if (!targetUrl) {
       setSyncFeedback({
         type: 'error',
-        message: 'No Google Apps Script Web App URL configured. Please set it in Configuration or Hotel Settings.',
+        message: 'No Google Apps Script Web App URL configured. Please set it in Hotel Settings.',
         timestamp: new Date().toLocaleTimeString(),
       });
       return;
@@ -501,7 +500,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     setTestPdfResult(null);
     try {
       const res = await syncManager.uploadTestPdfToDrive({
-        folderName: configForm.googleDriveFolder || profile?.googleDriveFolder,
+        folderName: profile?.googleDriveFolder || 'Hotel Damview Archives',
       });
 
       if (res.success) {
@@ -590,7 +589,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     }
   };
 
-  // 4. Trigger Automatic Generation of All 11 ERP Tabs in Google Sheets
+  // 4. Trigger Auto Generation of All Module Tabs and Deduplication in Google Sheets
   const [isGeneratingTabs, setIsGeneratingTabs] = useState(false);
   const handleGenerateAllTabs = async () => {
     if (!isOnline || !profile?.googleWebAppUrl) {
@@ -604,11 +603,12 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
     setIsGeneratingTabs(true);
     try {
-      const res = await syncManager.generateAllSheetTabs();
+      const res = await syncManager.autoGenerateTabs();
       if (res.success) {
+        const purgedNote = res.purgedCount ? ` (${res.purgedCount} duplicate/obsolete tab(s) purged)` : '';
         setSyncFeedback({
           type: 'success',
-          message: 'Successfully generated and structured all 11 ERP worksheet tabs in your Google Spreadsheet.',
+          message: `Successfully auto-generated all ERP module tabs and deduplicated your Google Spreadsheet.${purgedNote}`,
           timestamp: new Date().toLocaleTimeString(),
         });
         await loadLiveSheetData();
@@ -905,15 +905,98 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     }
   };
 
+  // Auto-hydrated default canonical tabs ensuring container is NEVER empty or uninitialized upon mount
+  const effectiveDiscoveredTabs = useMemo<DiscoveredTab[]>(() => {
+    if (liveSheetData?.discoveredTabs && liveSheetData.discoveredTabs.length > 0) {
+      return liveSheetData.discoveredTabs;
+    }
+    return [
+      {
+        name: 'Invoices',
+        rowCount: invoices.length,
+        headers: ['Document #', 'Date', 'Client Name', 'PIN', 'Grand Total (Ksh)', 'Paid (Ksh)', 'Balance (Ksh)', 'Status', 'Drive PDF'],
+        rows: invoices.map((d) => [
+          d.documentNumber,
+          d.issueDate,
+          d.clientName,
+          d.clientKraPin || '—',
+          d.grandTotal.toLocaleString(),
+          (d.amountPaid || 0).toLocaleString(),
+          d.balanceDue.toLocaleString(),
+          d.status,
+          d.driveFileUrl || 'Local ERP Mirror',
+        ]),
+      },
+      {
+        name: 'Quotations',
+        rowCount: quotations.length,
+        headers: ['Document #', 'Date', 'Client Name', 'Grand Total (Ksh)', 'Status', 'Drive PDF'],
+        rows: quotations.map((d) => [
+          d.documentNumber,
+          d.issueDate,
+          d.clientName,
+          d.grandTotal.toLocaleString(),
+          d.status,
+          d.driveFileUrl || 'Local ERP Mirror',
+        ]),
+      },
+      {
+        name: 'Proformas',
+        rowCount: proformas.length,
+        headers: ['Document #', 'Date', 'Client Name', 'Grand Total (Ksh)', 'Status', 'Drive PDF'],
+        rows: proformas.map((d) => [
+          d.documentNumber,
+          d.issueDate,
+          d.clientName,
+          d.grandTotal.toLocaleString(),
+          d.status,
+          d.driveFileUrl || 'Local ERP Mirror',
+        ]),
+      },
+      {
+        name: 'Receipts',
+        rowCount: payments.length,
+        headers: ['Receipt #', 'Date', 'Client Name', 'Doc Ref', 'Mode', 'Amount (Ksh)', 'Drive PDF'],
+        rows: payments.map((p) => [
+          p.receiptNumber,
+          p.date,
+          p.clientName,
+          p.documentNumber,
+          p.paymentMode,
+          p.amount.toLocaleString(),
+          p.driveFileUrl || 'Local ERP Mirror',
+        ]),
+      },
+      {
+        name: 'Clients',
+        rowCount: clients.length,
+        headers: ['Client ID', 'Name', 'Phone', 'Email', 'KRA PIN', 'Address'],
+        rows: clients.map((c) => [c.id, c.name, c.phone, c.email || '—', c.kraPin || '—', c.address || '—']),
+      },
+      {
+        name: 'Audit_Log',
+        rowCount: auditLogs.length,
+        headers: ['Timestamp', 'Entity', 'Action', 'Target ID', 'Details'],
+        rows: auditLogs.slice(0, 50).map((a) => [
+          new Date(a.timestamp).toLocaleString(),
+          a.entityType,
+          a.action,
+          a.entityId,
+          a.details,
+        ]),
+      },
+    ];
+  }, [liveSheetData, invoices, quotations, proformas, payments, clients, auditLogs]);
+
   // Live Sheet active tab columns and rows
   const activeDiscoveredSheet = useMemo<DiscoveredTab | null>(() => {
-    if (!liveSheetData || !liveSheetData.discoveredTabs) return null;
+    if (!effectiveDiscoveredTabs || effectiveDiscoveredTabs.length === 0) return null;
     return (
-      liveSheetData.discoveredTabs.find((t) => t.name === selectedDiscoveredTab) ||
-      liveSheetData.discoveredTabs[0] ||
+      effectiveDiscoveredTabs.find((t) => t.name === selectedDiscoveredTab) ||
+      effectiveDiscoveredTabs[0] ||
       null
     );
-  }, [liveSheetData, selectedDiscoveredTab]);
+  }, [effectiveDiscoveredTabs, selectedDiscoveredTab]);
 
   const filteredLiveRows = useMemo(() => {
     if (!activeDiscoveredSheet || !activeDiscoveredSheet.rows) return [];
@@ -1092,10 +1175,10 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               onClick={handleGenerateAllTabs}
               disabled={isGeneratingTabs || !isOnline}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-900/80 hover:bg-emerald-800 text-emerald-200 border border-emerald-700/60 rounded text-xs font-semibold transition-colors disabled:opacity-50"
-              title="Generate all 11 ERP spreadsheet tabs with headers and formulas"
+              title="Auto generate all module tabs from app modules & purge duplicate or unstated worksheets"
             >
               <Sparkles className={`w-3.5 h-3.5 ${isGeneratingTabs ? 'animate-spin' : ''}`} />
-              <span>{isGeneratingTabs ? 'Structuring...' : 'Generate 11 Tabs'}</span>
+              <span>{isGeneratingTabs ? 'Auto-Generating Tabs...' : 'Auto Generate Tabs'}</span>
             </button>
 
             <button
@@ -1114,7 +1197,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               onClick={handleFullPushToSheets}
               disabled={isFullPushing || !isOnline}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-900/80 hover:bg-blue-800 text-blue-200 border border-blue-700/60 rounded text-xs font-semibold transition-colors disabled:opacity-50"
-              title="Push all local documents, clients, receipts, and profile to populate all 11 tabs"
+              title="Push all local records across all modules to populate all Google Sheets tabs"
             >
               <UploadCloud className={`w-3.5 h-3.5 ${isFullPushing ? 'animate-spin' : ''}`} />
               <span>{isFullPushing ? 'Pushing Data...' : 'Push to Sheets'}</span>
@@ -1191,7 +1274,6 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
         <div className="mt-3 pt-3 border-t border-stone-800/60 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <a
             href={
-              configForm.googleSheetUrl ||
               profile?.googleSheetUrl ||
               'https://docs.google.com/spreadsheets'
             }
@@ -1211,7 +1293,6 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
           <a
             href={
-              configForm.googleDriveFolderUrl ||
               profile?.googleDriveFolderUrl ||
               'https://drive.google.com'
             }
@@ -1230,6 +1311,58 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
           </a>
         </div>
       </div>
+
+      {/* GOOGLE APPS SCRIPT VERSION MISMATCH ALERT */}
+      {showVersionMismatchAlert && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-xs space-y-3 animate-fade-in">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-bold text-amber-900 text-sm">Companion Google Apps Script Update Required</h4>
+                <p className="text-amber-800 mt-1 leading-relaxed">
+                  Your actively deployed Google Apps Script Web App is running version{' '}
+                  <span className="font-mono font-bold bg-amber-100 px-1 rounded">{detectedScriptVersion || 'Unknown'}</span>,{' '}
+                  but the application requires the latest{' '}
+                  <span className="font-mono font-bold bg-emerald-100 text-emerald-900 px-1 rounded">{GOOGLE_APPS_SCRIPT_VERSION}</span>.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowVersionMismatchAlert(false)}
+              className="text-amber-600 hover:text-amber-800 font-bold px-1"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="bg-stone-900 text-stone-100 p-3 rounded-md font-mono text-[11px] leading-relaxed space-y-2">
+            <div className="flex items-center justify-between border-b border-stone-800 pb-2">
+              <span className="text-amber-400 font-bold">Latest Companion Code (Code.gs {GOOGLE_APPS_SCRIPT_VERSION})</span>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
+                  setIsCopiedGSCode(true);
+                  setTimeout(() => setIsCopiedGSCode(false), 3000);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded transition-colors text-[10px]"
+              >
+                {isCopiedGSCode ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                <span>{isCopiedGSCode ? 'Copied Code.gs!' : 'Copy Code.gs Script'}</span>
+              </button>
+            </div>
+            <div className="text-stone-300 space-y-1">
+              <p className="font-bold text-white mb-1">To Update Deployed Web App:</p>
+              <p>1. Open your connected Google Sheet ledger.</p>
+              <p>2. Select <strong className="text-amber-400">Extensions &gt; Apps Script</strong>.</p>
+              <p>3. Overwrite all existing code in <strong className="text-stone-100">Code.gs</strong> with this copied code.</p>
+              <p>4. Click <strong className="text-stone-100">Deploy &gt; Manage deployments</strong>, click the pencil edit icon, select <strong className="text-amber-400">New version</strong>, and click <strong className="text-white">Deploy</strong>.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* SYNC FEEDBACK BANNER */}
       {syncFeedback && (
@@ -1265,6 +1398,9 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
         </div>
       )}
 
+      {/* LIVE SYNC TELEMETRY & OBSERVABILITY BANNER */}
+      <SyncTelemetryBadge showForceSyncButton={true} className="shadow-xs" />
+
       {/* 2. NAVIGATION SUB-TABS */}
       <div className="flex items-center justify-between gap-2 border-b border-stone-200 pb-1 flex-wrap">
         <div className="flex items-center gap-1 overflow-x-auto py-1">
@@ -1288,8 +1424,6 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               icon: History,
               count: auditLogs?.length || 0,
             },
-            { id: 'Config', label: 'Webhook & Credentials', icon: Settings },
-            { id: 'Script', label: 'Code.gs Script', icon: Code },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1347,7 +1481,35 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Permanent Live Auto Refresh Status & Interval */}
+                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded text-xs">
+                  <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
+                    <RefreshCw className="w-3 h-3 animate-spin text-emerald-600" />
+                    <span>Live Auto-Syncing</span>
+                  </span>
+
+                  <select
+                    value={autoRefreshInterval}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setAutoRefreshInterval(val);
+                      setAutoRefreshCountdown(val);
+                    }}
+                    className="bg-white border border-emerald-300 rounded px-1.5 py-0.5 text-[11px] text-emerald-900 font-bold focus:outline-hidden"
+                    title="Select auto-refresh interval"
+                  >
+                    <option value={10}>10s</option>
+                    <option value={15}>15s</option>
+                    <option value={30}>30s</option>
+                    <option value={60}>60s</option>
+                  </select>
+
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-600 text-white">
+                    <span>{autoRefreshCountdown}s</span>
+                  </span>
+                </div>
+
                 <button
                   type="button"
                   onClick={handlePullFromSheets}
@@ -1361,9 +1523,14 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
                 <button
                   type="button"
-                  onClick={loadLiveSheetData}
+                  onClick={() => {
+                    loadLiveSheetData();
+                    setIframeCacheBuster(Date.now());
+                    setAutoRefreshCountdown(autoRefreshInterval);
+                  }}
                   disabled={isLoadingLiveSheet || !isOnline}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded text-xs font-semibold transition-colors disabled:opacity-50"
+                  title="Reload live Google Sheet rows and refresh preview"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLiveSheet ? 'animate-spin' : ''}`} />
                   <span>{isLoadingLiveSheet ? 'Fetching...' : 'Refresh Live Data'}</span>
@@ -1386,7 +1553,14 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
             {showEmbeddedIframe && profile?.googleSheetEmbedUrl ? (
               <div className="space-y-2">
                 <div className="bg-stone-100 border border-stone-200 rounded p-2 text-xs text-stone-600 flex items-center justify-between">
-                  <span>Interactive Embedded Google Sheet:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-stone-800">Interactive Embedded Google Sheet:</span>
+                    {autoRefreshEnabled && (
+                      <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Live Auto-Syncing ({autoRefreshCountdown}s)
+                      </span>
+                    )}
+                  </div>
                   <a
                     href={profile.googleSheetEmbedUrl}
                     target="_blank"
@@ -1399,7 +1573,8 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                 </div>
                 <div className="w-full h-[550px] border border-stone-300 rounded overflow-hidden shadow-inner bg-white">
                   <iframe
-                    src={profile.googleSheetEmbedUrl}
+                    key={iframeCacheBuster}
+                    src={`${profile.googleSheetEmbedUrl}${profile.googleSheetEmbedUrl.includes('?') ? '&' : '?'}t=${iframeCacheBuster}`}
                     title="Hotel Damview Centralized Spreadsheet"
                     className="w-full h-full border-0"
                   />
@@ -1407,149 +1582,128 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
-                {/* Dynamically Discovered Tabs Selector */}
-                {liveSheetData?.discoveredTabs && liveSheetData.discoveredTabs.length > 0 ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-stone-100">
-                      <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider mr-1 shrink-0">
-                        Discovered Tabs:
-                      </span>
-                      {liveSheetData.discoveredTabs.map((t) => (
-                        <button
-                          key={t.name}
-                          type="button"
-                          onClick={() => {
-                            setSelectedDiscoveredTab(t.name);
-                            setLiveSheetFilter('');
-                          }}
-                          className={`px-3 py-1 rounded text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                            selectedDiscoveredTab === t.name
-                              ? 'bg-amber-500 text-stone-950 shadow-xs'
-                              : 'bg-stone-100 hover:bg-stone-200 text-stone-700'
-                          }`}
-                        >
-                          <span>{t.name}</span>
-                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-stone-900/10 font-mono">
-                            {t.rowCount} rows
-                          </span>
-                        </button>
-                      ))}
-                    </div>
+                {/* Dynamically Discovered & Auto-Hydrated Tabs Selector */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-stone-100">
+                    <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider mr-1 shrink-0">
+                      Worksheet Tabs:
+                    </span>
+                    {effectiveDiscoveredTabs.map((t) => (
+                      <button
+                        key={t.name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDiscoveredTab(t.name);
+                          setLiveSheetFilter('');
+                        }}
+                        className={`px-3 py-1 rounded text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                          selectedDiscoveredTab === t.name || (!selectedDiscoveredTab && t.name === effectiveDiscoveredTabs[0]?.name)
+                            ? 'bg-amber-500 text-stone-950 shadow-xs'
+                            : 'bg-stone-100 hover:bg-stone-200 text-stone-700'
+                        }`}
+                      >
+                        <span>{t.name}</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-stone-900/10 font-mono">
+                          {t.rowCount} rows
+                        </span>
+                      </button>
+                    ))}
+                  </div>
 
-                    {/* Filter Inside Discovered Tab */}
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                      <div className="text-xs text-stone-600">
-                        Viewing{' '}
-                        <strong className="text-stone-900">{selectedDiscoveredTab}</strong> (
-                        {filteredLiveRows?.length || 0} rows loaded from Google Spreadsheet)
-                      </div>
-                      <div className="relative w-full sm:w-64">
-                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
-                        <input
-                          type="text"
-                          placeholder="Filter live rows..."
-                          value={liveSheetFilter}
-                          onChange={(e) => setLiveSheetFilter(e.target.value)}
-                          className="w-full pl-8 pr-3 py-1 bg-white border border-stone-300 rounded text-xs text-stone-900 focus:outline-hidden focus:ring-1 focus:ring-amber-500"
-                        />
-                      </div>
+                  {/* Filter Inside Discovered Tab */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="text-xs text-stone-600">
+                      Viewing{' '}
+                      <strong className="text-stone-900">{activeDiscoveredSheet?.name || selectedDiscoveredTab}</strong> (
+                      {filteredLiveRows?.length || 0} rows {liveSheetData ? 'loaded from Google Spreadsheet' : 'hydrated from ERP ledger'})
                     </div>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+                      <input
+                        type="text"
+                        placeholder="Filter worksheet rows..."
+                        value={liveSheetFilter}
+                        onChange={(e) => setLiveSheetFilter(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1 bg-white border border-stone-300 rounded text-xs text-stone-900 focus:outline-hidden focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
 
-                    {/* Live Discovered Tab Table */}
-                    <div className="border border-stone-200 rounded-lg overflow-x-auto max-h-[500px]">
-                      <table className="w-full text-left text-xs text-stone-700">
-                        <thead className="bg-stone-900 text-amber-300 uppercase text-[10px] font-semibold tracking-wider sticky top-0 z-10 shadow-xs">
-                          <tr>
-                            {activeDiscoveredSheet?.headers && activeDiscoveredSheet.headers.length > 0 ? (
-                              activeDiscoveredSheet.headers.map((h, i) => (
-                                <th key={i} className="py-2.5 px-3 whitespace-nowrap">
-                                  {h}
-                                </th>
-                              ))
-                            ) : (
-                              <th className="py-2.5 px-3">Columns</th>
-                            )}
-                            <th className="py-2.5 px-3 text-right whitespace-nowrap sticky right-0 bg-stone-900 shadow-xs">
-                              Actions
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-stone-200 font-mono">
-                          {(filteredLiveRows?.length || 0) > 0 ? (
-                            filteredLiveRows.map((row, rIdx) => (
-                              <tr key={rIdx} className="hover:bg-stone-50 transition-colors group">
-                                {row.map((cell, cIdx) => {
-                                  const cellStr = String(cell ?? '');
-                                  const isDriveUrl = cellStr.startsWith('http') && cellStr.includes('drive.google.com');
-                                  return (
-                                    <td
-                                      key={cIdx}
-                                      className="py-2 px-3 whitespace-nowrap max-w-xs truncate text-[11px]"
-                                    >
-                                      {isDriveUrl ? (
-                                        <a
-                                          href={cellStr}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="text-amber-700 hover:text-amber-900 underline font-semibold flex items-center gap-1 font-sans"
-                                        >
-                                          <span>Drive PDF</span>
-                                          <ExternalLink className="w-3 h-3" />
-                                        </a>
-                                      ) : (
-                                        cellStr || '—'
-                                      )}
-                                    </td>
-                                  );
-                                })}
-                                <td className="py-2 px-3 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-stone-50 transition-colors">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRequestDeleteLiveRow(row, rIdx)}
-                                    className="inline-flex items-center gap-1 px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded text-[11px] font-semibold transition-colors border border-rose-200 cursor-pointer shadow-xs"
-                                    title="Delete entry from live Google Sheet and synchronize local ERP"
-                                  >
-                                    <Trash2 className="w-3 h-3 text-rose-600" />
-                                    <span>Delete</span>
-                                  </button>
-                                </td>
-                              </tr>
+                  {/* Live Discovered Tab Table */}
+                  <div className="border border-stone-200 rounded-lg overflow-x-auto max-h-[500px]">
+                    <table className="w-full text-left text-xs text-stone-700">
+                      <thead className="bg-stone-900 text-amber-300 uppercase text-[10px] font-semibold tracking-wider sticky top-0 z-10 shadow-xs">
+                        <tr>
+                          {activeDiscoveredSheet?.headers && activeDiscoveredSheet.headers.length > 0 ? (
+                            activeDiscoveredSheet.headers.map((h, i) => (
+                              <th key={i} className="py-2.5 px-3 whitespace-nowrap">
+                                {h}
+                              </th>
                             ))
                           ) : (
-                            <tr>
-                              <td
-                                colSpan={(activeDiscoveredSheet?.headers?.length || 1) + 1}
-                                className="py-8 text-center text-stone-400 font-sans"
-                              >
-                                {isLoadingLiveSheet
-                                  ? 'Fetching live spreadsheet rows...'
-                                  : 'No rows found in this worksheet tab.'}
+                            <th className="py-2.5 px-3">Columns</th>
+                          )}
+                          <th className="py-2.5 px-3 text-right whitespace-nowrap sticky right-0 bg-stone-900 shadow-xs">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-200 font-mono">
+                        {(filteredLiveRows?.length || 0) > 0 ? (
+                          filteredLiveRows.map((row, rIdx) => (
+                            <tr key={rIdx} className="hover:bg-stone-50 transition-colors group">
+                              {row.map((cell, cIdx) => {
+                                const cellStr = String(cell ?? '');
+                                const isDriveUrl = cellStr.startsWith('http') && cellStr.includes('drive.google.com');
+                                return (
+                                  <td
+                                    key={cIdx}
+                                    className="py-2 px-3 whitespace-nowrap max-w-xs truncate text-[11px]"
+                                  >
+                                    {isDriveUrl ? (
+                                      <a
+                                        href={cellStr}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="p-1 text-amber-700 hover:text-amber-900 hover:bg-amber-50 rounded inline-flex items-center transition-colors"
+                                        title="Open archived PDF in Google Drive"
+                                      >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                      </a>
+                                    ) : (
+                                      cellStr || '—'
+                                    )}
+                                  </td>
+                                );
+                              })}
+                              <td className="py-2 px-3 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-stone-50 transition-colors">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRequestDeleteLiveRow(row, rIdx)}
+                                  className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded transition-colors border border-rose-200 cursor-pointer shadow-xs inline-flex items-center justify-center"
+                                  title="Delete entry from live Google Sheet and synchronize local ERP"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                </button>
                               </td>
                             </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                          ))
+                        ) : (
+                          <tr>
+                            <td
+                              colSpan={(activeDiscoveredSheet?.headers?.length || 1) + 1}
+                              className="py-8 text-center text-stone-400 font-sans"
+                            >
+                              {isLoadingLiveSheet
+                                ? 'Fetching live spreadsheet rows...'
+                                : 'No rows found in this worksheet tab.'}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-                ) : (
-                  <div className="text-center py-12 border border-dashed border-stone-200 rounded-lg space-y-3">
-                    <FileSpreadsheet className="w-8 h-8 text-stone-400 mx-auto" />
-                    <p className="text-xs font-semibold text-stone-700">
-                      Live Google Sheets data not loaded yet
-                    </p>
-                    <p className="text-[11px] text-stone-400 max-w-sm mx-auto">
-                      Click the button below to query your Google Apps Script endpoint and discover live worksheets.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={loadLiveSheetData}
-                      disabled={isLoadingLiveSheet || !isOnline}
-                      className="px-4 py-1.5 bg-stone-900 text-amber-400 font-semibold rounded text-xs shadow-xs hover:bg-stone-800 disabled:opacity-50"
-                    >
-                      {isLoadingLiveSheet ? 'Connecting...' : 'Fetch Live Spreadsheet Data'}
-                    </button>
-                  </div>
-                )}
+                </div>
               </div>
             )}
           </div>
@@ -1616,22 +1770,22 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                         <span className="font-bold text-stone-900">{item.action}</span>
                         <span
                           className={`px-2 py-0.2 rounded text-[10px] font-semibold ${
-                            item.status === 'failed'
+                            (item.status || '').toLowerCase() === 'failed'
                               ? 'bg-rose-100 text-rose-800'
-                              : item.status === 'syncing'
+                              : (item.status || '').toLowerCase() === 'syncing'
                               ? 'bg-blue-100 text-blue-800'
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {item.status.toUpperCase()} (Retry: {item.retryCount || 0})
+                          {(item.status || 'PENDING').toUpperCase()} (Retry: {item.retryCount || 0})
                         </span>
                       </div>
                       <p className="text-stone-500 text-[11px] font-mono">
-                        Queued at: {new Date(item.timestamp).toLocaleString()}
+                        Queued at: {new Date(item.createdAt || item.timestamp || Date.now()).toLocaleString()}
                       </p>
-                      {item.errorMessage && (
+                      {(item.lastError || item.errorMessage) && (
                         <p className="text-rose-600 text-[11px] font-medium">
-                          Error: {item.errorMessage}
+                          Error: {item.lastError || item.errorMessage}
                         </p>
                       )}
                     </div>
@@ -1640,8 +1794,10 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                       <button
                         type="button"
                         onClick={async () => {
-                          await dbService.removeSyncQueueItem(item.id);
-                          await loadData();
+                          if (item.id !== undefined) {
+                            await dbService.removeSyncQueueItem(item.id);
+                            await loadData();
+                          }
                         }}
                         className="p-1.5 text-stone-400 hover:text-rose-600 rounded bg-white border border-stone-200"
                         title="Remove from queue"
@@ -1871,464 +2027,6 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                 </p>
               </div>
             )}
-          </div>
-        )}
-
-        {/* HEADLESS WEBHOOK & CREDENTIALS CONFIG TAB */}
-        {activeTab === 'Config' && (
-          <div className="bg-white border border-stone-200 rounded-lg shadow-xs p-5 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200 pb-4">
-              <div>
-                <h3 className="text-sm font-bold text-stone-900 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-amber-600" />
-                  Headless Webhook Configuration (No End-User Login)
-                </h3>
-                <p className="text-xs text-stone-500 mt-0.5">
-                  Connect your Google Apps Script Webhook, Google Sheet ledger, and Google Drive archive folder for automated background synchronization.
-                </p>
-              </div>
-
-              {/* Quick shortcut action buttons */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <a
-                  href={configForm.googleSheetUrl || 'https://docs.google.com/spreadsheets'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 rounded text-xs font-semibold transition-colors"
-                  title="Open linked Google Sheet in new tab"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>Open Google Sheet</span>
-                  <ExternalLink className="w-3 h-3 text-emerald-600" />
-                </a>
-
-                <a
-                  href={configForm.googleDriveFolderUrl || 'https://drive.google.com'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-300 rounded text-xs font-semibold transition-colors"
-                  title="Open linked Google Drive folder in new tab"
-                >
-                  <FolderOpen className="w-3.5 h-3.5 text-blue-700" />
-                  <span>Open Drive Folder</span>
-                  <ExternalLink className="w-3 h-3 text-blue-600" />
-                </a>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Web App URL */}
-              <div className="md:col-span-2 space-y-1.5">
-                <label className="text-xs font-semibold text-stone-800 flex items-center justify-between">
-                  <span>Google Apps Script Web App Endpoint URL</span>
-                  <span className="text-[11px] font-normal text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                    Required for sync
-                  </span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="url"
-                    value={configForm.googleWebAppUrl}
-                    onChange={(e) => updateConfigField('googleWebAppUrl', e.target.value)}
-                    placeholder="https://script.google.com/macros/s/.../exec"
-                    className="flex-1 px-3 py-2 text-xs border border-stone-300 rounded-md focus:ring-1 focus:ring-amber-500 focus:border-amber-500 font-mono"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleTestConnection}
-                    disabled={isTesting || !configForm.googleWebAppUrl}
-                    className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 rounded-md text-xs font-semibold flex items-center gap-1.5 shrink-0 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
-                    <span>Test</span>
-                  </button>
-                  {configForm.googleWebAppUrl && configForm.googleWebAppUrl.startsWith('http') && (
-                    <a
-                      href={configForm.googleWebAppUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-2.5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-300 rounded-md text-xs font-semibold flex items-center gap-1 shrink-0"
-                      title="Open Web App in new tab to test doGet healthcheck"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Browser Check</span>
-                    </a>
-                  )}
-                </div>
-
-                {/* Proactive URL Validation Messages */}
-                {configForm.googleWebAppUrl.includes('docs.google.com/spreadsheets') && (
-                  <div className="p-2 bg-rose-50 border border-rose-200 rounded text-rose-800 text-xs flex items-center gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                    <span>
-                      <b>Notice:</b> You entered a Google Spreadsheet link above. For synchronization, enter the Apps Script Web App URL ending in <code>/exec</code> (found in Google Sheets under Extensions &gt; Apps Script &gt; Deploy &gt; Manage deployments).
-                    </span>
-                  </div>
-                )}
-                {(configForm?.googleWebAppUrl?.trim()?.length || 0) > 0 &&
-                  !configForm.googleWebAppUrl.includes('docs.google.com') &&
-                  !configForm.googleWebAppUrl.includes('/exec') && (
-                    <div className="p-2 bg-amber-50 border border-amber-200 rounded text-amber-800 text-xs flex items-center gap-1.5">
-                      <Info className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      <span>
-                        <b>Notice:</b> Published Apps Script Web App URLs usually end with <code>/exec</code>. Make sure you copied the Web App URL from <b>Deploy &gt; Manage deployments</b> (not the Script Editor link).
-                      </span>
-                    </div>
-                  )}
-
-                <p className="text-[11px] text-stone-500">
-                  Paste the deployment URL obtained from your Apps Script project (Who has access: <b>Anyone</b>).
-                </p>
-              </div>
-
-              {/* Troubleshooting Quick Help Card */}
-              <div className="md:col-span-2 p-3 bg-amber-50/60 border border-amber-200 rounded-lg text-xs space-y-1.5">
-                <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                  <ShieldCheck className="w-4 h-4 text-amber-700" />
-                  <span>Fixing "Unexpected token '&lt;', &lt;!DOCTYPE... is not valid JSON"</span>
-                </div>
-                <p className="text-stone-700 leading-relaxed text-[11px]">
-                  If sync returns an HTML or login error, Google is blocking the request because the Web App is not publicly accessible. Fix this in 30 seconds:
-                </p>
-                <ol className="list-decimal list-inside text-stone-600 space-y-0.5 text-[11px]">
-                  <li>In Google Sheets, open <b>Extensions &gt; Apps Script</b>.</li>
-                  <li>Click <b>Deploy &gt; Manage deployments</b> &gt; click the <b>pencil (Edit)</b> icon.</li>
-                  <li>Set <b>"Who has access"</b> to <b>"Anyone"</b> and <b>"Execute as"</b> to <b>"Me"</b>.</li>
-                  <li>Under <b>Version</b>, select <b>"New version"</b>, then click <b>Deploy</b>.</li>
-                  <li>Click <b>"Browser Check"</b> above: it should display a clean JSON status message.</li>
-                </ol>
-              </div>
-
-              {/* Google Sheet URL */}
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-stone-800 flex items-center justify-between">
-                  <span>Google Spreadsheet Direct URL</span>
-                  <span className="text-[11px] font-normal text-stone-500">Master Ledger</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="url"
-                    value={configForm.googleSheetUrl}
-                    onChange={(e) => updateConfigField('googleSheetUrl', e.target.value)}
-                    placeholder="https://docs.google.com/spreadsheets/d/.../edit"
-                    className="flex-1 px-3 py-2 text-xs border border-stone-300 rounded-md focus:ring-1 focus:ring-amber-500 focus:border-amber-500 font-mono"
-                  />
-                  {configForm.googleSheetUrl && (
-                    <a
-                      href={configForm.googleSheetUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-md shrink-0"
-                      title="Open Google Sheet"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  )}
-                </div>
-                <p className="text-[11px] text-stone-500">
-                  Direct URL to your Google Sheet master spreadsheet.
-                </p>
-              </div>
-
-              {/* Google Drive Folder URL */}
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-stone-800 flex items-center justify-between">
-                  <span>Google Drive Folder Direct URL</span>
-                  <span className="text-[11px] font-normal text-stone-500">PDF Storage</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="url"
-                    value={configForm.googleDriveFolderUrl}
-                    onChange={(e) => updateConfigField('googleDriveFolderUrl', e.target.value)}
-                    placeholder="https://drive.google.com/drive/folders/..."
-                    className="flex-1 px-3 py-2 text-xs border border-stone-300 rounded-md focus:ring-1 focus:ring-amber-500 focus:border-amber-500 font-mono"
-                  />
-                  {configForm.googleDriveFolderUrl && (
-                    <a
-                      href={configForm.googleDriveFolderUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-md shrink-0"
-                      title="Open Drive Folder"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  )}
-                </div>
-                <p className="text-[11px] text-stone-500">
-                  Direct URL to the Google Drive folder where generated invoice PDFs are stored.
-                </p>
-              </div>
-
-              {/* Google Drive Folder Name */}
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-stone-800">
-                  Google Drive Folder Name
-                </label>
-                <input
-                  type="text"
-                  value={configForm.googleDriveFolder}
-                  onChange={(e) => updateConfigField('googleDriveFolder', e.target.value)}
-                  placeholder="Hotel Damview Archives"
-                  className="w-full px-3 py-2 text-xs border border-stone-300 rounded-md focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
-                />
-                <p className="text-[11px] text-stone-500">
-                  Auto-created in your root Google Drive if not specified.
-                </p>
-              </div>
-
-              {/* Google Sheet Embed URL */}
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-stone-800">
-                  Google Sheet Embed / Published URL (Optional)
-                </label>
-                <input
-                  type="url"
-                  value={configForm.googleSheetEmbedUrl}
-                  onChange={(e) => updateConfigField('googleSheetEmbedUrl', e.target.value)}
-                  placeholder="https://docs.google.com/spreadsheets/d/.../pubhtml"
-                  className="w-full px-3 py-2 text-xs border border-stone-300 rounded-md focus:ring-1 focus:ring-amber-500 focus:border-amber-500 font-mono"
-                />
-                <p className="text-[11px] text-stone-500">
-                  Used if you want an interactive embedded iframe in the Live Sheets tab.
-                </p>
-              </div>
-            </div>
-
-            {/* Google Drive PDF Archiving Live Test Card */}
-            <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-lg space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h4 className="font-bold text-xs text-blue-950 flex items-center gap-1.5">
-                    <UploadCloud className="w-4 h-4 text-blue-700" />
-                    Google Drive PDF Cloud Archiving Live Test
-                  </h4>
-                  <p className="text-[11px] text-blue-800/80">
-                    Verify that your Google Apps Script webhook can successfully receive Base64 PDF byte streams and store them in your Google Drive archives.
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleUploadTestPdf}
-                  disabled={isUploadingTestPdf || !configForm.googleWebAppUrl}
-                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50 shrink-0"
-                >
-                  <UploadCloud className={`w-3.5 h-3.5 ${isUploadingTestPdf ? 'animate-bounce' : ''}`} />
-                  {isUploadingTestPdf ? 'Uploading Test PDF...' : 'Upload Test PDF to Google Drive'}
-                </button>
-              </div>
-
-              {/* Test PDF Upload Status / Result */}
-              {testPdfResult && (
-                <div
-                  className={`p-3 rounded-md text-xs border ${
-                    testPdfResult.success
-                      ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                      : 'bg-rose-50 text-rose-900 border-rose-300'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-2">
-                      {testPdfResult.success ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                      )}
-                      <div className="space-y-1">
-                        <p className="font-semibold">
-                          {testPdfResult.success
-                            ? `Test PDF successfully archived to Google Drive folder "${testPdfResult.folderName || 'Hotel Damview Archives'}"!`
-                            : testPdfResult.error || 'Failed to upload test PDF to Google Drive.'}
-                        </p>
-                        {testPdfResult.fileName && (
-                          <div className="text-[11px] text-stone-600 font-mono flex flex-wrap gap-x-3">
-                            <span>File: {testPdfResult.fileName}</span>
-                            {testPdfResult.byteLength && (
-                              <span>Size: {(testPdfResult.byteLength / 1024).toFixed(1)} KB</span>
-                            )}
-                            {testPdfResult.timestamp && (
-                              <span>Time: {testPdfResult.timestamp}</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {testPdfResult.driveUrl && (
-                      <a
-                        href={testPdfResult.driveUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded text-[11px] flex items-center gap-1.5 shrink-0 transition-colors shadow-xs"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                        Open in Google Drive
-                        <ExternalLink className="w-3 h-3 opacity-80" />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Auto-Sync Toggle */}
-            <div className="p-3 bg-stone-50 border border-stone-200 rounded-md flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold text-stone-800">Background Auto-Sync</p>
-                <p className="text-[11px] text-stone-500">
-                  Periodically poll Google Sheets and push local queues in the background every 30 seconds when online.
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={configForm.autoSyncEnabled}
-                  onChange={(e) => updateConfigField('autoSyncEnabled', e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-stone-300 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
-              </label>
-            </div>
-
-            {/* Save Button & Dirty Warning */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-stone-200">
-              <div className="flex items-center gap-2 text-xs">
-                {isFormDirty ? (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-300 rounded-full font-semibold text-[11px]">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                    Unsaved changes in form
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-full font-semibold text-[11px]">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    Credentials saved and synced
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {isFormDirty && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (profile) {
-                        setConfigForm({
-                          googleWebAppUrl: profile.googleWebAppUrl || '',
-                          googleSheetUrl: profile.googleSheetUrl || '',
-                          googleDriveFolderUrl: profile.googleDriveFolderUrl || '',
-                          googleDriveFolder: profile.googleDriveFolder || 'Hotel Damview Archives',
-                          googleSheetEmbedUrl: profile.googleSheetEmbedUrl || '',
-                          autoSyncEnabled: profile.autoSyncEnabled !== false,
-                        });
-                        isFormDirtyRef.current = false;
-                        setIsFormDirty(false);
-                      }
-                    }}
-                    className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold rounded text-xs transition-colors"
-                  >
-                    Discard Changes
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handleSaveConfig}
-                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs shadow-xs transition-colors flex items-center gap-1.5"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Save Webhook &amp; Credentials</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* APPS SCRIPT CODE TAB */}
-        {activeTab === 'Script' && (
-          <div className="bg-white border border-stone-200 rounded-lg shadow-xs p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-stone-200 pb-3">
-              <div>
-                <h3 className="text-sm font-bold text-stone-900 flex items-center gap-2">
-                  <Code className="w-4 h-4 text-amber-600" />
-                  Google Apps Script Backend Companion (Code.gs v3.0 ERP Engine)
-                </h3>
-                <p className="text-xs text-stone-500">
-                  Deploy this upgraded script in your Google Spreadsheet to power all 11 ERP tabs, KPI formulas, line items breakdown, statement ledger, and atomic cascade deletions.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
-                  setCopiedScript(true);
-                  setTimeout(() => setCopiedScript(false), 3000);
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-900 text-amber-400 hover:bg-stone-800 rounded text-xs font-semibold transition-colors"
-              >
-                {copiedScript ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Copied Code.gs v3.0!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy Code.gs</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Feature Highlights of v3.0 Apps Script */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-3 bg-amber-50/60 border border-amber-200/80 rounded-lg space-y-1">
-                <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-amber-700" />
-                  11 Dynamic ERP Sheets
-                </span>
-                <p className="text-[11px] text-amber-800 leading-snug">
-                  Summary Dashboard, Invoices, Quotations, Proformas, Clients, Receipts, Statements Ledger, Monthly Analytics, Line Items Breakdown, Hotel Profile, &amp; Audit Log.
-                </p>
-              </div>
-
-              <div className="p-3 bg-emerald-50/60 border border-emerald-200/80 rounded-lg space-y-1">
-                <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
-                  Live Spreadsheet Formulas
-                </span>
-                <p className="text-[11px] text-emerald-800 leading-snug">
-                  Automated `=SUMIF()`, `=COUNTIF()`, and revenue aggregation KPI cards updated in real-time.
-                </p>
-              </div>
-
-              <div className="p-3 bg-blue-50/60 border border-blue-200/80 rounded-lg space-y-1">
-                <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
-                  <Trash2 className="w-3.5 h-3.5 text-blue-700" />
-                  Cascade Deletions &amp; Reconcile
-                </span>
-                <p className="text-[11px] text-blue-800 leading-snug">
-                  Deleting an invoice or payment automatically cleans line items, receipts, and trashing linked Google Drive PDFs.
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-stone-50 border border-stone-200 rounded-lg p-4 text-xs space-y-2">
-              <p className="font-semibold text-stone-800">Deployment / Upgrade Instructions (2 minutes):</p>
-              <ol className="list-decimal list-inside space-y-1.5 text-stone-600">
-                <li>Open your Google Sheet (e.g. <b>"Hotel Damview ERP"</b>).</li>
-                <li>In Google Sheets, click <b>Extensions &gt; Apps Script</b>.</li>
-                <li>Select all text in <code>Code.gs</code>, delete it, and paste the copied code below.</li>
-                <li>Click the floppy disk <b>Save</b> icon (Ctrl+S or Cmd+S).</li>
-                <li>Click <b>Deploy &gt; Manage deployments</b> (or <b>New deployment</b>) &gt; Edit &gt; choose <b>New version</b> &gt; Click <b>Deploy</b>.</li>
-                <li>Ensure access is set to: <b>Execute as: Me</b> and <b>Who has access: Anyone</b> (Zero-Auth background sync).</li>
-                <li>Click <b>"Generate 11 Tabs"</b> in the top toolbar to automatically structure and populate all 11 sheets!</li>
-              </ol>
-            </div>
-
-            <pre className="bg-stone-900 text-stone-100 p-4 rounded-md text-[11px] font-mono overflow-x-auto max-h-96">
-              {GOOGLE_APPS_SCRIPT_CODE}
-            </pre>
           </div>
         )}
       </div>

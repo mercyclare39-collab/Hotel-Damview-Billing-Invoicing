@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { Client } from '../types';
 import { ClientModal } from './ClientModal';
+import { exportTableToXlsx } from '../utils/excelExporter';
+import { formatDate } from '../utils/formatters';
 
 interface ClientsManagerProps {
   clients: Client[];
@@ -62,6 +64,42 @@ export const ClientsManager: React.FC<ClientsManagerProps> = ({
     );
   });
 
+  const handleExportXlsx = async () => {
+    if (filteredClients.length === 0) {
+      alert('No clients found to export.');
+      return;
+    }
+
+    const columns = [
+      { header: 'Client / Organization Name', key: 'name', type: 'text' as const, width: 28 },
+      { header: 'Contact Person', key: 'contactPerson', type: 'text' as const, width: 22 },
+      { header: 'KRA PIN', key: 'kraPin', type: 'code' as const, width: 15 },
+      { header: 'Phone Number', key: 'phone', type: 'code' as const, width: 16 },
+      { header: 'Email Address', key: 'email', type: 'text' as const, width: 25 },
+      { header: 'Physical / Postal Address', key: 'address', type: 'text' as const, width: 30 },
+      { header: 'Registration Date', key: 'createdAt', type: 'date' as const, width: 14 },
+    ];
+
+    const data = filteredClients.map((c) => ({
+      name: c.name,
+      contactPerson: c.contactPerson || '-',
+      kraPin: c.kraPin || '-',
+      phone: c.phone || '-',
+      email: c.email || '-',
+      address: c.address || '-',
+      createdAt: c.createdAt || '-',
+    }));
+
+    await exportTableToXlsx({
+      title: 'Client Directory & Contact Roster',
+      sheetName: 'Clients_Directory',
+      columns,
+      data,
+      summaryRow: false,
+      filename: `HotelDamview_Clients_Roster_${formatDate()}.xlsx`,
+    });
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-5">
       {/* Header */}
@@ -69,21 +107,33 @@ export const ClientsManager: React.FC<ClientsManagerProps> = ({
         <div>
           <h1 className="text-2xl font-bold text-stone-900 tracking-tight flex items-center gap-2">
             <Users className="w-6 h-6 text-amber-700" />
-            Client Directory & Profiles
+            Client Directory &amp; Profiles
           </h1>
           <p className="text-sm text-stone-600">
             Registered corporate clients, government agencies, safari groups, and private event guests.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={openCreateModal}
-          className="px-3.5 py-2 bg-stone-900 hover:bg-stone-800 text-amber-400 text-xs font-bold rounded flex items-center gap-1.5 shadow-xs transition-colors"
-        >
-          <Plus className="w-4 h-4 text-amber-400" />
-          Register New Client
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExportXlsx}
+            className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded flex items-center gap-1.5 border border-stone-300 transition-colors cursor-pointer"
+            title="Export client roster to formatted Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Export Excel (.xlsx)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="px-3.5 py-2 bg-stone-900 hover:bg-stone-800 text-amber-400 text-xs font-bold rounded flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4 text-amber-400" />
+            Register New Client
+          </button>
+        </div>
       </div>
 
       {/* Search Bar */}

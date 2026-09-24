@@ -33,6 +33,7 @@ interface PaymentModalProps {
 
 const DEFAULT_PROFILE: HotelProfile = {
   name: 'HOTEL DAMVIEW',
+  tagline: '',
   physicalLocation: 'MARIAKANI',
   postalAddress: 'P.O. BOX 42491-80100, Mombasa, Kenya',
   phone: '+25472524262',
@@ -306,7 +307,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
               <div className="bg-stone-50 border border-stone-200 rounded-lg p-3.5 space-y-3">
                 <span className="text-xs font-bold uppercase tracking-wider text-stone-800 block">
-                  Receipt Particulars
+                  Document Details
                 </span>
 
                 <div className="grid grid-cols-2 gap-3">

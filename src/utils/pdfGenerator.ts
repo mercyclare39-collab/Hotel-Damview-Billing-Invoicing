@@ -1,4 +1,4 @@
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
 import { getPdfFileName, formatKsh } from './formatters';
 import { BillingDocument, HotelProfile } from '../types';
@@ -288,12 +288,32 @@ export function generateTestPdfDocument(options?: {
 }
 
 /**
- * Builds formatted WhatsApp billing link and pre-filled message text
+ * Normalizes any Kenyan phone number to the international format required by WhatsApp (254XXXXXXXXX)
+ */
+export function formatKenyanPhoneForWhatsApp(phone?: string): string {
+  if (!phone) return '';
+  const digitsOnly = phone.replace(/\D/g, '');
+  if (!digitsOnly) return '';
+  if (digitsOnly.startsWith('0')) {
+    return '254' + digitsOnly.slice(1);
+  }
+  if (digitsOnly.startsWith('254')) {
+    return digitsOnly;
+  }
+  if (digitsOnly.length === 9) {
+    return '254' + digitsOnly;
+  }
+  return digitsOnly;
+}
+
+/**
+ * Builds formatted WhatsApp billing link and pre-filled message text for Billing Documents (INV, QT, PI)
  */
 export function getWhatsAppShareUrl(
   doc: BillingDocument,
   profile: HotelProfile,
-  phoneNumber?: string
+  phoneNumber?: string,
+  driveUrl?: string
 ): string {
   const docTypeLabel =
     doc.documentType === 'INVOICE'
@@ -302,23 +322,86 @@ export function getWhatsAppShareUrl(
       ? 'Quotation'
       : 'Proforma Invoice';
 
-  const bankDetails = profile.bankName
-    ? `\n🏦 Bank: ${profile.bankName} | Acc: ${profile.accountNumber || ''}`
+  const bankDetails = (profile.bankName?.trim() && profile.accountNumber?.trim())
+    ? `\n🏦 *Bank:* ${profile.bankName.trim()} | *Acc:* ${profile.accountNumber.trim()}`
     : '';
   const mpesaDetails = profile.mpesaTillNumber
-    ? `\n📱 M-Pesa Till: ${profile.mpesaTillNumber}`
+    ? `\n📱 *M-Pesa Till:* ${profile.mpesaTillNumber}`
     : '';
 
-  const message = `*${profile.name.toUpperCase()}*\n${docTypeLabel} Ref: *${doc.documentNumber}*\nClient: ${doc.clientName}\nDate: ${doc.issueDate}\n\n*Total Amount:* ${formatKsh(doc.grandTotal)}\n*Amount Paid:* ${formatKsh(doc.amountPaid || 0)}\n*Balance Due:* *${formatKsh(doc.balanceDue || 0)}*${bankDetails}${mpesaDetails}\n\nThank you for choosing ${profile.name}!`;
+  const pdfLink = (driveUrl || doc.driveFileUrl)
+    ? `\n\n📄 *Download PDF Document:*\n${driveUrl || doc.driveFileUrl}`
+    : '';
 
-  const cleanPhone = (phoneNumber || doc.clientPhone || '').replace(/\D/g, '');
-  const targetPhone = cleanPhone.startsWith('0')
-    ? `254${cleanPhone.slice(1)}`
-    : cleanPhone.startsWith('254')
-    ? cleanPhone
-    : cleanPhone;
+  const message = `*${profile.name.toUpperCase()}*\n${docTypeLabel} Ref: *${doc.documentNumber}*\nClient: *${doc.clientName}*\nIssue Date: ${doc.issueDate}\n\n*Total Amount:* ${formatKsh(doc.grandTotal)}\n*Amount Paid:* ${formatKsh(doc.amountPaid || 0)}\n*Balance Due:* *${formatKsh(doc.balanceDue || 0)}*${bankDetails}${mpesaDetails}${pdfLink}\n\nThank you for choosing ${profile.name}!`;
 
-  return `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`;
+  const targetPhone = formatKenyanPhoneForWhatsApp(phoneNumber || doc.clientPhone);
+
+  return targetPhone
+    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`
+    : `https://wa.me/?text=${encodeURIComponent(message)}`;
+}
+
+/**
+ * Builds formatted WhatsApp link for Payment Receipts (REC)
+ */
+export function getReceiptWhatsAppShareUrl(
+  payment: {
+    receiptNumber: string;
+    clientName: string;
+    date: string;
+    amount: number;
+    paymentMode: string;
+    documentNumber?: string;
+    referenceNote?: string;
+    driveFileUrl?: string;
+  },
+  profile: HotelProfile,
+  phoneNumber?: string,
+  driveUrl?: string
+): string {
+  const pdfLink = (driveUrl || payment.driveFileUrl)
+    ? `\n\n📄 *Official PDF Receipt:*\n${driveUrl || payment.driveFileUrl}`
+    : '';
+
+  const message = `*${profile.name.toUpperCase()} - OFFICIAL RECEIPT*\nReceipt No: *${payment.receiptNumber}*\nReceived From: *${payment.clientName}*\nPayment Date: ${payment.date}\n\n*Amount Paid:* *${formatKsh(payment.amount)}*\n*Payment Channel:* ${payment.paymentMode}${payment.documentNumber ? `\n*Settled Document:* ${payment.documentNumber}` : ''}${payment.referenceNote ? `\n*Reference:* ${payment.referenceNote}` : ''}${pdfLink}\n\nThank you for your prompt settlement!`;
+
+  const targetPhone = formatKenyanPhoneForWhatsApp(phoneNumber);
+
+  return targetPhone
+    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`
+    : `https://wa.me/?text=${encodeURIComponent(message)}`;
+}
+
+/**
+ * Builds formatted WhatsApp link for Statements of Account (SOA)
+ */
+export function getStatementWhatsAppShareUrl(
+  statement: {
+    statementNumber?: string;
+    clientName: string;
+    startDate: string;
+    endDate: string;
+    closingBalance: number;
+    totalDebit?: number;
+    totalCredit?: number;
+    driveFileUrl?: string;
+  },
+  profile: HotelProfile,
+  phoneNumber?: string,
+  driveUrl?: string
+): string {
+  const pdfLink = (driveUrl || statement.driveFileUrl)
+    ? `\n\n📄 *Statement PDF:*\n${driveUrl || statement.driveFileUrl}`
+    : '';
+
+  const message = `*${profile.name.toUpperCase()} - STATEMENT OF ACCOUNT*\n${statement.statementNumber ? `Statement Ref: *${statement.statementNumber}*\n` : ''}Client: *${statement.clientName}*\nPeriod: ${statement.startDate} to ${statement.endDate}\n\n*Total Invoiced:* ${formatKsh(statement.totalDebit || 0)}\n*Total Settled:* ${formatKsh(statement.totalCredit || 0)}\n*Current Outstanding Balance:* *${formatKsh(statement.closingBalance)}*${pdfLink}\n\nFor any billing inquiries, please contact our accounts desk.`;
+
+  const targetPhone = formatKenyanPhoneForWhatsApp(phoneNumber);
+
+  return targetPhone
+    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`
+    : `https://wa.me/?text=${encodeURIComponent(message)}`;
 }
 
 /**

@@ -156,6 +156,51 @@ var CANONICAL_SCHEMAS = {
     { key: "totalAmount", type: "currency", aliases: ["totalamountksh", "totalamount", "amount", "total", "lineamount", "amountksh"] },
     { key: "id", type: "code", aliases: ["itemid", "id", "lineitemid", "uid"] }
   ],
+  CATALOGUE: [
+    { key: "id", type: "code", aliases: ["itemid", "id", "code", "catalogueid"] },
+    { key: "particulars", type: "text", aliases: ["particularsservicedescription", "particulars", "description", "service", "item"] },
+    { key: "category", type: "text", aliases: ["category", "dept", "department", "type"] },
+    { key: "rate", type: "currency", aliases: ["defaultrateksh", "rate", "defaultrate", "price", "unitprice"] },
+    { key: "taxApplicable", type: "text", aliases: ["taxapplicable", "vat", "taxable"] },
+    { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "timestamp"] }
+  ],
+  POS_ORDER: [
+    { key: "orderNumber", type: "code", aliases: ["ordernum", "ordernumber", "order", "orderno", "id"] },
+    { key: "orderDate", type: "date", aliases: ["orderdate", "date", "createdat"] },
+    { key: "guestTable", type: "text", aliases: ["guesttable", "guest", "table", "tableno", "guestname", "customer"] },
+    { key: "location", type: "text", aliases: ["locationstation", "location", "station", "point"] },
+    { key: "itemsSummary", type: "text", aliases: ["itemssummary", "items", "summary", "particulars"] },
+    { key: "subtotal", type: "currency", aliases: ["subtotalksh", "subtotal", "grosssubtotal"] },
+    { key: "tax", type: "currency", aliases: ["taxksh", "tax", "vat", "vatamount"] },
+    { key: "totalAmount", type: "currency", aliases: ["totalamountksh", "totalamount", "total", "grandtotal"] },
+    { key: "paymentMode", type: "text", aliases: ["paymentmode", "mode", "paymentmethod"] },
+    { key: "status", type: "text", aliases: ["status", "orderstatus"] },
+    { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "timestamp"] }
+  ],
+  RESERVATION: [
+    { key: "id", type: "code", aliases: ["reservationid", "id", "bookingnumber", "bookingid", "resno"] },
+    { key: "guestName", type: "text", aliases: ["guestname", "name", "clientname", "customer"] },
+    { key: "phone", type: "code", aliases: ["phonecontact", "phone", "contact", "mobile"] },
+    { key: "room", type: "text", aliases: ["roomaccommodation", "room", "roomnumber", "accommodation"] },
+    { key: "checkInDate", type: "date", aliases: ["checkindate", "checkin", "arrivaldate", "fromdate"] },
+    { key: "checkOutDate", type: "date", aliases: ["checkoutdate", "checkout", "departuredate", "todate"] },
+    { key: "status", type: "text", aliases: ["status", "reservationstatus"] },
+    { key: "totalAmount", type: "currency", aliases: ["totalamountksh", "totalamount", "total", "grandtotal"] },
+    { key: "amountPaid", type: "currency", aliases: ["paidksh", "amountpaid", "paid"] },
+    { key: "balance", type: "currency", aliases: ["balanceksh", "balance", "remaining"] },
+    { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "timestamp"] }
+  ],
+  EXPENSE: [
+    { key: "id", type: "code", aliases: ["expenseid", "id", "expno", "expid"] },
+    { key: "date", type: "date", aliases: ["expensedate", "date", "createdat"] },
+    { key: "category", type: "text", aliases: ["category", "expensetype", "type"] },
+    { key: "vendor", type: "text", aliases: ["vendorpayee", "vendor", "payee", "supplier"] },
+    { key: "description", type: "text", aliases: ["description", "details", "particulars", "item"] },
+    { key: "amount", type: "currency", aliases: ["amountksh", "amount", "totalamount", "total"] },
+    { key: "paymentMode", type: "text", aliases: ["paymentmode", "mode", "paymentmethod"] },
+    { key: "approvedBy", type: "text", aliases: ["approvedby", "approver", "manager", "staff"] },
+    { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "timestamp"] }
+  ],
   STATEMENT: [
     { key: "statementNumber", type: "code", aliases: ["statementnum", "statementnumber", "soano", "soanum", "docnum", "number"] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "statementdate"] },
@@ -248,6 +293,22 @@ function doPost(e) {
       });
     }
 
+    // 1b. DETERMINISTIC SEQUENTIAL AUTO-NUMBERING & CLOUD SEQUENCE LOCK
+    if (action === "GET_NEXT_DOCUMENT_NUMBER" || action === "RESERVE_DOCUMENT_NUMBER") {
+      try {
+        var reqDocType = (data.docType || "INVOICE").toUpperCase();
+        var allocatedNumber = generateDeterministicNextNumber(ss, reqDocType);
+        return responseJSON({
+          success: true,
+          docType: reqDocType,
+          nextNumber: allocatedNumber,
+          timestamp: new Date().toISOString()
+        });
+      } catch (numErr) {
+        return responseJSON({ success: false, error: numErr.toString() });
+      }
+    }
+
     // 2. CLIENT UPSERT
     if (action === "UPSERT_CLIENT") {
       try {
@@ -314,7 +375,8 @@ function doPost(e) {
 
         return responseJSON({
           success: true,
-          document: upsertResult,
+          document: upsertResult ? (upsertResult.document || upsertResult.doc || upsertResult) : doc,
+          renumbered: upsertResult ? upsertResult.renumbered : null,
           driveUrl: driveUrl,
           webViewLink: driveUrl,
           driveFileId: driveFileId,
@@ -366,7 +428,8 @@ function doPost(e) {
 
         return responseJSON({
           success: true,
-          payment: paymentResult,
+          payment: paymentResult ? (paymentResult.payment || paymentResult) : payment,
+          renumbered: paymentResult ? paymentResult.renumbered : null,
           driveUrl: receiptDriveUrl,
           webViewLink: receiptDriveUrl,
           driveFileId: receiptDriveId,
@@ -471,20 +534,22 @@ function doPost(e) {
       }
     }
 
-    // 10. GENERATE & RECALCULATE ALL TABS / SHEETS
-    if (action === "GENERATE_ALL_TABS" || action === "GENERATE_REPORTS" || action === "RECALCULATE_TABS") {
+    // 10. AUTO GENERATE & DEDUPLICATE ALL MODULE TABS
+    if (action === "AUTO_GENERATE_TABS" || action === "GENERATE_ALL_TABS" || action === "GENERATE_REPORTS" || action === "RECALCULATE_TABS" || action === "CLEAN_DUPLICATES" || action === "CLEAN_TABS" || action === "DEDUPLICATE_TABS") {
       try {
-        ensureSheetTabs(ss);
+        var dedupResult = autoGenerateAndDeduplicateTabs(ss);
         refreshAllAnalyticsTabs(ss);
         var tabsList = getDiscoveredSheets(ss);
-        logAudit(ss, "GENERATE_ALL_TABS", "Refreshed all 11 ERP tabs", "SUCCESS", "", "");
+        var purgedText = dedupResult && dedupResult.purgedCount ? (" (purged " + dedupResult.purgedCount + " duplicate/redundant tabs)") : "";
+        logAudit(ss, "AUTO_GENERATE_TABS", "Auto generated all module tabs" + purgedText, "SUCCESS", "", "");
         return responseJSON({
           success: true,
-          message: "All 11 spreadsheet tabs and analytics modules generated and formatted successfully.",
-          tabs: tabsList
+          message: "All module tabs auto-generated and deduplicated successfully" + purgedText + ".",
+          tabs: tabsList,
+          purgedCount: dedupResult ? dedupResult.purgedCount : 0
         });
       } catch (genErr) {
-        logAudit(ss, "GENERATE_ALL_TABS", "Failed tab generation: " + genErr.toString(), "FAILURE", "", "");
+        logAudit(ss, "AUTO_GENERATE_TABS", "Failed auto tab generation: " + genErr.toString(), "FAILURE", "", "");
         return responseJSON({ success: false, error: genErr.toString() });
       }
     }
@@ -516,19 +581,6 @@ function doPost(e) {
     if (action === "CLEAN_WORKSHEETS") {
       var cleanReport = cleanDuplicateAndRedundantWorksheets(ss);
       return responseJSON({ success: true, report: cleanReport });
-    }
-
-    // 14. UNIVERSAL SHEET ROW DELETION (Live Worksheet Inspector Direct Entry Removal)
-    if (action === "DELETE_SHEET_ROW" || action === "DELETE_WORKSHEET_ROW" || action === "DELETE_ENTRY") {
-      try {
-        var delSheetResult = deleteSheetRow(ss, data.tabName, data.rowIndex, data.rowIdentifier, data.folderName);
-        refreshAllAnalyticsTabs(ss);
-        logAudit(ss, "DELETE_SHEET_ROW", "Deleted row from tab '" + (data.tabName || "Sheet") + "' (Identifier: " + (data.rowIdentifier || "Row " + data.rowIndex) + ")", "SUCCESS", "", "");
-        return responseJSON({ success: true, result: delSheetResult });
-      } catch (delRowErr) {
-        logAudit(ss, "DELETE_SHEET_ROW", "Delete row error: " + delRowErr.toString(), "FAILURE", "", "");
-        return responseJSON({ success: false, error: delRowErr.toString() });
-      }
     }
 
     return responseJSON({ success: false, error: "Unrecognized sync action: " + action });
@@ -618,6 +670,34 @@ function getStandardTabDefinitions() {
       ]
     },
     {
+      name: "Reservations",
+      headers: [
+        "Reservation ID", "Guest Name", "Phone / Contact", "Room / Accommodation",
+        "Check-In Date", "Check-Out Date", "Status", "Total Amount (Ksh)", "Paid (Ksh)", "Balance (Ksh)", "Last Updated"
+      ]
+    },
+    {
+      name: "POS_Orders",
+      headers: [
+        "Order #", "Order Date", "Guest / Table", "Location / Station",
+        "Items Summary", "Subtotal (Ksh)", "Tax (Ksh)", "Total Amount (Ksh)", "Payment Mode", "Status", "Last Updated"
+      ]
+    },
+    {
+      name: "Expenses",
+      headers: [
+        "Expense ID", "Expense Date", "Category", "Vendor / Payee",
+        "Description", "Amount (Ksh)", "Payment Mode", "Approved By", "Last Updated"
+      ]
+    },
+    {
+      name: "Particulars_Catalogue",
+      headers: [
+        "Item ID", "Particulars / Service Description", "Category",
+        "Default Rate (Ksh)", "Tax Applicable", "Last Updated"
+      ]
+    },
+    {
       name: "Hotel_Profile",
       headers: ["Property", "Value", "Last Updated"]
     },
@@ -628,16 +708,25 @@ function getStandardTabDefinitions() {
   ];
 }
 
-function ensureSheetTabs(ss) {
-  var requiredTabs = getStandardTabDefinitions();
+function autoGenerateAndDeduplicateTabs(ss) {
+  var standardTabs = getStandardTabDefinitions();
+  var standardNames = [];
+  var standardMap = {};
 
-  requiredTabs.forEach(function(tabDef) {
+  for (var k = 0; k < standardTabs.length; k++) {
+    var def = standardTabs[k];
+    standardNames.push(def.name);
+    standardMap[def.name.toLowerCase().trim()] = def;
+  }
+
+  // 1. Auto generate all module tabs from app modules
+  standardTabs.forEach(function(tabDef) {
     var sheet = ss.getSheetByName(tabDef.name);
     if (!sheet) {
       sheet = ss.insertSheet(tabDef.name);
       sheet.appendRow(tabDef.headers);
       var headerRange = sheet.getRange(1, 1, 1, tabDef.headers.length);
-      headerRange.setBackground("#1c1917");
+      headerRange.setBackground("#0f172a");
       headerRange.setFontColor("#fef08a");
       headerRange.setFontWeight("bold");
       sheet.setFrozenRows(1);
@@ -645,7 +734,7 @@ function ensureSheetTabs(ss) {
       if (sheet.getLastRow() === 0) {
         sheet.appendRow(tabDef.headers);
         var headerRangeExisting = sheet.getRange(1, 1, 1, tabDef.headers.length);
-        headerRangeExisting.setBackground("#1c1917");
+        headerRangeExisting.setBackground("#0f172a");
         headerRangeExisting.setFontColor("#fef08a");
         headerRangeExisting.setFontWeight("bold");
         sheet.setFrozenRows(1);
@@ -653,26 +742,68 @@ function ensureSheetTabs(ss) {
     }
   });
 
-  // Reorder tabs to logical master workflow
+  // 2. Deduplicated tabs: Purge duplicate tabs, obsolete / redundant tabs, and tabs not stated in Apps Script
+  var sheets = ss.getSheets();
+  var purgedCount = 0;
+
+  for (var i = sheets.length - 1; i >= 0; i--) {
+    var currentSheet = sheets[i];
+    var currentName = currentSheet.getName().trim();
+    var lowerName = currentName.toLowerCase();
+
+    var isStatedOfficial = standardMap[lowerName] !== undefined;
+
+    var isDuplicateOrObsolete = false;
+    if (!isStatedOfficial) {
+      for (var stdKey in standardMap) {
+        if (
+          lowerName.indexOf(stdKey) >= 0 ||
+          lowerName.indexOf("copy of") >= 0 ||
+          lowerName.indexOf("sheet") >= 0 ||
+          /copy/i.test(lowerName)
+        ) {
+          isDuplicateOrObsolete = true;
+          break;
+        }
+      }
+      if (!isDuplicateOrObsolete) {
+        isDuplicateOrObsolete = true; // Any unstated tab not declared in Apps Script
+      }
+    }
+
+    if (!isStatedOfficial && isDuplicateOrObsolete && ss.getSheets().length > 1) {
+      try {
+        ss.deleteSheet(currentSheet);
+        purgedCount++;
+      } catch (delErr) {}
+    }
+  }
+
+  // 3. Reorder tabs to logical master workflow
   try {
-    for (var k = 0; k < requiredTabs.length; k++) {
-      var s = ss.getSheetByName(requiredTabs[k].name);
-      if (s) {
-        ss.setActiveSheet(s);
-        ss.moveActiveSheet(k + 1);
+    for (var m = 0; m < standardNames.length; m++) {
+      var officialSheet = ss.getSheetByName(standardNames[m]);
+      if (officialSheet) {
+        ss.setActiveSheet(officialSheet);
+        ss.moveActiveSheet(m + 1);
       }
     }
   } catch (orderErr) {}
 
-  // Remove default empty Sheet1 if other tabs exist
-  try {
-    var defaultSheet = ss.getSheetByName("Sheet1");
-    if (defaultSheet && ss.getSheets().length > 1) {
-      if (defaultSheet.getLastRow() <= 1 && defaultSheet.getLastColumn() <= 1) {
-        ss.deleteSheet(defaultSheet);
-      }
-    }
-  } catch (e) {}
+  return {
+    success: true,
+    message: "Auto generated all module tabs and purged " + purgedCount + " duplicate/obsolete tab(s).",
+    purgedCount: purgedCount,
+    tabs: getDiscoveredSheets(ss)
+  };
+}
+
+function ensureSheetTabs(ss) {
+  return autoGenerateAndDeduplicateTabs(ss);
+}
+
+function cleanDuplicateAndRedundantWorksheets(ss) {
+  return autoGenerateAndDeduplicateTabs(ss);
 }
 
 // ============================================================================
@@ -1063,8 +1194,69 @@ function applyColumnFormatting(sheet, headerLookup) {
 }
 
 // ============================================================================
-// 6. DOCUMENT UPSERT & LINE ITEMS (INVOICES / QUOTATIONS / PROFORMAS)
+// 6. DETERMINISTIC NUMBER GENERATION & DOCUMENT UPSERT (INVOICES / QUOTATIONS / PROFORMAS)
 // ============================================================================
+
+function generateDeterministicNextNumber(ss, docType) {
+  var type = String(docType || "INVOICE").toUpperCase();
+  var prefix = "INV-";
+  var tabName = "Invoices";
+  var numColKey = "documentNumber";
+
+  if (type === "QUOTATION") {
+    prefix = "QT-";
+    tabName = "Quotations";
+  } else if (type === "PROFORMA") {
+    prefix = "PI-";
+    tabName = "Proformas";
+  } else if (type === "RECEIPT") {
+    prefix = "REC-";
+    tabName = "Receipts";
+    numColKey = "receiptNumber";
+  } else if (type === "STATEMENT") {
+    prefix = "SOA-";
+    tabName = "Statements_Ledger";
+    numColKey = "statementNumber";
+  }
+
+  var sheet = ss.getSheetByName(tabName);
+  var maxNum = 0;
+  var minDigits = 4;
+
+  if (sheet && sheet.getLastRow() > 1) {
+    var schema = type === "QUOTATION" ? CANONICAL_SCHEMAS.QUOTATION :
+                 type === "PROFORMA" ? CANONICAL_SCHEMAS.PROFORMA :
+                 type === "RECEIPT" ? CANONICAL_SCHEMAS.RECEIPT :
+                 type === "STATEMENT" ? CANONICAL_SCHEMAS.STATEMENT :
+                 CANONICAL_SCHEMAS.INVOICE;
+
+    var lookup = createHeaderIndexLookup(sheet, schema);
+    var colIdx = lookup.getColumnIndex(numColKey);
+    if (colIdx === -1) colIdx = 1;
+
+    var data = sheet.getDataRange().getValues();
+    for (var r = 1; r < data.length; r++) {
+      var val = String(data[r][colIdx - 1] || "").trim();
+      if (!val) continue;
+
+      var match = val.match(/(\d+)$/);
+      if (match) {
+        var num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+          minDigits = Math.max(minDigits, match[1].length);
+        }
+      }
+    }
+  }
+
+  var nextSeq = maxNum + 1;
+  var paddedSeq = String(nextSeq);
+  while (paddedSeq.length < minDigits) {
+    paddedSeq = "0" + paddedSeq;
+  }
+  return prefix + paddedSeq;
+}
 
 function upsertDocument(ss, doc) {
   if (!doc || !doc.documentNumber) return null;
@@ -1088,15 +1280,64 @@ function upsertDocument(ss, doc) {
   var data = sheet.getDataRange().getValues();
   var rowIndex = -1;
   var existingRowValues = null;
+  var isCollision = false;
+  var originalContestedNumber = doc.documentNumber;
 
   for (var r = 1; r < data.length; r++) {
     var rowDocNum = String(data[r][docNumCol - 1] || "").trim().toLowerCase();
     var rowId = (idCol > 0 && idCol <= data[r].length) ? String(data[r][idCol - 1] || "").trim().toLowerCase() : "";
-    if ((targetNum && rowDocNum === targetNum) || (targetId && rowId === targetId)) {
+
+    // 1. Exact ID match -> Legitimate update to this exact document
+    if (targetId && rowId && targetId === rowId) {
       rowIndex = r + 1;
       existingRowValues = data[r];
       break;
     }
+
+    // 2. Serial Number Match
+    if (targetNum && rowDocNum === targetNum) {
+      if (targetId && rowId && targetId !== rowId) {
+        // Multi-terminal collision: identical serial generated for different document entities
+        isCollision = true;
+        break;
+      } else if (!targetId || !rowId) {
+        var clientCol = lookup.getColumnIndex("clientName");
+        if (clientCol > 0 && clientCol <= data[r].length) {
+          var rowClient = String(data[r][clientCol - 1] || "").trim().toLowerCase();
+          var docClient = String(doc.clientName || "").trim().toLowerCase();
+          if (rowClient && docClient && rowClient !== docClient) {
+            isCollision = true;
+            break;
+          }
+        }
+        rowIndex = r + 1;
+        existingRowValues = data[r];
+        break;
+      }
+    }
+  }
+
+  // 3. Collision Resolution: Preserve first record, renumber second record deterministically
+  var renumberInfo = null;
+  if (isCollision) {
+    var allocatedNum = generateDeterministicNextNumber(ss, docType);
+    doc.documentNumber = allocatedNum;
+    renumberInfo = {
+      originalNumber: originalContestedNumber,
+      newNumber: allocatedNum,
+      id: doc.id,
+      clientName: doc.clientName
+    };
+    logAudit(
+      ss,
+      "COLLISION_RESOLVED",
+      "Multi-terminal collision resolved: Renumbered from " + originalContestedNumber + " to " + allocatedNum + " for client " + (doc.clientName || "Guest") + " (ID: " + doc.id + ")",
+      "SUCCESS",
+      doc.driveFileUrl || "",
+      doc.driveFileId || ""
+    );
+    rowIndex = -1;
+    existingRowValues = null;
   }
 
   if (driveCol > 0 && existingRowValues && !doc.driveFileUrl) {
@@ -1118,7 +1359,9 @@ function upsertDocument(ss, doc) {
   return {
     documentNumber: doc.documentNumber,
     tab: tabName,
-    row: rowIndex
+    row: rowIndex,
+    renumbered: renumberInfo,
+    document: doc
   };
 }
 
@@ -1256,15 +1499,54 @@ function recordPayment(ss, payment) {
   var data = sheet.getDataRange().getValues();
   var rowIndex = -1;
   var existingRowValues = null;
+  var isCollision = false;
+  var originalContestedRec = payment.receiptNumber;
 
   for (var r = 1; r < data.length; r++) {
     var rowRec = String(data[r][recNumCol - 1] || "").trim().toLowerCase();
     var rowId = (idCol > 0 && idCol <= data[r].length) ? String(data[r][idCol - 1] || "").trim().toLowerCase() : "";
-    if ((targetRec && rowRec === targetRec) || (targetId && rowId === targetId)) {
+
+    // 1. Exact ID match -> Legitimate update
+    if (targetId && rowId && targetId === rowId) {
       rowIndex = r + 1;
       existingRowValues = data[r];
       break;
     }
+
+    // 2. Receipt number match
+    if (targetRec && rowRec === targetRec) {
+      if (targetId && rowId && targetId !== rowId) {
+        // Multi-terminal collision on receipt number
+        isCollision = true;
+        break;
+      } else if (!targetId || !rowId) {
+        rowIndex = r + 1;
+        existingRowValues = data[r];
+        break;
+      }
+    }
+  }
+
+  var renumberInfo = null;
+  if (isCollision) {
+    var allocatedRec = generateDeterministicNextNumber(ss, "RECEIPT");
+    payment.receiptNumber = allocatedRec;
+    renumberInfo = {
+      originalNumber: originalContestedRec,
+      newNumber: allocatedRec,
+      id: payment.id,
+      clientName: payment.clientName
+    };
+    logAudit(
+      ss,
+      "COLLISION_RESOLVED",
+      "Multi-terminal collision resolved: Receipt renumbered from " + originalContestedRec + " to " + allocatedRec + " for " + (payment.clientName || "Guest") + " (ID: " + payment.id + ")",
+      "SUCCESS",
+      payment.driveFileUrl || "",
+      payment.driveFileId || ""
+    );
+    rowIndex = -1;
+    existingRowValues = null;
   }
 
   if (driveCol > 0 && existingRowValues && !payment.driveFileUrl) {
@@ -1300,7 +1582,12 @@ function recordPayment(ss, payment) {
     reconcileInvoiceBalance(ss, payment.documentNumber);
   }
 
-  return { receiptNumber: payment.receiptNumber, row: rowIndex };
+  return {
+    receiptNumber: payment.receiptNumber,
+    row: rowIndex,
+    renumbered: renumberInfo,
+    payment: payment
+  };
 }
 
 function reconcileInvoiceBalance(ss, docNumber) {
@@ -1632,7 +1919,11 @@ function getFullSpreadsheetData(ss) {
     proformas: [],
     clients: [],
     receipts: [],
-    profile: {}
+    profile: {},
+    reservations: [],
+    posOrders: [],
+    expenses: [],
+    catalogue: []
   };
 
   for (var i = 0; i < sheets.length; i++) {
@@ -1707,6 +1998,38 @@ function getFullSpreadsheetData(ss) {
       rows.forEach(function(r) {
         if (r[0]) {
           result.profile[String(r[0])] = r[1] !== undefined ? String(r[1]) : "";
+        }
+      });
+    } else if (tabName === "Reservations") {
+      var resLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.RESERVATION);
+      rows.forEach(function(r) {
+        var parsed = resLookup.parseRowToJSON(r, ss);
+        if (parsed.id || parsed.guestName) {
+          result.reservations.push(parsed);
+        }
+      });
+    } else if (tabName === "POS_Orders") {
+      var posLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.POS_ORDER);
+      rows.forEach(function(r) {
+        var parsed = posLookup.parseRowToJSON(r, ss);
+        if (parsed.orderNumber || parsed.guestTable) {
+          result.posOrders.push(parsed);
+        }
+      });
+    } else if (tabName === "Expenses") {
+      var expLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.EXPENSE);
+      rows.forEach(function(r) {
+        var parsed = expLookup.parseRowToJSON(r, ss);
+        if (parsed.id || parsed.description) {
+          result.expenses.push(parsed);
+        }
+      });
+    } else if (tabName === "Particulars_Catalogue") {
+      var catLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.CATALOGUE);
+      rows.forEach(function(r) {
+        var parsed = catLookup.parseRowToJSON(r, ss);
+        if (parsed.id || parsed.particulars) {
+          result.catalogue.push(parsed);
         }
       });
     }
@@ -2283,42 +2606,6 @@ function archiveGenericPdfToDrive(pdfBase64, folderName, customFileName) {
   }
 }
 
-function cleanDuplicateAndRedundantWorksheets(ss) {
-  var sheets = ss.getSheets();
-  var standardTabNames = [
-    "Summary_Dashboard", "Invoices", "Quotations", "Proformas", "Clients",
-    "Receipts", "Statements_Ledger", "Monthly_Revenue_Analytics",
-    "Line_Items_Breakdown", "Hotel_Profile", "Audit_Log"
-  ];
-
-  var deletedCount = 0;
-  for (var i = sheets.length - 1; i >= 0; i--) {
-    var currentSheet = sheets[i];
-    var currentName = currentSheet.getName().trim();
-
-    var isDuplicate = false;
-    for (var t = 0; t < standardTabNames.length; t++) {
-      var std = standardTabNames[t];
-      if (currentName !== std && (
-        currentName.indexOf(std) >= 0 ||
-        currentName.toLowerCase().indexOf("copy of " + std.toLowerCase()) >= 0
-      )) {
-        isDuplicate = true;
-        break;
-      }
-    }
-
-    if (isDuplicate && currentSheet.getLastRow() <= 1) {
-      try {
-        ss.deleteSheet(currentSheet);
-        deletedCount++;
-      } catch (e) {}
-    }
-  }
-
-  return { cleaned: deletedCount };
-}
-
 function getDiscoveredSheets(ss) {
   var sheets = ss.getSheets();
   var discovered = [];
@@ -2350,44 +2637,6 @@ function logAudit(ss, action, description, status, driveUrl, fileId) {
   } catch (err) {
     Logger.log("Audit log failed: " + err.toString());
   }
-}
-
-function deleteSheetRow(ss, tabName, rowIndex, rowIdentifier, folderName) {
-  if (!tabName) throw new Error("Missing tabName parameter");
-  var sheet = ss.getSheetByName(tabName);
-  if (!sheet) throw new Error("Worksheet tab '" + tabName + "' not found in spreadsheet");
-
-  var data = sheet.getDataRange().getValues();
-  var deletedRows = 0;
-  var targetId = rowIdentifier ? String(rowIdentifier).trim().toLowerCase() : "";
-
-  // 1. If rowIdentifier is provided, search matching rows
-  if (targetId) {
-    for (var r = data.length - 1; r >= 1; r--) {
-      var rowStr = data[r].join(" ").toLowerCase();
-      if (rowStr.indexOf(targetId) !== -1) {
-        sheet.deleteRow(r + 1);
-        deletedRows++;
-      }
-    }
-  }
-
-  // 2. Fallback to 1-based row index if provided and no row was deleted by identifier
-  if (deletedRows === 0 && typeof rowIndex === "number" && rowIndex >= 0 && rowIndex < data.length - 1) {
-    sheet.deleteRow(rowIndex + 2); // +2 because row 1 is header and data[0] is header
-    deletedRows++;
-  }
-
-  // 3. Cascade cleanup if document, client, or payment tab
-  if (tabName === "Invoices" || tabName === "Quotations" || tabName === "Proformas") {
-    if (targetId) cascadeDeleteDocument(ss, "", targetId, folderName);
-  } else if (tabName === "Clients") {
-    if (targetId) cascadeDeleteClient(ss, targetId, "", "");
-  } else if (tabName === "Receipts") {
-    if (targetId) cascadeDeletePayment(ss, targetId, "", "", folderName);
-  }
-
-  return { success: true, tabName: tabName, rowsRemoved: deletedRows };
 }
 
 function responseJSON(obj) {

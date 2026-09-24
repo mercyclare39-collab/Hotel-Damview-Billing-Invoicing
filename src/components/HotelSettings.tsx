@@ -36,6 +36,8 @@ import {
   Edit2,
   Trash2,
   X,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { HotelProfile, SyncQueueItem, CatalogueItem } from '../types';
 import {
@@ -44,13 +46,13 @@ import {
   validateKenyanPhone,
 } from '../utils/formatters';
 import { syncManager } from '../services/sync';
-import { dbService } from '../services/db';
+import { dbService, DEFAULT_HOTEL_PROFILE } from '../services/db';
 import {
   localBackupService,
   LocalBackupRecord,
   DEFAULT_DESIGNATED_ARCHIVE_PATH,
 } from '../services/localBackupService';
-import { GOOGLE_APPS_SCRIPT_CODE } from '../services/googleScriptCode';
+import { GOOGLE_APPS_SCRIPT_CODE, GOOGLE_APPS_SCRIPT_VERSION } from '../services/googleScriptCode';
 import { HotelLogo } from './HotelLogo';
 
 interface HotelSettingsProps {
@@ -67,7 +69,22 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   onTriggerSync,
 }) => {
   const [formData, setFormData] = useState<HotelProfile>({ ...profile });
-  const [activeTab, setActiveTab] = useState<'profile' | 'accounts' | 'google-sync' | 'local-backup' | 'pwa' | 'catalogue'>('profile');
+  const [activeTab, setActiveTabState] = useState<'profile' | 'accounts' | 'google-sync' | 'local-backup' | 'pwa' | 'catalogue'>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = localStorage.getItem('damview_settings_active_tab') as any;
+      if (saved && ['profile', 'accounts', 'google-sync', 'local-backup', 'pwa', 'catalogue'].includes(saved)) {
+        return saved;
+      }
+    }
+    return 'profile';
+  });
+
+  const setActiveTab = (tab: 'profile' | 'accounts' | 'google-sync' | 'local-backup' | 'pwa' | 'catalogue') => {
+    setActiveTabState(tab);
+    try {
+      localStorage.setItem('damview_settings_active_tab', tab);
+    } catch {}
+  };
   const [copiedCode, setCopiedCode] = useState(false);
 
   // Particulars Catalogue State
@@ -133,6 +150,19 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     await dbService.deleteCatalogueItem(id);
     await loadCatalogue();
   };
+
+  const handlePurgeCatalogue = async () => {
+    if (!window.confirm('Purge all particulars presets and start with a completely empty catalog?')) return;
+    await dbService.purgeAllCatalogueItems();
+    await loadCatalogue();
+  };
+
+  const handlePurgeAllDemoData = async () => {
+    if (!window.confirm('Are you sure you want to purge all demo / mock records across ALL operational modules (Catalogue, POS Menu, Demo Documents, Demo Payments)? Your official hotel profile & credentials will remain preserved.')) return;
+    const res = await dbService.purgeAllDemoDataAcrossModules();
+    await loadCatalogue();
+    alert(`All demo data purged successfully across: ${res.purgedModules.join(', ')}.`);
+  };
   const [testResult, setTestResult] = useState<{
     ok: boolean;
     message: string;
@@ -168,14 +198,29 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   // Passcode-Gated Configuration & Settings
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [showPasscodeModal, setShowPasscodeModal] = useState(false);
+  const [showSensitiveAccounts, setShowSensitiveAccounts] = useState(false);
+  const [showSensitiveKra, setShowSensitiveKra] = useState(false);
+  const [showSensitiveWebhookUrls, setShowSensitiveWebhookUrls] = useState(false);
   const [passcodeInput, setPasscodeInput] = useState('');
   const [passcodeError, setPasscodeError] = useState('');
   const [adminPasscode, setAdminPasscode] = useState(() => {
-    return localStorage.getItem('damview_admin_passcode') || '2025';
+    return localStorage.getItem('damview_admin_passcode') || '1000';
   });
   const [isChangingPasscode, setIsChangingPasscode] = useState(false);
   const [newPasscode, setNewPasscode] = useState('');
   const [passcodeChangeSuccess, setPasscodeChangeSuccess] = useState(false);
+
+  const handleDownloadCodeGs = () => {
+    const blob = new Blob([GOOGLE_APPS_SCRIPT_CODE], { type: 'text/javascript;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'Code.gs';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const handleUnlockAttempt = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -389,6 +434,16 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     setTimeout(() => setSaveSuccess(false), 3000);
   };
 
+  const handleRestoreBakedDefaults = () => {
+    if (window.confirm('Restore all hotel profile, tax, banking, and Google Cloud credentials to official baked defaults?')) {
+      const restored = { ...DEFAULT_HOTEL_PROFILE };
+      setFormData(restored);
+      onSaveProfile(restored);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    }
+  };
+
   const handleCopyScript = () => {
     navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
     setCopiedCode(true);
@@ -396,14 +451,22 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   };
 
   const handleTestConnection = async () => {
-    if (!formData.googleWebAppUrl) {
+    let targetUrl = formData.googleWebAppUrl ? formData.googleWebAppUrl.trim() : '';
+    if (!targetUrl) {
       setTestResult({ ok: false, message: 'Please enter a Google Apps Script Web App URL first.' });
       return;
     }
+
+    // Auto-patch /dev URLs to /exec
+    if (targetUrl.includes('/dev')) {
+      targetUrl = targetUrl.replace(/\/dev(\/|\?|$)/, '/exec$1');
+      handleInputChange('googleWebAppUrl', targetUrl);
+    }
+
     setIsTesting(true);
     setTestResult(null);
     try {
-      const res = await syncManager.testConnection(formData.googleWebAppUrl);
+      const res = await syncManager.testConnection(targetUrl);
       setTestResult(res);
       if (res.ok && res.sheetUrl && !formData.googleSheetUrl) {
         handleInputChange('googleSheetUrl', res.sheetUrl);
@@ -492,6 +555,18 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             </button>
           )}
 
+          {isUnlocked && (
+            <button
+              type="button"
+              onClick={handleRestoreBakedDefaults}
+              className="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs rounded flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Restore all credentials to baked official defaults"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
+              <span className="hidden sm:inline">Restore Defaults</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleSubmit}
@@ -518,18 +593,6 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               </span>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setPasscodeError('');
-              setPasscodeInput('');
-              setShowPasscodeModal(true);
-            }}
-            className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded shadow-xs transition-colors shrink-0"
-          >
-            <KeyRound className="w-3.5 h-3.5" />
-            <span>Enter Passcode</span>
-          </button>
         </div>
       ) : (
         <div className="bg-emerald-50 border border-emerald-300 rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-emerald-950 shadow-2xs">
@@ -548,18 +611,11 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             <button
               type="button"
               onClick={() => setIsChangingPasscode(!isChangingPasscode)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 font-semibold rounded text-[11px] transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 font-semibold rounded text-[11px] transition-colors cursor-pointer"
+              title="Change administrative passcode"
             >
-              <Settings className="w-3.5 h-3.5 text-emerald-700" />
-              <span>{isChangingPasscode ? 'Hide Passcode Form' : 'Change Passcode'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleLockSettings}
-              className="inline-flex items-center gap-1 px-3 py-1.5 bg-stone-900 hover:bg-stone-800 text-amber-400 font-bold rounded shadow-2xs transition-colors"
-            >
-              <Lock className="w-3.5 h-3.5" />
-              <span>Lock Now</span>
+              <KeyRound className="w-3.5 h-3.5 text-emerald-700" />
+              <span>{isChangingPasscode ? 'Close Form' : 'Change Passcode'}</span>
             </button>
           </div>
         </div>
@@ -570,7 +626,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
         <form onSubmit={handleSaveNewPasscode} className="bg-stone-50 border border-stone-300 rounded-lg p-4 space-y-3">
           <div className="font-bold text-stone-900 text-xs flex items-center gap-1.5">
             <KeyRound className="w-4 h-4 text-amber-700" />
-            <span>Update Administrative Passcode (Default: 2025)</span>
+            <span>Update Administrative Passcode</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -584,14 +640,14 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             />
             <button
               type="submit"
-              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs transition-colors shadow-2xs"
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs transition-colors shadow-2xs cursor-pointer"
             >
               Save New Passcode
             </button>
             <button
               type="button"
               onClick={() => setIsChangingPasscode(false)}
-              className="px-3 py-1.5 bg-stone-200 hover:bg-stone-300 text-stone-700 font-medium rounded text-xs transition-colors"
+              className="px-3 py-1.5 bg-stone-200 hover:bg-stone-300 text-stone-700 font-medium rounded text-xs transition-colors cursor-pointer"
             >
               Cancel
             </button>
@@ -615,7 +671,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               </div>
               <div>
                 <h3 className="font-bold text-stone-900 text-base">Administrative Authorization</h3>
-                <p className="text-stone-500 text-xs">Enter your admin passcode to unlock settings.</p>
+                <p className="text-stone-500 text-xs">Enter your admin passcode to unlock and modify settings.</p>
               </div>
             </div>
 
@@ -627,10 +683,9 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                   autoFocus
                   value={passcodeInput}
                   onChange={(e) => setPasscodeInput(e.target.value)}
-                  placeholder="Enter passcode (default: 2025)"
+                  placeholder="Enter administrator passcode"
                   className="w-full border border-stone-300 rounded px-3 py-2 text-base font-mono tracking-widest text-center focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
                 />
-                <p className="text-[11px] text-stone-400 mt-1 text-center">Default administrator passcode is <span className="font-mono font-bold text-stone-700">2025</span></p>
                 {passcodeError && (
                   <div className="text-rose-600 font-semibold text-xs mt-2 text-center bg-rose-50 border border-rose-200 p-2 rounded">
                     {passcodeError}
@@ -793,19 +848,55 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             </div>
 
             <div>
-              <label className="block font-semibold text-stone-700 mb-1">Tagline / Subtitle</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-stone-700">Tagline / Subtitle</label>
+                {formData.tagline?.trim() && isUnlocked && (
+                  <button
+                    type="button"
+                    onClick={() => handleInputChange('tagline', '')}
+                    className="text-[11px] text-rose-600 hover:text-rose-700 font-medium hover:underline cursor-pointer flex items-center gap-1"
+                    title="Purge tagline and leave blank"
+                  >
+                    <span>Purge &amp; Leave Blank</span>
+                  </button>
+                )}
+              </div>
               <input
                 type="text"
                 value={formData.tagline || ''}
                 onChange={(e) => handleInputChange('tagline', e.target.value)}
+                placeholder="Leave blank (default) or enter official subtitle"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900"
               />
+              <p className="text-[11px] text-stone-400 mt-0.5">
+                Default is completely blank. Invoices, receipts, and vouchers omit tagline when left blank.
+              </p>
             </div>
 
             <div>
-              <label className="block font-semibold text-stone-700 mb-1">KRA PIN *</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-stone-700">KRA PIN *</label>
+                <button
+                  type="button"
+                  onClick={() => setShowSensitiveKra((prev) => !prev)}
+                  className="text-[10px] text-stone-500 hover:text-stone-800 font-medium flex items-center gap-1 cursor-pointer"
+                  title="Toggle shielding for KRA tax PIN"
+                >
+                  {showSensitiveKra ? (
+                    <>
+                      <EyeOff className="w-3 h-3 text-stone-500" />
+                      <span>Shield PIN</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3 h-3 text-stone-500" />
+                      <span>Reveal PIN</span>
+                    </>
+                  )}
+                </button>
+              </div>
               <input
-                type="text"
+                type={showSensitiveKra ? 'text' : 'password'}
                 required
                 value={formData.kraPin}
                 onChange={(e) => handleInputChange('kraPin', e.target.value.toUpperCase())}
@@ -899,22 +990,43 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
           <fieldset disabled={!isUnlocked} className="space-y-5 disabled:opacity-80">
           <div className="p-3 bg-stone-50 border border-stone-200 rounded text-stone-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-              <strong>Settlement Accounts Configuration:</strong> Optional bank and M-Pesa credentials stored securely in hotel settings for account reference.
+              <strong className="text-stone-900">Settlement &amp; Remittance Accounts:</strong> All bank remittance and settlement account credentials are blank by default. All original default demo bank credentials have been purged completely. Enter your official hotel banking details below only if you wish them to appear on invoices, quotations, receipts, proformas, and statements.
             </div>
             {isUnlocked && (
-              <button
-                type="button"
-                onClick={() => {
-                  handleInputChange('bankName', '');
-                  handleInputChange('bankBranch', '');
-                  handleInputChange('accountHolder', '');
-                  handleInputChange('accountNumber', '');
-                  handleInputChange('mpesaTillNumber', '');
-                }}
-                className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded shrink-0 text-[11px] transition-colors"
-              >
-                Clear All Account Credentials
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowSensitiveAccounts((prev) => !prev)}
+                  className="px-2.5 py-1 bg-white hover:bg-stone-100 text-stone-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1 cursor-pointer border border-stone-300"
+                  title="Toggle shielding for sensitive account credentials"
+                >
+                  {showSensitiveAccounts ? (
+                    <>
+                      <EyeOff className="w-3 h-3 text-stone-500" />
+                      <span>Shield Sensitive Fields</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3 h-3 text-stone-500" />
+                      <span>Reveal Sensitive Fields</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleInputChange('bankName', '');
+                    handleInputChange('bankBranch', '');
+                    handleInputChange('accountHolder', '');
+                    handleInputChange('accountNumber', '');
+                  }}
+                  className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1 cursor-pointer border border-rose-200"
+                  title="Purge all bank details completely and leave blank"
+                >
+                  <RefreshCw className="w-3 h-3 text-rose-600" />
+                  <span>Purge Bank Details (Leave Blank)</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -923,9 +1035,9 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               <label className="block font-semibold text-stone-700 mb-1">Receiving Bank Name</label>
               <input
                 type="text"
-                value={formData.bankName}
+                value={formData.bankName || ''}
                 onChange={(e) => handleInputChange('bankName', e.target.value)}
-                placeholder="e.g. Kenya Commercial Bank (KCB)"
+                placeholder="Leave blank (default) or enter receiving bank name"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-bold"
               />
             </div>
@@ -934,9 +1046,9 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               <label className="block font-semibold text-stone-700 mb-1">Branch Name</label>
               <input
                 type="text"
-                value={formData.bankBranch}
+                value={formData.bankBranch || ''}
                 onChange={(e) => handleInputChange('bankBranch', e.target.value)}
-                placeholder="e.g. Machakos Main Branch"
+                placeholder="Leave blank (default) or enter branch name"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900"
               />
             </div>
@@ -945,30 +1057,40 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               <label className="block font-semibold text-stone-700 mb-1">Account Holder Name</label>
               <input
                 type="text"
-                value={formData.accountHolder}
+                value={formData.accountHolder || ''}
                 onChange={(e) => handleInputChange('accountHolder', e.target.value)}
-                placeholder="e.g. Hotel Damview Enterprises Ltd"
+                placeholder="Leave blank (default) or enter account holder name"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-bold"
               />
             </div>
 
             <div>
-              <label className="block font-semibold text-stone-700 mb-1">Account Number</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-stone-700">Account Number</label>
+                <span className="text-[10px] text-stone-400 font-medium">
+                  {showSensitiveAccounts ? 'Plain' : 'Shielded'}
+                </span>
+              </div>
               <input
-                type="text"
-                value={formData.accountNumber}
+                type={showSensitiveAccounts ? 'text' : 'password'}
+                value={formData.accountNumber || ''}
                 onChange={(e) => handleInputChange('accountNumber', e.target.value)}
-                placeholder="e.g. 1102983746"
+                placeholder="Leave blank (default) or enter account number"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-mono font-bold"
               />
             </div>
 
             <div className="md:col-span-2">
-              <label className="block font-semibold text-emerald-800 mb-1">
-                M-Pesa Buy Goods Till Number *
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-emerald-800">
+                  M-Pesa Buy Goods Till Number *
+                </label>
+                <span className="text-[10px] text-stone-400 font-medium">
+                  {showSensitiveAccounts ? 'Plain' : 'Shielded'}
+                </span>
+              </div>
               <input
-                type="text"
+                type={showSensitiveAccounts ? 'text' : 'password'}
                 value={formData.mpesaTillNumber}
                 onChange={(e) => handleInputChange('mpesaTillNumber', e.target.value)}
                 placeholder="e.g. 5432100"
@@ -1073,26 +1195,54 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
 
           {/* HEADLESS WEBHOOK CONFIGURATION FORM */}
           <div className="bg-white border border-stone-200 rounded-lg p-6 shadow-xs space-y-4">
-            <div className="border-b border-stone-200 pb-3">
-              <h3 className="font-bold text-sm text-stone-900 flex items-center gap-2">
-                <Cloud className="w-4 h-4 text-blue-600" />
-                Headless Webhook Configuration (No End-User Login)
-              </h3>
-              <p className="text-stone-500 text-[11px] mt-0.5">
-                Configure the Google Apps Script endpoint URL and destination Google Sheet/Drive URLs for seamless zero-auth background sync.
-              </p>
+            <div className="border-b border-stone-200 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-sm text-stone-900 flex items-center gap-2">
+                  <Cloud className="w-4 h-4 text-blue-600" />
+                  Headless Webhook Configuration (No End-User Login)
+                </h3>
+                <p className="text-stone-500 text-[11px] mt-0.5">
+                  Configure the Google Apps Script endpoint URL and destination Google Sheet/Drive URLs for seamless zero-auth background sync.
+                </p>
+              </div>
+
+              {isUnlocked && (
+                <button
+                  type="button"
+                  onClick={() => setShowSensitiveWebhookUrls((prev) => !prev)}
+                  className="px-2.5 py-1 bg-white hover:bg-stone-100 text-stone-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1 cursor-pointer border border-stone-300 shrink-0"
+                  title="Toggle shielding for webhook endpoint and drive URLs"
+                >
+                  {showSensitiveWebhookUrls ? (
+                    <>
+                      <EyeOff className="w-3 h-3 text-stone-500" />
+                      <span>Shield Webhook URLs</span>
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3 h-3 text-stone-500" />
+                      <span>Reveal Webhook URLs</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
 
             <fieldset disabled={!isUnlocked} className="space-y-4 disabled:opacity-80">
             <div className="space-y-4">
               {/* 1. Google Apps Script Web App Endpoint URL */}
               <div>
-                <label className="block font-semibold text-stone-700 mb-1">
-                  1. Google Apps Script Web App Endpoint URL *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-semibold text-stone-700">
+                    1. Google Apps Script Web App Endpoint URL *
+                  </label>
+                  <span className="text-[10px] text-stone-400 font-medium">
+                    {showSensitiveWebhookUrls ? 'Plain' : 'Shielded'}
+                  </span>
+                </div>
                 <div className="flex gap-2">
                   <input
-                    type="url"
+                    type={showSensitiveWebhookUrls ? 'url' : 'password'}
                     value={formData.googleWebAppUrl || ''}
                     onChange={(e) => handleInputChange('googleWebAppUrl', e.target.value)}
                     placeholder="https://script.google.com/macros/s/AKfycb.../exec"
@@ -1131,7 +1281,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                 </label>
                 <div className="flex gap-2">
                   <input
-                    type="url"
+                    type={showSensitiveWebhookUrls ? 'url' : 'password'}
                     value={formData.googleSheetUrl || ''}
                     onChange={(e) => handleInputChange('googleSheetUrl', e.target.value)}
                     placeholder="https://docs.google.com/spreadsheets/d/1abcXYZ.../edit"
@@ -1172,7 +1322,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                 </label>
                 <div className="flex gap-2">
                   <input
-                    type="url"
+                    type={showSensitiveWebhookUrls ? 'url' : 'password'}
                     value={formData.googleDriveFolderUrl || ''}
                     onChange={(e) => handleInputChange('googleDriveFolderUrl', e.target.value)}
                     placeholder="https://drive.google.com/drive/folders/1abcXYZ..."
@@ -1217,7 +1367,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                     5. Google Sheet Embed / Published URL (Optional)
                   </label>
                   <input
-                    type="url"
+                    type={showSensitiveWebhookUrls ? 'url' : 'password'}
                     value={formData.googleSheetEmbedUrl || ''}
                     onChange={(e) => handleInputChange('googleSheetEmbedUrl', e.target.value)}
                     placeholder="https://docs.google.com/spreadsheets/d/e/.../pubhtml"
@@ -1365,25 +1515,42 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
 
           {/* COMPANION GOOGLE APPS SCRIPT CODE & STEP-BY-STEP INSTRUCTIONS */}
           <div className="bg-white border border-stone-200 rounded p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-stone-200 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200 pb-3">
               <div>
-                <h3 className="font-bold text-sm text-stone-900 flex items-center gap-2">
-                  <FileCode className="w-4 h-4 text-amber-700" />
-                  Companion Google Apps Script (Code.gs)
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm text-stone-900 flex items-center gap-2">
+                    <FileCode className="w-4 h-4 text-amber-700" />
+                    Companion Google Apps Script (Code.gs)
+                  </h3>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    {GOOGLE_APPS_SCRIPT_VERSION} Synchronized
+                  </span>
+                </div>
                 <p className="text-stone-500 text-[11px] mt-0.5">
-                  Deploy once in your Google Account. Auto-creates worksheet tabs & Drive archive folders with zero login prompts for users.
+                  Authoritative Apps Script code with 15 operational ERP sheets, dynamic header-index mapping, and zero login prompts.
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleCopyScript}
-                className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded font-bold flex items-center gap-1.5 transition-colors"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                {copiedCode ? 'Copied to Clipboard!' : 'Copy Script Code'}
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleDownloadCodeGs}
+                  className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 rounded font-bold flex items-center gap-1.5 text-xs transition-colors cursor-pointer"
+                  title="Download Code.gs script file to your machine"
+                >
+                  <Download className="w-3.5 h-3.5 text-stone-600" />
+                  <span>Download Code.gs</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyScript}
+                  className="px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 rounded font-bold flex items-center gap-1.5 text-xs transition-colors cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedCode ? 'Copied to Clipboard!' : 'Copy Script Code'}</span>
+                </button>
+              </div>
             </div>
 
             {/* Quick 4-Step Instructions */}
@@ -1777,73 +1944,119 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             <div>
               <h3 className="text-base font-bold text-stone-900 flex items-center gap-2">
                 <ListPlus className="w-5 h-5 text-purple-600" />
-                <span>Particulars & Service Catalog Presets</span>
+                <span>Particulars &amp; Service Catalog Presets</span>
               </h3>
               <p className="text-xs text-stone-500 mt-0.5">
                 Manage pre-configured billing particulars, conference packages, banquet services, and unit rates for instant predictive autocomplete in document editors.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleOpenNewCatItem}
-              className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-amber-400 font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
-            >
-              <Plus className="w-4 h-4 text-amber-400" />
-              <span>Add Service Preset</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {isUnlocked && (
+                <button
+                  type="button"
+                  onClick={handlePurgeAllDemoData}
+                  className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Purge all demo / mock records across all operational modules"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Purge All Demo Data</span>
+                </button>
+              )}
+              {catalogueItems.length > 0 && isUnlocked && (
+                <button
+                  type="button"
+                  onClick={handlePurgeCatalogue}
+                  className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-300 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Purge particulars catalog"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-stone-500" />
+                  <span>Clear Catalog</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleOpenNewCatItem}
+                className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-amber-400 font-bold text-xs rounded-lg flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
+              >
+                <Plus className="w-4 h-4 text-amber-400" />
+                <span>Add Service Preset</span>
+              </button>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-stone-100 text-stone-700 border-b border-stone-200">
-                  <th className="p-3 font-bold">Billing Particulars Name</th>
-                  <th className="p-3 font-bold">Category</th>
-                  <th className="p-3 font-bold text-right">Standard Rate (Ksh)</th>
-                  <th className="p-3 font-bold">Tax Setting</th>
-                  <th className="p-3 font-bold text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-200">
-                {catalogueItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
-                    <td className="p-3 font-bold text-stone-900">{item.particulars}</td>
-                    <td className="p-3">
-                      <span className="bg-stone-100 border border-stone-200 px-2 py-0.5 rounded text-[11px] font-medium text-stone-700">
-                        {item.category}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right font-mono font-bold text-stone-900">
-                      Ksh {(item.standardRate || 0).toLocaleString()}
-                    </td>
-                    <td className="p-3 text-stone-600">
-                      {item.taxable !== false ? '16% VAT Applicable' : 'Tax Exempt'}
-                    </td>
-                    <td className="p-3 text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditCatItem(item)}
-                          className="p-1 text-stone-600 hover:text-amber-700 rounded hover:bg-stone-100 transition-colors cursor-pointer"
-                          title="Edit Preset"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCatItem(item.id)}
-                          className="p-1 text-stone-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="Permanently Remove Preset"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
+          {catalogueItems.length === 0 ? (
+            <div className="p-8 text-center bg-stone-50 border border-dashed border-stone-300 rounded-lg space-y-3">
+              <div className="w-12 h-12 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mx-auto">
+                <ListPlus className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="font-bold text-stone-800 text-sm">Service Catalog is Clean &amp; Ready</h4>
+                <p className="text-xs text-stone-500 mt-1 max-w-md mx-auto">
+                  All demo records have been purged. Add your hotel&apos;s official room types, conference packages, and catering items for quick autocomplete during quotation &amp; invoice drafting.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenNewCatItem}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-md inline-flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add First Service Particular</span>
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-stone-100 text-stone-700 border-b border-stone-200">
+                    <th className="p-3 font-bold">Billing Particulars Name</th>
+                    <th className="p-3 font-bold">Category</th>
+                    <th className="p-3 font-bold text-right">Standard Rate (Ksh)</th>
+                    <th className="p-3 font-bold">Tax Setting</th>
+                    <th className="p-3 font-bold text-center">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-stone-200">
+                  {catalogueItems.map((item) => (
+                    <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                      <td className="p-3 font-bold text-stone-900">{item.particulars}</td>
+                      <td className="p-3">
+                        <span className="bg-stone-100 border border-stone-200 px-2 py-0.5 rounded text-[11px] font-medium text-stone-700">
+                          {item.category}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-stone-900">
+                        Ksh {(item.standardRate || 0).toLocaleString()}
+                      </td>
+                      <td className="p-3 text-stone-600">
+                        {item.taxable !== false ? '16% VAT Applicable' : 'Tax Exempt'}
+                      </td>
+                      <td className="p-3 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditCatItem(item)}
+                            className="p-1 text-stone-600 hover:text-amber-700 rounded hover:bg-stone-100 transition-colors cursor-pointer"
+                            title="Edit Preset"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCatItem(item.id)}
+                            className="p-1 text-stone-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Permanently Remove Preset"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

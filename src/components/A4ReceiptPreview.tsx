@@ -13,7 +13,8 @@ interface A4ReceiptPreviewProps {
 
 export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps>(
   ({ payment, profile, scale = 1, className = '', isPrintVersion = false }, ref) => {
-    const phoneEmail = `${profile.phone || '+25472524262'} | ${profile.email || 'hoteldamview@gmail.com'}`;
+    const contactParts = [profile.phone?.trim(), profile.email?.trim()].filter(Boolean);
+    const phoneEmail = contactParts.join(' | ');
 
     // Adaptive column width allocation
     const paymentModeLen = (payment.paymentMode || 'Bank Transfer').length;
@@ -66,11 +67,16 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
                 >
                   {profile.name || 'HOTEL DAMVIEW'}
                 </h1>
+                {profile.tagline?.trim() && (
+                  <div className="text-[10pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
+                    {profile.tagline.trim()}
+                  </div>
+                )}
                 <div className="text-[11pt] text-stone-800 leading-snug space-y-0.5">
-                  <div>{profile.physicalLocation || 'MARIAKANI'}</div>
-                  <div>{profile.postalAddress || 'P.O. BOX 42491-80100, Mombasa, Kenya'}</div>
-                  <div>{phoneEmail}</div>
-                  <div className="font-semibold tracking-wider">KRA PIN: {profile.kraPin || 'P051453023Q'}</div>
+                  {profile.physicalLocation?.trim() && <div>{profile.physicalLocation.trim()}</div>}
+                  {profile.postalAddress?.trim() && <div>{profile.postalAddress.trim()}</div>}
+                  {phoneEmail && <div>{phoneEmail}</div>}
+                  {profile.kraPin?.trim() && <div className="font-semibold tracking-wider">KRA PIN: {profile.kraPin.trim()}</div>}
                 </div>
               </div>
             </div>
@@ -82,66 +88,86 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN METADATA GRID (Unified Structural Table Architecture) */}
-            <table className="document-table sync-meta-table mb-4 text-[11pt] w-full" style={{ tableLayout: 'fixed' }}>
-              <thead>
-                <tr className="bg-stone-100 border-b border-stone-800 text-stone-900">
-                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5 border-r border-stone-800">
-                    RECEIVED FROM
-                  </th>
-                  <th colSpan={2} className="w-1/2 text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-2.5">
-                    RECEIPT PARTICULARS
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e2e8f0]">
-                {/* Row 1: Client Name vs Receipt Number */}
-                <tr className="sync-row">
-                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
-                    Client Name:
-                  </td>
-                  <td className="w-[32%] font-bold text-stone-900 py-1.5 px-2.5 border-r-2 border-stone-800 align-top break-words">
-                    {payment.clientName || 'Walk-In Guest'}
-                  </td>
-                  <td className="w-[18%] font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40 shrink-0">
-                    Receipt No:
-                  </td>
-                  <td className="w-[32%] font-bold text-stone-950 py-1.5 px-2.5 align-top font-mono">
-                    {payment.receiptNumber || 'REC-DRAFT'}
-                  </td>
-                </tr>
-                {/* Row 2: Client ID vs Date */}
-                <tr className="sync-row">
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Client ID / Ref:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 border-r-2 border-stone-800 align-top tracking-wider font-mono">
-                    {payment.clientId || 'N/A'}
-                  </td>
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Date:
-                  </td>
-                  <td className="text-stone-800 py-1.5 px-2.5 align-top">
-                    {formatDate(payment.date)}
-                  </td>
-                </tr>
-                {/* Row 3: Invoice Settled vs Payment Method */}
-                <tr className="sync-row">
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Invoice Settled:
-                  </td>
-                  <td className="font-bold text-stone-900 py-1.5 px-2.5 border-r-2 border-stone-800 align-top font-mono break-words">
-                    {payment.documentNumber || 'Direct Payment'}
-                  </td>
-                  <td className="font-semibold text-stone-700 py-1.5 px-2.5 border-r border-[#e2e8f0] align-top bg-stone-50/40">
-                    Payment Method:
-                  </td>
-                  <td className="font-semibold text-stone-900 py-1.5 px-2.5 align-top">
-                    {payment.paymentMode}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            {/* 3. PARALLEL TWO-COLUMN DETAILS TABLES (Separated by Gutter, Borderless Key-Value Pairs) */}
+            <div className="details-grid-container grid grid-cols-2 gap-4 mb-4 text-[11pt] w-full items-stretch">
+              {/* Left Table: Received From */}
+              <div className="border border-stone-400 rounded overflow-hidden bg-white flex flex-col">
+                <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr className="bg-stone-100 border-b border-stone-400 text-stone-900">
+                      <th colSpan={2} className="text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-3">
+                        RECEIVED FROM
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-200">
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Client Name:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-bold text-stone-900 break-words align-middle">
+                        {payment.clientName || 'Walk-In Guest'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Client ID / Ref:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-mono text-stone-800 tracking-wider align-middle">
+                        {payment.clientId || 'N/A'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Invoice Settled:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-bold text-stone-900 font-mono break-words align-middle">
+                        {payment.documentNumber || 'Direct Payment'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Right Table: Document Details */}
+              <div className="border border-stone-400 rounded overflow-hidden bg-white flex flex-col">
+                <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr className="bg-stone-100 border-b border-stone-400 text-stone-900">
+                      <th colSpan={2} className="text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-3">
+                        DOCUMENT DETAILS
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-200">
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Receipt No:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-bold font-mono text-stone-950 align-middle">
+                        {payment.receiptNumber || 'REC-DRAFT'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Date:
+                      </td>
+                      <td className="py-1.5 px-3 text-right text-stone-800 align-middle">
+                        {formatDate(payment.date)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
+                        Payment Method:
+                      </td>
+                      <td className="py-1.5 px-3 text-right font-semibold text-stone-900 align-middle">
+                        {payment.paymentMode}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             {/* 4. DYNAMIC SETTLEMENT TABLE: Hairline high-contrast borders */}
             <div className="mb-4 w-full">
@@ -205,29 +231,27 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
               </table>
             </div>
 
-            {/* 5. FINANCIAL SUMMARY BLOCK */}
-            <div className="flex justify-end mb-4">
-              <div className="w-80">
-                <table className="document-table text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+            {/* 5. HEADERLESS FINANCIAL SUMMARY BLOCK */}
+            <div className="flex justify-end mb-4 w-full">
+              <div className="w-[50%] min-w-[320px] max-w-[380px]">
+                <table className="financial-summary-table border border-stone-300 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <tbody>
-                    <tr className="bg-[#f1f5f9] text-[12.5pt]">
-                      <td className="px-2.5 py-1.5 text-stone-950 font-bold uppercase tracking-tight">Total Amount Received:</td>
-                      <td className="px-2.5 py-1.5 text-right text-stone-950 font-black tabular-decimal">
-                        {formatKsh(payment.amount)}
-                      </td>
-                    </tr>
-                    <tr className="bg-stone-50/50 text-[11pt]">
-                      <td className="px-2.5 py-1 text-stone-600 font-normal">Settlement Channel:</td>
-                      <td className="px-2.5 py-1 text-right text-stone-800 font-medium">
+                    <tr className="financial-summary-row-intermediate">
+                      <td className="px-3 py-1 label-cell text-stone-600 font-normal">Settlement Channel:</td>
+                      <td className="px-3 py-1 value-cell text-stone-800 font-normal">
                         {payment.paymentMode}
                       </td>
                     </tr>
-                    <tr className="bg-emerald-50/80 text-[11pt]">
-                      <td className="px-2.5 py-1 text-emerald-800 font-medium uppercase tracking-wider">Payment Status:</td>
-                      <td className="px-2.5 py-1 text-right">
-                        <span className="font-bold text-emerald-900 bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded text-[11pt]">
-                          CONFIRMED & CLEARED
-                        </span>
+                    <tr className="financial-summary-row-intermediate">
+                      <td className="px-3 py-1 label-cell text-stone-600 font-normal">Payment Status:</td>
+                      <td className="px-3 py-1 value-cell text-emerald-800 font-normal">
+                        CONFIRMED & CLEARED
+                      </td>
+                    </tr>
+                    <tr className="financial-summary-row-balance">
+                      <td className="px-3 py-1.5 label-cell text-stone-950 font-bold">Total Amount Received:</td>
+                      <td className="px-3 py-1.5 value-cell tabular-nums font-bold text-stone-950">
+                        {formatKsh(payment.amount)}
                       </td>
                     </tr>
                   </tbody>
@@ -265,7 +289,7 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
             {/* 7. TERMINAL LEGAL FOOTER */}
             <div className="pt-2 border-t border-stone-800 flex items-center justify-between text-[11pt] text-stone-600">
               <div>Official computer generated payment receipt</div>
-              <div className="font-bold text-stone-800">Thank you for choosing HOTEL DAMVIEW</div>
+              <div className="font-bold text-stone-800">Thank you for choosing {profile.name || 'HOTEL DAMVIEW'}</div>
             </div>
           </div>
         </div>

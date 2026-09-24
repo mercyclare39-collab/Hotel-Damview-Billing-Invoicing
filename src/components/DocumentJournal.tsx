@@ -331,7 +331,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                           type="button"
                           onClick={() => setSelectedDocForPreview(doc)}
                           className="p-1 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded"
-                          title="Preview A4 Document"
+                          title="Preview Document"
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>

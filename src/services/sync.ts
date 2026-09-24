@@ -1,5 +1,5 @@
 import { dbService } from './db';
-import { BillingDocument, Client, PaymentRecord, HotelProfile, LineItem, StatementRecord } from '../types';
+import { BillingDocument, Client, PaymentRecord, HotelProfile, LineItem, StatementRecord, SyncQueueItem } from '../types';
 import { getPdfFileName } from '../utils/formatters';
 import { generateTestPdfDocument } from '../utils/pdfGenerator';
 import {
@@ -40,6 +40,10 @@ export interface SpreadsheetDataPayload {
   clients: any[];
   receipts: any[];
   profile: Record<string, string>;
+  reservations?: any[];
+  posOrders?: any[];
+  expenses?: any[];
+  catalogue?: any[];
 }
 
 export interface RealtimeSyncState {
@@ -426,6 +430,151 @@ export function sanitizePaymentForSync(payment: PaymentRecord): PaymentRecord {
   };
 }
 
+/**
+ * Prepares and formats a queue item payload into a valid Google Apps Script action envelope
+ */
+export function prepareQueueItemPayloadForDispatch(item: SyncQueueItem): any {
+  const rawPayload = item?.payload || {};
+  let rawAction = rawPayload.action || item?.action || (item as any)?.type || '';
+  if (typeof rawAction !== 'string') {
+    rawAction = String(rawAction || '');
+  }
+  let action: string = rawAction.trim();
+  if (!action || action === 'undefined' || action === 'null' || action === '[object Object]') {
+    action = '';
+  }
+
+  // 1. Action Normalization & Auto-Resolution
+  if (!action || action === 'UPSERT' || action === 'CREATE' || action === 'UPDATE') {
+    if (item?.entityType === 'DOCUMENT' || rawPayload.document || rawPayload.documentNumber || rawPayload.documentType) {
+      action = 'UPSERT_DOCUMENT';
+    } else if (item?.entityType === 'CLIENT' || rawPayload.client || rawPayload.kraPin || rawPayload.contactPerson) {
+      action = 'UPSERT_CLIENT';
+    } else if (item?.entityType === 'PAYMENT' || rawPayload.payment || rawPayload.receiptNumber || rawPayload.paymentMode) {
+      action = 'RECORD_PAYMENT';
+    } else if (item?.entityType === 'PROFILE' || rawPayload.profile || rawPayload.hotelName) {
+      action = 'UPSERT_PROFILE';
+    } else if (rawPayload.tombstones) {
+      action = 'PURGE_TOMBSTONES';
+    } else if (rawPayload.pdfBase64 && (rawPayload.statementNumber || rawPayload.startDate || rawPayload.endDate)) {
+      action = 'ARCHIVE_STATEMENT_PDF';
+    } else if (rawPayload.pdfBase64) {
+      action = 'ARCHIVE_PDF';
+    } else if (rawPayload.invoices || rawPayload.receipts || rawPayload.clients) {
+      action = 'FULL_SYNC';
+    } else {
+      action = 'FULL_SYNC';
+    }
+  } else if (action === 'DELETE' || action === 'DELETE_DOCUMENT') {
+    action = 'CASCADE_DELETE_DOCUMENT';
+  } else if (action === 'DELETE_CLIENT') {
+    action = 'CASCADE_DELETE_CLIENT';
+  } else if (action === 'DELETE_PAYMENT') {
+    action = 'CASCADE_DELETE_PAYMENT';
+  } else if (action === 'ARCHIVE_STATEMENT' || action === 'STATEMENT_PDF') {
+    action = 'ARCHIVE_STATEMENT_PDF';
+  }
+
+  // 2. Structured Envelope Assembly
+  if (action === 'UPSERT_DOCUMENT') {
+    const doc = rawPayload.document || (rawPayload.documentNumber ? rawPayload : null);
+    return {
+      action: 'UPSERT_DOCUMENT',
+      document: doc ? sanitizeDocumentForSync(doc) : undefined,
+      pdfBase64: rawPayload.pdfBase64,
+      folderName: rawPayload.folderName,
+      fileName: rawPayload.fileName,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (action === 'RECORD_PAYMENT') {
+    const pay = rawPayload.payment || (rawPayload.receiptNumber ? rawPayload : null);
+    return {
+      action: 'RECORD_PAYMENT',
+      payment: pay ? sanitizePaymentForSync(pay) : undefined,
+      pdfBase64: rawPayload.pdfBase64,
+      folderName: rawPayload.folderName,
+      fileName: rawPayload.fileName,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (action === 'UPSERT_CLIENT') {
+    const cli = rawPayload.client || (rawPayload.name || rawPayload.kraPin ? rawPayload : null);
+    return {
+      action: 'UPSERT_CLIENT',
+      client: cli ? sanitizeClientForSync(cli) : undefined,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (action === 'UPSERT_PROFILE') {
+    return {
+      action: 'UPSERT_PROFILE',
+      profile: rawPayload.profile || rawPayload,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (action === 'CASCADE_DELETE_DOCUMENT') {
+    return {
+      action: 'CASCADE_DELETE_DOCUMENT',
+      documentId: rawPayload.documentId || item?.entityId || rawPayload.id,
+      documentNumber: rawPayload.documentNumber,
+      folderName: rawPayload.folderName,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (action === 'CASCADE_DELETE_CLIENT') {
+    return {
+      action: 'CASCADE_DELETE_CLIENT',
+      clientId: rawPayload.clientId || item?.entityId || rawPayload.id,
+      clientName: rawPayload.clientName || rawPayload.name,
+      kraPin: rawPayload.kraPin,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (action === 'CASCADE_DELETE_PAYMENT') {
+    return {
+      action: 'CASCADE_DELETE_PAYMENT',
+      paymentId: rawPayload.paymentId || item?.entityId || rawPayload.id,
+      receiptNumber: rawPayload.receiptNumber,
+      documentNumber: rawPayload.documentNumber,
+      folderName: rawPayload.folderName,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (action === 'ARCHIVE_STATEMENT_PDF' || action === 'ARCHIVE_PDF' || action === 'UPLOAD_PDF') {
+    return {
+      action: action === 'ARCHIVE_STATEMENT_PDF' ? 'ARCHIVE_STATEMENT_PDF' : 'ARCHIVE_PDF',
+      pdfBase64: rawPayload.pdfBase64,
+      folderName: rawPayload.folderName,
+      fileName: rawPayload.fileName,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (action === 'PURGE_TOMBSTONES') {
+    return {
+      action: 'PURGE_TOMBSTONES',
+      tombstones: rawPayload.tombstones || [],
+      folderName: rawPayload.folderName,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // Generic or full sync fallback with action guaranteed
+  return {
+    ...rawPayload,
+    action: action || 'FULL_SYNC',
+    timestamp: new Date().toISOString(),
+  };
+}
+
 class GoogleSyncManager {
   private isSyncing = false;
   private autoSyncIntervalId: any = null;
@@ -434,6 +583,8 @@ class GoogleSyncManager {
   private immediatePushTimeout: any = null;
   private listeners: Set<SyncStateListener> = new Set();
   private pollingIntervalSeconds = 5; // Real-time 5-second polling
+  private inflightFetchPromise: Promise<any> | null = null;
+  private inflightQueuePromise: Promise<any> | null = null;
 
   private currentState: RealtimeSyncState = {
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -543,6 +694,13 @@ class GoogleSyncManager {
       }
     });
 
+    // 4. Instant push on sync-queue-added event
+    window.addEventListener('damview:sync-queue-added', () => {
+      if (navigator.onLine) {
+        this.triggerImmediatePush();
+      }
+    });
+
     this.listenersAttached = true;
   }
 
@@ -599,7 +757,7 @@ class GoogleSyncManager {
       this.processSyncQueue()
         .then(() => this.checkAndAutoSync())
         .catch((err) => console.warn('[GoogleSync] Immediate push error:', err));
-    }, 50);
+    }, 0);
   }
 
   private async checkAndAutoSync() {
@@ -621,7 +779,8 @@ class GoogleSyncManager {
   async postToScript<T = any>(
     url: string,
     payload: any,
-    timeoutMs = 35000
+    timeoutMs = 120000,
+    retryCount = 1
   ): Promise<{ success: boolean; message?: string; error?: string; [key: string]: any }> {
     if (!url || typeof url !== 'string' || !url.trim().startsWith('http')) {
       return {
@@ -630,7 +789,12 @@ class GoogleSyncManager {
       };
     }
 
-    const trimmedUrl = url.trim();
+    let trimmedUrl = url.trim();
+
+    // Auto-patch & self-heal /dev URLs to production /exec URLs
+    if (trimmedUrl.includes('/dev')) {
+      trimmedUrl = trimmedUrl.replace(/\/dev(\/|\?|$)/, '/exec$1');
+    }
 
     // Catch common user confusion between Google Sheets URL and Apps Script Web App URL
     if (trimmedUrl.includes('docs.google.com/spreadsheets')) {
@@ -659,7 +823,8 @@ class GoogleSyncManager {
       const normalizedPayload = normalizePayloadBeforeJson(payload);
       const jsonBody = JSON.stringify(normalizedPayload);
 
-      const res = await fetch(trimmedUrl, {
+      // Primary Dispatch: text/plain
+      let res = await fetch(trimmedUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'text/plain;charset=utf-8',
@@ -668,12 +833,49 @@ class GoogleSyncManager {
         signal: controller?.signal,
       });
 
+      if (res.status === 404) {
+        if (timeoutId) clearTimeout(timeoutId);
+        return {
+          success: false,
+          error: 'HTTP error 404: Google Apps Script Web App URL not found. Please verify the Web App deployment URL in Settings.',
+        };
+      }
+
+      let rawText = await res.text();
+      let trimmedText = rawText.trim();
+
+      // Fallback Dispatch: If text/plain produced HTML redirect, try url-encoded form post fallback
+      if (
+        trimmedText.startsWith('<') ||
+        trimmedText.toLowerCase().includes('<!doctype') ||
+        trimmedText.toLowerCase().includes('<html')
+      ) {
+        try {
+          const formParams = new URLSearchParams();
+          formParams.append('payload', jsonBody);
+
+          const fallbackRes = await fetch(trimmedUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+            },
+            body: formParams.toString(),
+            signal: controller?.signal,
+          });
+
+          const fallbackText = await fallbackRes.text();
+          const fallbackTrimmed = fallbackText.trim();
+
+          if (!fallbackTrimmed.startsWith('<') && !fallbackTrimmed.toLowerCase().includes('<!doctype')) {
+            rawText = fallbackText;
+            trimmedText = fallbackTrimmed;
+          }
+        } catch {}
+      }
+
       if (timeoutId) clearTimeout(timeoutId);
 
-      const rawText = await res.text();
-
       // Guard: Detect if Google returned an HTML page (login redirect or unhandled error)
-      const trimmedText = rawText.trim();
       if (
         trimmedText.startsWith('<') ||
         trimmedText.toLowerCase().includes('<!doctype') ||
@@ -728,10 +930,22 @@ class GoogleSyncManager {
       };
     } catch (err: any) {
       if (timeoutId) clearTimeout(timeoutId);
+
+      if (retryCount > 0 && (err.name === 'AbortError' || (err.message && (err.message.toLowerCase().includes('failed to fetch') || err.message.toLowerCase().includes('networkerror'))))) {
+        await new Promise((r) => setTimeout(r, 2000));
+        return this.postToScript(url, payload, timeoutMs, retryCount - 1);
+      }
+
       if (err.name === 'AbortError') {
         return {
           success: false,
           error: 'Request to Google Apps Script timed out. The operation might still be processing in Google Sheets.',
+        };
+      }
+      if (err.message && (err.message.toLowerCase().includes('failed to fetch') || err.message.toLowerCase().includes('networkerror') || err.message.toLowerCase().includes('net::err'))) {
+        return {
+          success: false,
+          error: 'Network connection failed (Failed to fetch). Please check your internet connection and verify your Google Apps Script Web App URL in Settings.',
         };
       }
       return {
@@ -867,6 +1081,16 @@ class GoogleSyncManager {
         res?.pdfArchived?.status === 'ARCHIVED' ||
         (driveUrl && typeof driveUrl === 'string' && driveUrl.startsWith('http'))
       );
+
+      // Deterministic collision resolution: If server renumbered to resolve multi-terminal race condition
+      if (res?.renumbered && res.renumbered.newNumber) {
+        documentToSave.documentNumber = res.renumbered.newNumber;
+        await dbService.handleDocumentRenumbering(
+          res.renumbered.originalNumber,
+          res.renumbered.newNumber,
+          res.renumbered.id || documentToSave.id
+        );
+      }
 
       // Update local storage record with cloud sync success attributes
       await dbService.saveDocument({
@@ -1322,6 +1546,16 @@ class GoogleSyncManager {
         (driveUrl && typeof driveUrl === 'string' && driveUrl.startsWith('http'))
       );
 
+      // Deterministic collision resolution: If server renumbered to resolve multi-terminal race condition
+      if (res?.renumbered && res.renumbered.newNumber) {
+        sanitizedPayment.receiptNumber = res.renumbered.newNumber;
+        await dbService.handleReceiptRenumbering(
+          res.renumbered.originalNumber,
+          res.renumbered.newNumber,
+          res.renumbered.id || sanitizedPayment.id
+        );
+      }
+
       await dbService.savePayment({
         ...sanitizedPayment,
         syncedToGoogle: true,
@@ -1680,12 +1914,22 @@ class GoogleSyncManager {
       return { success: false, error: 'Offline or Web App URL not configured.' };
     }
 
-    try {
-      const res = await this.postToScript(url, { action: 'GET_SHEET_DATA', timestamp: new Date().toISOString() });
-      return { success: res.success, data: res.data, error: res.error };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to fetch spreadsheet data' };
+    if (this.inflightFetchPromise) {
+      return this.inflightFetchPromise;
     }
+
+    this.inflightFetchPromise = (async () => {
+      try {
+        const res = await this.postToScript(url, { action: 'GET_SHEET_DATA', timestamp: new Date().toISOString() });
+        return { success: res.success, data: res.data, error: res.error };
+      } catch (err: any) {
+        return { success: false, error: err.message || 'Failed to fetch spreadsheet data' };
+      } finally {
+        this.inflightFetchPromise = null;
+      }
+    })();
+
+    return this.inflightFetchPromise;
   }
 
   /**
@@ -1802,93 +2046,98 @@ class GoogleSyncManager {
       };
     }
 
-    let processed = 0;
-    let failed = 0;
-    let lastError = '';
+    if (this.inflightQueuePromise) {
+      return this.inflightQueuePromise;
+    }
 
-    try {
-      const queue = await dbService.getSyncQueue();
-      if (queue.length === 0) {
-        return {
-          success: true,
-          message: 'Offline queue is clear.',
-          timestamp: new Date().toISOString(),
-          itemsProcessed: 0,
-        };
-      }
+    this.inflightQueuePromise = (async () => {
+      let processed = 0;
+      let failed = 0;
+      let lastError = '';
 
-      this.notifyListeners({ isSyncing: true, statusText: `Flushing ${queue.length} queued item(s)...` });
+      try {
+        const queue = await dbService.getSyncQueue();
+        if (queue.length === 0) {
+          return {
+            success: true,
+            message: 'Offline queue is clear.',
+            timestamp: new Date().toISOString(),
+            itemsProcessed: 0,
+          };
+        }
 
-      for (const item of queue) {
-        try {
-          const payloadToSend = { ...item.payload };
-          if (payloadToSend.document) {
-            payloadToSend.document = sanitizeDocumentForSync(payloadToSend.document);
+        this.notifyListeners({ isSyncing: true, statusText: `Flushing ${queue.length} queued item(s)...` });
+
+        for (const item of queue) {
+          try {
+            const payloadToSend = prepareQueueItemPayloadForDispatch(item);
+
+            const res = await this.postToScript(url, payloadToSend);
+
+            if (!res.success) {
+              throw new Error(res.error || 'Sync rejected by Google backend');
+            }
+
+            if (item.id !== undefined) {
+              await dbService.removeSyncQueueItem(item.id);
+            }
+            processed++;
+          } catch (itemErr: any) {
+            failed++;
+            lastError = itemErr?.message || 'Sync network error';
+            console.warn('Queue item sync failed:', itemErr);
+
+            await dbService.updateSyncQueueItem({
+              ...item,
+              status: 'failed',
+              retryCount: (item.retryCount || 0) + 1,
+              errorMessage: lastError,
+            });
           }
-          if (payloadToSend.client) {
-            payloadToSend.client = sanitizeClientForSync(payloadToSend.client);
-          }
-          if (payloadToSend.payment) {
-            payloadToSend.payment = sanitizePaymentForSync(payloadToSend.payment);
-          }
+        }
 
-          const res = await this.postToScript(url, payloadToSend);
+        const remainingQueue = await dbService.getSyncQueue();
+        this.notifyListeners({ pendingCount: remainingQueue.length });
 
-          if (!res.success) {
-            throw new Error(res.error || 'Sync rejected by Google backend');
-          }
-
-          await dbService.removeSyncQueueItem(item.id);
-          processed++;
-        } catch (itemErr: any) {
-          failed++;
-          lastError = itemErr?.message || 'Sync network error';
-          console.warn('Queue item sync failed:', itemErr);
-
-          await dbService.updateSyncQueueItem({
-            ...item,
-            status: 'failed',
-            retryCount: (item.retryCount || 0) + 1,
-            errorMessage: lastError,
+        if (processed > 0) {
+          await dbService.saveHotelProfile({
+            lastSyncTimestamp: new Date().toISOString(),
           });
         }
-      }
 
-      const remainingQueue = await dbService.getSyncQueue();
-      this.notifyListeners({ pendingCount: remainingQueue.length });
+        if (failed > 0 && processed === 0) {
+          return {
+            success: false,
+            message: `Sync failed for ${failed} queued item(s): ${lastError}`,
+            timestamp: new Date().toISOString(),
+            itemsProcessed: 0,
+            error: lastError,
+          };
+        }
 
-      if (processed > 0) {
-        await dbService.saveHotelProfile({
-          lastSyncTimestamp: new Date().toISOString(),
-        });
-      }
-
-      if (failed > 0 && processed === 0) {
+        return {
+          success: true,
+          message:
+            processed > 0
+              ? `Successfully pushed ${processed} queued mutation(s) to Google Sheets.${failed > 0 ? ` (${failed} deferred)` : ''}`
+              : 'Offline queue was already clear.',
+          timestamp: new Date().toISOString(),
+          itemsProcessed: processed,
+        };
+      } catch (err: any) {
         return {
           success: false,
-          message: `Sync failed for ${failed} queued item(s): ${lastError}`,
+          message: `Queue processing error: ${err.message}`,
           timestamp: new Date().toISOString(),
-          itemsProcessed: 0,
-          error: lastError,
+          error: err.message,
         };
       }
+    })();
 
-      return {
-        success: true,
-        message:
-          processed > 0
-            ? `Successfully pushed ${processed} queued mutation(s) to Google Sheets.${failed > 0 ? ` (${failed} deferred)` : ''}`
-            : 'Offline queue was already clear.',
-        timestamp: new Date().toISOString(),
-        itemsProcessed: processed,
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        message: `Queue processing error: ${err.message}`,
-        timestamp: new Date().toISOString(),
-        error: err.message,
-      };
+    try {
+      return await this.inflightQueuePromise;
+    } finally {
+      this.inflightQueuePromise = null;
     }
   }
 
@@ -1901,9 +2150,13 @@ class GoogleSyncManager {
     const profCount = data.proformas?.length || 0;
     const clientCount = data.clients?.length || 0;
     const recCount = data.receipts?.length || 0;
+    const resCount = data.reservations?.length || 0;
+    const posCount = data.posOrders?.length || 0;
+    const expCount = data.expenses?.length || 0;
+    const catCount = data.catalogue?.length || 0;
     const lastInv = data.invoices?.[0]?.documentNumber || '';
     const lastRec = data.receipts?.[0]?.receiptNumber || '';
-    return `${invCount}_${quotCount}_${profCount}_${clientCount}_${recCount}_${lastInv}_${lastRec}_${data.serverTimestamp || ''}`;
+    return `${invCount}_${quotCount}_${profCount}_${clientCount}_${recCount}_${resCount}_${posCount}_${expCount}_${catCount}_${lastInv}_${lastRec}_${data.serverTimestamp || ''}`;
   }
 
   /**
@@ -1919,6 +2172,10 @@ class GoogleSyncManager {
       proformas: number;
       clients: number;
       payments: number;
+      reservations?: number;
+      posOrders?: number;
+      expenses?: number;
+      catalogue?: number;
     };
     error?: string;
     unchanged?: boolean;
@@ -1958,6 +2215,10 @@ class GoogleSyncManager {
         proformas: 0,
         clients: 0,
         payments: 0,
+        reservations: 0,
+        posOrders: 0,
+        expenses: 0,
+        catalogue: 0,
       };
 
       // Get pending offline queue IDs so local un-synced edits are not overwritten
@@ -2270,6 +2531,132 @@ class GoogleSyncManager {
         }
       }
 
+      // 5. MERGE RESERVATIONS (Non-destructive & Tombstone-aware)
+      if (Array.isArray(remoteData.reservations) && remoteData.reservations.length > 0) {
+        for (const rRes of remoteData.reservations) {
+          if (!rRes.id && !rRes.folioNumber && !rRes.guestName) continue;
+          const resId = rRes.id || `RES-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          const isTombstoned = await dbService.isTombstoned(resId);
+          if (isTombstoned) continue;
+          const existingRes = await dbService.getReservationById(resId);
+          if (!existingRes) {
+            await dbService.saveReservation({
+              id: resId,
+              folioNumber: rRes.folioNumber || rRes.bookingNumber || `FOL-${Date.now().toString().slice(-4)}`,
+              guestName: rRes.guestName || 'Guest',
+              guestPhone: rRes.phone || rRes.guestPhone || '',
+              guestEmail: rRes.email || rRes.guestEmail || '',
+              guestKraPin: rRes.kraPin || rRes.guestKraPin || '',
+              clientId: rRes.clientId || '',
+              clientName: rRes.clientName || rRes.guestName || '',
+              unitType: (rRes.unitType as any) || 'Room',
+              unitName: rRes.room || rRes.unitName || 'Standard Room',
+              checkInDate: normalizeDate(rRes.checkInDate),
+              checkOutDate: normalizeDate(rRes.checkOutDate),
+              ratePerNight: normalizeCurrency(rRes.rate || rRes.ratePerNight),
+              nightsOrDays: Number(rRes.days || rRes.nightsOrDays || 1),
+              totalAmount: normalizeCurrency(rRes.totalAmount),
+              amountPaid: normalizeCurrency(rRes.amountPaid),
+              balanceDue: normalizeCurrency(rRes.balance || rRes.balanceDue),
+              status: (rRes.status as any) || 'Reserved',
+              specialRequests: rRes.specialRequests || '',
+              invoicedDocId: rRes.invoicedDocId,
+              createdAt: rRes.createdAt || new Date().toISOString(),
+              updatedAt: rRes.updatedAt || new Date().toISOString(),
+            });
+            pulledCount++;
+            pullStats.reservations = (pullStats.reservations || 0) + 1;
+          }
+        }
+      }
+
+      // 6. MERGE POS ORDERS (Non-destructive & Tombstone-aware)
+      if (Array.isArray(remoteData.posOrders) && remoteData.posOrders.length > 0) {
+        for (const rOrder of remoteData.posOrders) {
+          if (!rOrder.orderNumber && !rOrder.id) continue;
+          const orderId = rOrder.id || rOrder.orderNumber;
+          const isTombstoned = await dbService.isTombstoned(orderId);
+          if (isTombstoned) continue;
+          const existingOrders = await dbService.getPOSOrders();
+          const existing = existingOrders.find((o) => o.id === orderId || o.orderNumber === rOrder.orderNumber);
+          if (!existing) {
+            await dbService.savePOSOrder({
+              id: orderId,
+              orderNumber: rOrder.orderNumber || `POS-${Date.now().toString().slice(-4)}`,
+              tableOrRoom: rOrder.guestTable || rOrder.tableOrRoom || 'Table 1',
+              guestOrClientName: rOrder.guestOrClientName || rOrder.guestName || 'Guest',
+              items: Array.isArray(rOrder.items) ? rOrder.items : [],
+              subtotal: normalizeCurrency(rOrder.subtotal),
+              vatAmount: normalizeCurrency(rOrder.tax || rOrder.vatAmount),
+              grandTotal: normalizeCurrency(rOrder.totalAmount || rOrder.grandTotal),
+              paymentMode: (rOrder.paymentMode as any) || 'Cash',
+              status: (rOrder.status as any) || 'Completed',
+              receiptNumber: rOrder.receiptNumber,
+              createdAt: rOrder.orderDate || rOrder.createdAt || new Date().toISOString(),
+            });
+            pulledCount++;
+            pullStats.posOrders = (pullStats.posOrders || 0) + 1;
+          }
+        }
+      }
+
+      // 7. MERGE EXPENSES (Non-destructive & Tombstone-aware)
+      if (Array.isArray(remoteData.expenses) && remoteData.expenses.length > 0) {
+        for (const rExp of remoteData.expenses) {
+          if (!rExp.id && !rExp.description) continue;
+          const expId = rExp.id || `EXP-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          const isTombstoned = await dbService.isTombstoned(expId);
+          if (isTombstoned) continue;
+          const existingExpenses = await dbService.getExpenses();
+          const existing = existingExpenses.find((e) => e.id === expId);
+          if (!existing) {
+            await dbService.saveExpense({
+              id: expId,
+              expenseNumber: rExp.expenseNumber || rExp.id || `EXP-${Date.now().toString().slice(-4)}`,
+              category: (rExp.category as any) || 'Administrative & Other',
+              description: rExp.description || 'Expense',
+              amount: normalizeCurrency(rExp.amount),
+              date: normalizeDate(rExp.date),
+              paidTo: rExp.vendor || rExp.paidTo || '',
+              paymentMode: (rExp.paymentMode as any) || 'Cash',
+              receiptRef: rExp.receiptRef,
+              createdAt: rExp.createdAt || new Date().toISOString(),
+            });
+            pulledCount++;
+            pullStats.expenses = (pullStats.expenses || 0) + 1;
+          }
+        }
+      }
+
+      // 8. MERGE CATALOGUE (Non-destructive & Tombstone Protected)
+      if (Array.isArray(remoteData.catalogue) && remoteData.catalogue.length > 0) {
+        for (const rCat of remoteData.catalogue) {
+          if (!rCat.particulars && !rCat.id) continue;
+          const catId = rCat.id || `CAT-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          
+          // Defensively skip any item purged locally (Zero Resurrection)
+          const isTombstoned =
+            (catId && (await dbService.isTombstoned(catId))) ||
+            (rCat.particulars && (await dbService.isTombstoned(rCat.particulars.toLowerCase())));
+          if (isTombstoned) continue;
+
+          const existingCat = await dbService.getCatalogueItems();
+          const existing = existingCat.find((c) => c.id === catId || c.particulars.toLowerCase() === (rCat.particulars || '').toLowerCase());
+          if (!existing) {
+            await dbService.saveCatalogueItem({
+              id: catId,
+              particulars: rCat.particulars || '',
+              category: (rCat.category as any) || 'Food & Beverage',
+              standardRate: normalizeCurrency(rCat.rate || rCat.standardRate),
+              taxable: rCat.taxApplicable === 'Yes' || rCat.taxable === true,
+              defaultUnit: (rCat.defaultUnit as any) || 'Item',
+            });
+            pulledCount++;
+            pullStats.catalogue = (pullStats.catalogue || 0) + 1;
+          }
+        }
+      }
+
       this.lastPulledHash = currentHash;
 
       if (pulledCount > 0 && typeof window !== 'undefined') {
@@ -2303,9 +2690,9 @@ class GoogleSyncManager {
   }
 
   /**
-   * Request Google Apps Script to Generate/Recalculate All 11 Tabs & Analytics
+   * Request Google Apps Script to Auto Generate All Module Tabs and Purge Duplicate / Obsolete Tabs
    */
-  async generateAllSheetTabs(): Promise<{ success: boolean; message: string; tabs?: any[]; error?: string }> {
+  async autoGenerateTabs(): Promise<{ success: boolean; message: string; tabs?: any[]; error?: string; purgedCount?: number }> {
     const profile = await dbService.getHotelProfile();
     const url = profile.googleWebAppUrl;
     if (!url || !navigator.onLine) {
@@ -2313,20 +2700,25 @@ class GoogleSyncManager {
     }
 
     try {
-      this.notifyListeners({ isSyncing: true, statusText: 'Generating all 11 ERP tabs in Google Sheets...' });
-      const res = await this.postToScript(url, { action: 'GENERATE_ALL_TABS', timestamp: new Date().toISOString() }, 45000);
+      this.notifyListeners({ isSyncing: true, statusText: 'Auto generating all module tabs & purging duplicate tabs...' });
+      const res = await this.postToScript(url, { action: 'AUTO_GENERATE_TABS', timestamp: new Date().toISOString() }, 45000);
 
-      this.notifyListeners({ isSyncing: false, statusText: res.success ? 'All 11 tabs ready' : 'Tab generation failed' });
+      this.notifyListeners({ isSyncing: false, statusText: res.success ? 'Module tabs generated & deduplicated' : 'Tab generation failed' });
       return {
         success: res.success,
-        message: res.message || (res.success ? 'All tabs generated successfully.' : (res.error || 'Failed to generate tabs')),
+        message: res.message || (res.success ? 'All module tabs auto generated and deduplicated successfully.' : (res.error || 'Failed to auto generate tabs')),
         tabs: res.tabs,
+        purgedCount: res.purgedCount,
         error: res.error,
       };
     } catch (err: any) {
-      this.notifyListeners({ isSyncing: false, statusText: 'Tab generation failed' });
-      return { success: false, message: err.message || 'Failed to generate tabs', error: err.message };
+      this.notifyListeners({ isSyncing: false, statusText: 'Auto tab generation failed' });
+      return { success: false, message: err.message || 'Failed to auto generate tabs', error: err.message };
     }
+  }
+
+  async generateAllSheetTabs(): Promise<{ success: boolean; message: string; tabs?: any[]; error?: string }> {
+    return this.autoGenerateTabs();
   }
 
   /**
@@ -2395,13 +2787,13 @@ class GoogleSyncManager {
             await this.postToScript(url, { action: 'RECORD_PAYMENT', payment: p }, 15000);
           }
 
-          // 5. Generate / Refresh Tabs
-          const genRes = await this.postToScript(url, { action: 'GENERATE_ALL_TABS' }, 30000);
+          // 5. Auto Generate & Deduplicate Module Tabs
+          const genRes = await this.postToScript(url, { action: 'AUTO_GENERATE_TABS' }, 30000);
 
           if (genRes.success) {
             res = {
               success: true,
-              message: 'All 11 spreadsheet tabs populated via compatibility sync pipeline.',
+              message: 'All module spreadsheet tabs populated and deduplicated via compatibility sync pipeline.',
             };
           } else {
             res = {
@@ -2437,8 +2829,8 @@ class GoogleSyncManager {
   async syncBidirectional(): Promise<SyncResult> {
     if (this.isSyncing) {
       return {
-        success: false,
-        message: 'Sync already in progress...',
+        success: true,
+        message: 'Sync already processing in background...',
         timestamp: new Date().toISOString(),
       };
     }
@@ -2462,9 +2854,12 @@ class GoogleSyncManager {
     }
 
     this.isSyncing = true;
-    this.notifyListeners({ isSyncing: true, statusText: 'Realtime Live Syncing...' });
+    this.notifyListeners({ isSyncing: true, statusText: 'Realtime Live Syncing & Tab Auto-Generation...' });
 
     try {
+      // Step 0: Auto Generate & Deduplicate All Module Tabs in Google Sheets
+      await this.autoGenerateTabs().catch(() => {});
+
       // Step 1: Push offline queued items to Google Sheets
       const pushResult = await this.processSyncQueue();
       const pushedCount = pushResult.itemsProcessed || 0;
@@ -2492,6 +2887,11 @@ class GoogleSyncManager {
         pendingCount: queue.length,
         statusText: 'Live Synced',
       });
+
+      // Dispatch global sync completion event for live worksheet auto-refresh
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('damview-sync-completed', { detail: { timestamp: now } }));
+      }
 
       return {
         success: true,
@@ -2539,11 +2939,33 @@ class GoogleSyncManager {
   async upsertPayment(payment: PaymentRecord, pdfBase64?: string): Promise<any> {
     return this.syncPayment(payment, pdfBase64);
   }
-  async upsertProfile(profile: HotelProfile): Promise<any> {
-    return this.syncProfile(profile);
+  /**
+   * Multi-terminal cloud sequence reservation check (Non-colliding document numbering)
+   */
+  async getCloudSequenceNumber(
+    docType: 'INVOICE' | 'QUOTATION' | 'PROFORMA' | 'RECEIPT' | 'STATEMENT'
+  ): Promise<string | null> {
+    try {
+      const profile = await dbService.getHotelProfile();
+      if (!profile?.googleWebAppUrl || !navigator.onLine) return null;
+      const res = await this.postToScript(profile.googleWebAppUrl, {
+        action: 'GET_NEXT_DOCUMENT_NUMBER',
+        docType: docType.toUpperCase(),
+      });
+      if (res?.success && res.nextNumber) {
+        return res.nextNumber;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 }
 
 export const syncManager = new GoogleSyncManager();
+
+// Wire up atomic cloud sequence coordination to dbService
+dbService.setCloudSequenceResolver(async (type) => syncManager.getCloudSequenceNumber(type));
+
 export { runEndToEndSyncVerification };
 export type { SyncVerificationResult };

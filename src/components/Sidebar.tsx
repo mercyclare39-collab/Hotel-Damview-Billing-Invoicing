@@ -22,6 +22,7 @@ import {
   Utensils,
   TrendingUp,
   FolderGit2,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { HotelLogo } from './HotelLogo';
 import { HotelProfile } from '../types';
@@ -39,6 +40,7 @@ export type MainNavModule =
   | 'vault'
   | 'clients'
   | 'sync'
+  | 'excel'
   | 'settings';
 
 interface SidebarProps {
@@ -108,9 +110,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleMobile,
 }) => {
   const [isHovered, setIsHovered] = React.useState(false);
+  const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  // When collapsed on desktop, hovering temporarily expands the sidebar
-  const effectiveCollapsed = isCollapsed && !isHovered;
+  const handleMouseEnter = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+      hoverTimeoutRef.current = null;
+    }
+    setIsHovered(true);
+  };
+
+  const handleMouseLeave = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current);
+    }
+    // Smooth 250ms autohide delay to prevent jitter
+    hoverTimeoutRef.current = setTimeout(() => {
+      setIsHovered(false);
+    }, 250);
+  };
+
+  React.useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    };
+  }, []);
+
+  // Always show labels on menu items
+  const effectiveCollapsed = false;
 
   const navCategories: NavCategory[] = [
     {
@@ -228,6 +255,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           badgeColor: 'bg-amber-500 text-stone-950 font-bold',
         },
         {
+          id: 'excel',
+          label: 'Excel Master Suite (.xlsm)',
+          icon: FileSpreadsheet,
+          badge: 'Offline',
+          badgeColor: 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold',
+        },
+        {
           id: 'settings',
           label: 'Hotel Settings',
           icon: Settings,
@@ -242,6 +276,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onSelectModule(id);
     if (isMobileOpen) {
       onToggleMobile();
+    }
+    // Auto hide menu / collapse sidebar on selection to maximize workspace
+    if (!isCollapsed && onToggleCollapse) {
+      onToggleCollapse();
     }
   };
 
@@ -269,7 +307,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className="text-[10px] text-stone-300 tracking-wide truncate font-medium"
                 title={`${profile.physicalLocation || ''} • ${profile.postalAddress || ''}`}
               >
-                {profile.physicalLocation || profile.postalAddress || profile.tagline || 'Machakos, Kenya'}
+                {profile.physicalLocation || profile.postalAddress || profile.tagline || ''}
               </div>
               {profile.kraPin && (
                 <div className="text-[9px] font-mono text-stone-400 truncate mt-0.5">
@@ -493,12 +531,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <>
       {/* Desktop Persistent / Ambient Floating Sidebar */}
       <aside
-        onMouseEnter={() => {
-          if (isCollapsed) setIsHovered(true);
-        }}
-        onMouseLeave={() => {
-          setIsHovered(false);
-        }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         className={`hidden lg:block shrink-0 transition-all duration-300 ease-in-out h-screen sticky top-0 z-30 ${
           effectiveCollapsed ? 'w-20' : 'w-64'
         }`}

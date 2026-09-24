@@ -32,6 +32,7 @@ import {
 import { BillingDocument, DocumentType, DocumentStatus, Client, HotelProfile } from '../types';
 import { formatKsh, formatDate, calculateDueDate } from '../utils/formatters';
 import { generatePdfFromElement, shareDocumentPdf, getWhatsAppShareUrl } from '../utils/pdfGenerator';
+import { exportTableToXlsx } from '../utils/excelExporter';
 import { DocumentEditor } from './DocumentEditor';
 import { A4DocumentPreview } from './A4DocumentPreview';
 
@@ -138,53 +139,57 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
     });
   }, [activeSubTab, specialDocs, moduleDocs, statusFilter, searchQuery]);
 
-  // Export Filtered Journal to CSV
-  const handleExportCsv = () => {
+  // Export Filtered Journal to Native Formatted Excel (.xlsx)
+  const handleExportXlsx = async () => {
     if (filteredJournalDocs.length === 0) {
       alert('No documents to export in the current view.');
       return;
     }
 
-    const headers = [
-      'Document Number',
-      'Document Type',
-      'Client Name',
-      'Client Phone',
-      'Client KRA PIN',
-      'Issue Date',
-      'Due / Expiry Date',
-      'Subtotal (KES)',
-      'VAT 16% (KES)',
-      'Grand Total (KES)',
-      'Amount Paid (KES)',
-      'Balance Due (KES)',
-      'Status',
+    const columns = [
+      { header: 'Doc Number', key: 'documentNumber', type: 'code' as const, width: 14 },
+      { header: 'Doc Type', key: 'documentType', type: 'text' as const, width: 12 },
+      { header: 'Client / Guest Name', key: 'clientName', type: 'text' as const, width: 26 },
+      { header: 'Phone Number', key: 'clientPhone', type: 'code' as const, width: 16 },
+      { header: 'KRA PIN', key: 'clientKraPin', type: 'code' as const, width: 14 },
+      { header: 'Issue Date', key: 'issueDate', type: 'date' as const, width: 13 },
+      { header: moduleType === 'QUOTATION' ? 'Valid Until' : 'Due Date', key: 'dueDate', type: 'date' as const, width: 13 },
+      { header: 'Subtotal (Ksh)', key: 'subtotal', type: 'currency' as const, width: 16 },
+      { header: 'VAT 16% (Ksh)', key: 'vatAmount', type: 'currency' as const, width: 15 },
+      { header: 'Grand Total (Ksh)', key: 'grandTotal', type: 'currency' as const, width: 18 },
+      ...(moduleType === 'INVOICE'
+        ? [
+            { header: 'Paid (Ksh)', key: 'amountPaid', type: 'currency' as const, width: 16 },
+            { header: 'Balance Due (Ksh)', key: 'balanceDue', type: 'currency' as const, width: 18 },
+          ]
+        : []),
+      { header: 'Status', key: 'status', type: 'status' as const, width: 12 },
     ];
 
-    const rows = filteredJournalDocs.map((doc) => [
-      `"${doc.documentNumber}"`,
-      `"${doc.documentType}"`,
-      `"${(doc.clientName || '').replace(/"/g, '""')}"`,
-      `"${(doc.clientPhone || '').replace(/"/g, '""')}"`,
-      `"${doc.clientKraPin || ''}"`,
-      `"${doc.issueDate}"`,
-      `"${doc.dueDate || ''}"`,
-      doc.subtotal.toFixed(2),
-      doc.vatAmount.toFixed(2),
-      doc.grandTotal.toFixed(2),
-      (doc.amountPaid || 0).toFixed(2),
-      (doc.balanceDue || 0).toFixed(2),
-      `"${doc.status}"`,
-    ]);
+    const data = filteredJournalDocs.map((doc) => ({
+      documentNumber: doc.documentNumber,
+      documentType: doc.documentType,
+      clientName: doc.clientName,
+      clientPhone: doc.clientPhone || '-',
+      clientKraPin: doc.clientKraPin || '-',
+      issueDate: doc.issueDate,
+      dueDate: doc.dueDate || '-',
+      subtotal: doc.subtotal,
+      vatAmount: doc.vatAmount,
+      grandTotal: doc.grandTotal,
+      amountPaid: doc.amountPaid || 0,
+      balanceDue: doc.balanceDue || 0,
+      status: doc.status,
+    }));
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${profile.name.replace(/\s+/g, '_')}_${moduleType}_Journal_${formatDate()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    await exportTableToXlsx({
+      title: `${config.title} Journal Register`,
+      sheetName: `${moduleType}_Journal`,
+      profile,
+      columns,
+      data,
+      filename: `HotelDamview_${moduleType}_Journal_${formatDate()}.xlsx`,
+    });
   };
 
   // Top metric card values
@@ -297,7 +302,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
         }
       }
       setIsGeneratingPdf(false);
-    }, 300);
+    }, 250);
   };
 
   // Quick print helper
@@ -305,7 +310,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
     setSelectedDocForPreview(doc);
     setTimeout(() => {
       window.print();
-    }, 200);
+    }, 250);
   };
 
   // Quick share helper
@@ -330,14 +335,21 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             `Please find attached ${doc.documentType} ${doc.documentNumber} for ${doc.clientName} amounting to ${formatKsh(doc.grandTotal)}.`
           );
           if (!shared) {
-            handleQuickDownload(doc);
+            handleQuickWhatsApp(doc);
           }
         } catch (err: any) {
           console.error('Share error:', err);
         }
       }
       setIsGeneratingPdf(false);
-    }, 300);
+    }, 250);
+  };
+
+  // Quick WhatsApp helper
+  const handleQuickWhatsApp = (doc: BillingDocument) => {
+    setSelectedDocForPreview(doc);
+    const waUrl = getWhatsAppShareUrl(doc, profile, doc.clientPhone, doc.driveFileUrl);
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
   };
 
   const getStatusBadge = (status: DocumentStatus) => {
@@ -542,15 +554,15 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
 
               <div className="h-4 w-px bg-stone-300 mx-1" />
 
-              {/* CSV Ledger Export Button */}
+              {/* Excel Ledger Export Button */}
               <button
                 type="button"
-                onClick={handleExportCsv}
+                onClick={handleExportXlsx}
                 className="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium rounded border border-stone-300 flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="Export filtered list to Excel/CSV spreadsheet"
+                title="Export filtered list to formatted Excel (.xlsx) spreadsheet"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Export CSV</span>
+                <span>Export Excel (.xlsx)</span>
               </button>
             </div>
           </div>
@@ -662,7 +674,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                               type="button"
                               onClick={() => setSelectedDocForPreview(doc)}
                               className="p-1 rounded text-stone-600 hover:text-stone-900 hover:bg-stone-200 cursor-pointer"
-                              title="Preview A4 Document"
+                              title="Preview Document"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
