@@ -274,22 +274,25 @@ export function autoCorrectIncomingClient(raw: any): {
 }
 
 /**
- * Defensive Document Merger: Strictly protects existing local fields
- * from being erased or corrupted by null, undefined, or empty incoming values.
+ * Defensive Document Merger: Protects existing local fields from undefined/null corruption,
+ * but fully respects explicit user modifications (including empty text fields) from Google Sheets.
  */
 export function safelyMergeDocumentWithDefensiveShields(
   existing: BillingDocument,
   incoming: any
 ): BillingDocument {
-  // Defensive field pickers: only accept incoming value if defined and non-empty
+  // Respect explicit incoming text values (even if cleared to empty string)
   const pickText = (inc: any, ext: string) => {
-    if (typeof inc === 'string' && inc.trim().length > 0) return inc.trim();
+    if (inc !== undefined && inc !== null) return String(inc).trim();
     return ext || '';
   };
 
-  const pickNumeric = (inc: any, ext: number) => {
-    if (inc !== undefined && inc !== null && typeof inc === 'number' && !isNaN(inc)) {
-      return inc;
+  const pickNumeric = (inc: any, ext: number | undefined) => {
+    if (inc !== undefined && inc !== null) {
+      const num = typeof inc === 'number' ? inc : parseFloat(String(inc).replace(/[^\d.-]/g, ''));
+      if (!isNaN(num) && Number.isFinite(num)) {
+        return num;
+      }
     }
     return ext || 0;
   };
@@ -298,6 +301,13 @@ export function safelyMergeDocumentWithDefensiveShields(
     Array.isArray(incoming.lineItems) && incoming.lineItems.length > 0
       ? incoming.lineItems
       : existing.lineItems;
+
+  const subtotal = pickNumeric(incoming.subtotal, existing.subtotal);
+  const grandTotal = pickNumeric(incoming.grandTotal, existing.grandTotal);
+  const amountPaid = pickNumeric(incoming.amountPaid, existing.amountPaid);
+  const balanceDue = pickNumeric(incoming.balanceDue, existing.balanceDue);
+  const vatAmount = pickNumeric(incoming.vatAmount, existing.vatAmount);
+  const discount = pickNumeric(incoming.discount, existing.discount);
 
   return {
     ...existing,
@@ -308,12 +318,12 @@ export function safelyMergeDocumentWithDefensiveShields(
     clientEmail: pickText(incoming.clientEmail, existing.clientEmail || ''),
     issueDate: pickText(incoming.issueDate, existing.issueDate),
     dueDate: pickText(incoming.dueDate, existing.dueDate),
-    subtotal: incoming.subtotal && incoming.subtotal > 0 ? incoming.subtotal : existing.subtotal,
-    grandTotal: incoming.grandTotal && incoming.grandTotal > 0 ? incoming.grandTotal : existing.grandTotal,
-    amountPaid: incoming.amountPaid !== undefined && incoming.amountPaid !== null ? incoming.amountPaid : existing.amountPaid,
-    balanceDue: incoming.balanceDue !== undefined && incoming.balanceDue !== null ? incoming.balanceDue : existing.balanceDue,
-    vatAmount: incoming.vatAmount !== undefined && incoming.vatAmount !== null ? incoming.vatAmount : existing.vatAmount,
-    discount: incoming.discount !== undefined && incoming.discount !== null ? incoming.discount : existing.discount,
+    subtotal,
+    grandTotal,
+    amountPaid,
+    balanceDue,
+    vatAmount,
+    discount,
     status: incoming.status || existing.status,
     notes: pickText(incoming.notes, existing.notes || ''),
     terms: pickText(incoming.terms, existing.terms || ''),

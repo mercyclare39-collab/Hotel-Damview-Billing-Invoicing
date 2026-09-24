@@ -243,15 +243,30 @@ export function normalizeText(val: any): string {
 export function normalizeDate(val: any): string {
   if (!val) return new Date().toISOString().split('T')[0];
   if (val instanceof Date) return val.toISOString().split('T')[0];
-  const str = String(val).trim();
-  if (str.includes('T')) return str.split('T')[0];
-  const match = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (match) {
-    const y = match[1];
-    const m = match[2].length === 1 ? `0${match[2]}` : match[2];
-    const d = match[3].length === 1 ? `0${match[3]}` : match[3];
+  let str = String(val).trim();
+  if (str.includes('T')) str = str.split('T')[0];
+
+  // Standardize delimiters
+  const cleanStr = str.replace(/\//g, '-');
+
+  // Match YYYY-MM-DD or YYYY-M-D
+  const matchYmd = cleanStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (matchYmd) {
+    const y = matchYmd[1];
+    const m = matchYmd[2].padStart(2, '0');
+    const d = matchYmd[3].padStart(2, '0');
     return `${y}-${m}-${d}`;
   }
+
+  // Match DD-MM-YYYY or D-M-YYYY
+  const matchDmy = cleanStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+  if (matchDmy) {
+    const d = matchDmy[1].padStart(2, '0');
+    const m = matchDmy[2].padStart(2, '0');
+    const y = matchDmy[3];
+    return `${y}-${m}-${d}`;
+  }
+
   return str;
 }
 

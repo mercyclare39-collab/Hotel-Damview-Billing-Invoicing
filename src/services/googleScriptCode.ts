@@ -740,7 +740,7 @@ function autoGenerateAndDeduplicateTabs(ss) {
     standardMap[def.name.toLowerCase().trim()] = def;
   }
 
-  // 1. Auto generate all module tabs from app modules
+  // 1. Auto generate or self-heal missing columns in official tabs
   standardTabs.forEach(function(tabDef) {
     var sheet = ss.getSheetByName(tabDef.name);
     if (!sheet) {
@@ -752,13 +752,25 @@ function autoGenerateAndDeduplicateTabs(ss) {
       headerRange.setFontWeight("bold");
       sheet.setFrozenRows(1);
     } else {
-      if (sheet.getLastRow() === 0) {
-        sheet.appendRow(tabDef.headers);
-        var headerRangeExisting = sheet.getRange(1, 1, 1, tabDef.headers.length);
-        headerRangeExisting.setBackground("#0f172a");
-        headerRangeExisting.setFontColor("#fef08a");
-        headerRangeExisting.setFontWeight("bold");
-        sheet.setFrozenRows(1);
+      var lastCol = Math.max(1, sheet.getLastColumn());
+      var existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+      var normalizedExisting = existingHeaders.map(function(h) { return normalizeHeaderKey(h); });
+
+      var missingHeaders = [];
+      tabDef.headers.forEach(function(officialHeader) {
+        var normOfficial = normalizeHeaderKey(officialHeader);
+        if (normalizedExisting.indexOf(normOfficial) === -1) {
+          missingHeaders.push(officialHeader);
+        }
+      });
+
+      if (missingHeaders.length > 0) {
+        // Appends missing official columns dynamically to the right of Row 1
+        var appendRange = sheet.getRange(1, lastCol + 1, 1, missingHeaders.length);
+        appendRange.setValues([missingHeaders]);
+        appendRange.setBackground("#0f172a");
+        appendRange.setFontColor("#fef08a");
+        appendRange.setFontWeight("bold");
       }
     }
   });
@@ -864,12 +876,25 @@ function normalizeDateStr(val, ss) {
   }
   var s = String(val).trim();
   if (s.indexOf("T") >= 0) s = s.split("T")[0];
-  var parts = s.split("/").join("-").split("-");
-  if (parts.length >= 3 && parts[0].length === 4) {
-    var y = parts[0];
-    var mm = parts[1].length === 1 ? "0" + parts[1] : parts[1];
-    var dd = parts[2].length === 1 ? "0" + parts[2] : parts[2];
-    return y + "-" + mm + "-" + dd;
+  
+  var cleanStr = s.split("/").join("-");
+  var parts = cleanStr.split("-");
+  
+  if (parts.length >= 3) {
+    // Case 1: YYYY-MM-DD
+    if (parts[0].length === 4) {
+      var y = parts[0];
+      var mm = parts[1].length === 1 ? "0" + parts[1] : parts[1];
+      var dd = parts[2].length === 1 ? "0" + parts[2] : parts[2];
+      return y + "-" + mm + "-" + dd;
+    }
+    // Case 2: DD-MM-YYYY
+    if (parts[2].length === 4) {
+      var dd = parts[0].length === 1 ? "0" + parts[0] : parts[0];
+      var mm = parts[1].length === 1 ? "0" + parts[1] : parts[1];
+      var y = parts[2];
+      return y + "-" + mm + "-" + dd;
+    }
   }
   return s;
 }
