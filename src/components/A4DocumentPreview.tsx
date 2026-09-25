@@ -402,12 +402,20 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                     <table className="financial-summary-table border border-stone-200/90 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <tbody>
                         {docDiscount > 0 && (
-                          <tr className="financial-summary-row-intermediate">
-                            <td className="px-3 py-1 label-cell text-stone-600 font-normal">Discount:</td>
-                            <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-700">
-                              {formatKsh(-docDiscount)}
-                            </td>
-                          </tr>
+                          <>
+                            <tr className="financial-summary-row-intermediate">
+                              <td className="px-3 py-1 label-cell text-stone-600 font-normal">Gross Subtotal:</td>
+                              <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-800">
+                                {formatKsh(doc.grossSubtotal || (doc.grandTotal + docDiscount))}
+                              </td>
+                            </tr>
+                            <tr className="financial-summary-row-intermediate">
+                              <td className="px-3 py-1 label-cell text-stone-600 font-normal">Discount:</td>
+                              <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-700">
+                                {formatKsh(-docDiscount)}
+                              </td>
+                            </tr>
+                          </>
                         )}
 
                         <tr className="financial-summary-row-intermediate">
@@ -459,12 +467,20 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                     <table className="financial-summary-table border border-stone-300 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <tbody>
                         {docDiscount > 0 && (
-                          <tr className="financial-summary-row-intermediate">
-                            <td className="px-3 py-1 label-cell text-stone-600 font-normal">Discount:</td>
-                            <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-700">
-                              {formatKsh(-docDiscount)}
-                            </td>
-                          </tr>
+                          <>
+                            <tr className="financial-summary-row-intermediate">
+                              <td className="px-3 py-1 label-cell text-stone-600 font-normal">Gross Subtotal:</td>
+                              <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-800">
+                                {formatKsh(doc.grossSubtotal || (doc.grandTotal + docDiscount))}
+                              </td>
+                            </tr>
+                            <tr className="financial-summary-row-intermediate">
+                              <td className="px-3 py-1 label-cell text-stone-600 font-normal">Discount:</td>
+                              <td className="px-3 py-1 value-cell tabular-nums font-normal text-stone-700">
+                                {formatKsh(-docDiscount)}
+                              </td>
+                            </tr>
+                          </>
                         )}
 
                         <tr className="financial-summary-row-intermediate">

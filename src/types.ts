@@ -63,10 +63,12 @@ export interface BillingDocument {
   validityDays: number;
   dueDate: string; // YYYY-MM-DD
   lineItems: LineItem[];
-  subtotal: number;
-  discount?: number;
-  vatAmount: number;
-  grandTotal: number;
+  grossSubtotal?: number; // Sum of line items (VAT-Inclusive)
+  discount?: number; // Overall document discount
+  discountedTotal?: number; // Gross subtotal - discount
+  subtotal: number; // Statutory Taxable Subtotal (Excl. 16% VAT) = discountedTotal / 1.16
+  vatAmount: number; // Statutory 16% VAT = discountedTotal - subtotal
+  grandTotal: number; // Final gross invoice/quote amount (VAT-Inclusive)
   amountPaid: number;
   balanceDue: number;
   status: DocumentStatus;

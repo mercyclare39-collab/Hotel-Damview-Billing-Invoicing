@@ -27,6 +27,7 @@ import { Reservation, HotelProfile, Client, BillingDocument } from '../types';
 import { dbService } from '../services/db';
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { formatDate } from '../utils/formatters';
+import { calculateTotals, calculateBalanceDue } from '../utils/financial';
 
 interface ReservationsManagerProps {
   profile: HotelProfile;
@@ -298,8 +299,8 @@ export const ReservationsManager: React.FC<ReservationsManagerProps> = ({
       },
     ];
 
-    const vatAmt = Math.round((res.totalAmount * (profile.vatRate || 16)) / 100 * 100) / 100;
-    const grandTotal = res.totalAmount + vatAmt;
+    const totals = calculateTotals(lineItems, 0, profile.vatRate || 16);
+    const balanceDue = calculateBalanceDue(totals.grandTotal, res.amountPaid);
 
     onConvertToInvoice({
       documentType: 'INVOICE',
@@ -313,12 +314,15 @@ export const ReservationsManager: React.FC<ReservationsManagerProps> = ({
       validityDays: 14,
       dueDate: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
       lineItems,
-      subtotal: res.totalAmount,
-      vatAmount: vatAmt,
-      grandTotal: grandTotal,
+      grossSubtotal: totals.grossSubtotal,
+      discount: 0,
+      discountedTotal: totals.discountedTotal,
+      subtotal: totals.taxableSubtotal,
+      vatAmount: totals.vatAmount,
+      grandTotal: totals.grandTotal,
       amountPaid: res.amountPaid,
-      balanceDue: Math.max(0, grandTotal - res.amountPaid),
-      status: res.amountPaid >= grandTotal ? 'Paid' : 'Sent',
+      balanceDue: balanceDue,
+      status: res.amountPaid >= totals.grandTotal ? 'Paid' : 'Sent',
       notes: `Generated from Reservation Folio: ${res.folioNumber}. Guest: ${res.guestName}. Special Notes: ${res.specialRequests || 'Standard check-out'}.`,
       terms: 'Settlement due upon departure via M-Pesa or Bank Transfer as per hotel accounts configuration.',
     });

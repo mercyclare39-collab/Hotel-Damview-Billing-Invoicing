@@ -10,6 +10,7 @@ import {
   ArrowUpRight,
 } from 'lucide-react';
 import { useSyncTelemetry } from '../hooks/useSyncTelemetry';
+import { GOOGLE_APPS_SCRIPT_VERSION } from '../services/googleScriptCode';
 
 interface SyncTelemetryBadgeProps {
   compact?: boolean;
@@ -143,6 +144,9 @@ export const SyncTelemetryBadge: React.FC<SyncTelemetryBadgeProps> = ({
                 <WifiOff className="w-2.5 h-2.5" /> Offline
               </span>
             )}
+            <span className="inline-flex items-center text-[10px] text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/60 font-mono" title="Active Google Apps Script Version">
+              Code.gs {GOOGLE_APPS_SCRIPT_VERSION}
+            </span>
           </div>
           <p className="text-stone-400 text-[11px] mt-0.5 leading-relaxed">
             {statusText}

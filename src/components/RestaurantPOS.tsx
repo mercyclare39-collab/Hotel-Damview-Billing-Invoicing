@@ -21,16 +21,19 @@ import {
   Share2,
   Edit2,
   X,
+  FileText,
 } from 'lucide-react';
-import { POSOrder, POSOrderItem, HotelProfile, Client, BillingDocument } from '../types';
+import { POSOrder, POSOrderItem, HotelProfile, Client, BillingDocument, LineItem } from '../types';
 import { dbService, STANDARD_POS_MENU } from '../services/db';
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { formatDate } from '../utils/formatters';
+import { calculateTotals, calculateBalanceDue } from '../utils/financial';
 
 interface RestaurantPOSProps {
   profile: HotelProfile;
   clients: Client[];
   onGenerateReceipt?: (docData: Partial<BillingDocument>) => void;
+  onConvertToInvoice?: (docData: Partial<BillingDocument>) => void;
 }
 
 const CATEGORIES = [
@@ -59,11 +62,67 @@ const TABLE_OPTIONS = [
   'Takeaway / Express Counter',
 ];
 
-export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
+export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({
+  profile,
+  clients,
+  onConvertToInvoice,
+}) => {
   const [menuItems, setMenuItems] = useState<POSOrderItem[]>([]);
   const [posCatalog, setPosCatalog] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+
+  const handleInvoiceConversion = (order: POSOrder) => {
+    if (!onConvertToInvoice) return;
+    const client = clients?.find((c) => c.name.toLowerCase() === order.guestOrClientName.toLowerCase()) || {
+      id: 'temp-pos-' + Date.now(),
+      name: order.guestOrClientName || 'Dining Guest',
+      kraPin: '',
+      address: profile.physicalLocation,
+      phone: '',
+      email: '',
+      contactPerson: order.guestOrClientName,
+      createdAt: new Date().toISOString(),
+    };
+
+    const lineItems: LineItem[] = (order.items || []).map((item, idx) => ({
+      id: `li-pos-${idx + 1}`,
+      particulars: `${item.name} (${item.category || 'Food & Beverage'})`,
+      quantity: item.quantity || 1,
+      days: 1,
+      rate: item.price || 0,
+      discount: 0,
+      amount: item.amount || ((item.quantity || 1) * (item.price || 0)),
+    }));
+
+    const totals = calculateTotals(lineItems, 0, profile.vatRate || 16);
+    const balanceDue = calculateBalanceDue(totals.grandTotal, order.status === 'Completed' ? totals.grandTotal : 0);
+
+    onConvertToInvoice({
+      documentType: 'INVOICE',
+      clientId: client.id,
+      clientName: client.name,
+      clientKraPin: client.kraPin,
+      clientAddress: client.address,
+      clientPhone: client.phone,
+      clientEmail: client.email,
+      issueDate: order.createdAt ? order.createdAt.split('T')[0] : new Date().toISOString().split('T')[0],
+      validityDays: 14,
+      dueDate: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
+      lineItems,
+      grossSubtotal: totals.grossSubtotal,
+      discount: 0,
+      discountedTotal: totals.discountedTotal,
+      subtotal: totals.taxableSubtotal,
+      vatAmount: totals.vatAmount,
+      grandTotal: totals.grandTotal,
+      amountPaid: order.status === 'Completed' ? totals.grandTotal : 0,
+      balanceDue: balanceDue,
+      status: order.status === 'Completed' ? 'Paid' : 'Sent',
+      notes: `Generated from POS Order #${order.orderNumber}. Table / Room: ${order.tableOrRoom}. Guest: ${order.guestOrClientName}. Payment Method: ${order.paymentMode}.`,
+      terms: 'Settlement due upon invoice presentation.',
+    });
+  };
 
   // Persist active tab across refreshes
   const [activeTab, setActiveTabState] = useState<'pos' | 'history' | 'catalog'>(() => {
@@ -785,6 +844,7 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
                   <th className="p-3 font-bold">Payment</th>
                   <th className="p-3 font-bold">Status</th>
                   <th className="p-3 font-bold">Time</th>
+                  <th className="p-3 font-bold text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-200">
@@ -825,6 +885,19 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({ profile }) => {
                         hour: '2-digit',
                         minute: '2-digit',
                       })}
+                    </td>
+                    <td className="p-3 text-center">
+                      {onConvertToInvoice && (
+                        <button
+                          type="button"
+                          onClick={() => handleInvoiceConversion(ord)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-stone-800 hover:text-stone-950 bg-stone-100 hover:bg-amber-100 border border-stone-300 rounded transition-colors cursor-pointer"
+                          title="Generate official invoice with full line items breakdown"
+                        >
+                          <FileText className="w-3 h-3 text-amber-600" />
+                          <span>Invoice</span>
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

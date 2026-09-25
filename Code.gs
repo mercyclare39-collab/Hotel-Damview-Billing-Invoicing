@@ -1,5 +1,5 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v4.9.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.0.0)
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Universal Drive Archival Engine
  * Single Source of Truth for Hotel Damview ERP Across All App Workstations & Mobile Devices
  *
@@ -234,7 +234,7 @@ function doGet(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Central Backend v4.9.0 is active and ready.",
+      message: "Hotel Damview Google Apps Script Central Backend v5.0.0 is active and ready.",
       sheetName: ss ? ss.getName() : "Spreadsheet",
       sheetUrl: ss ? ss.getUrl() : "",
       timestamp: new Date().toISOString()
@@ -242,7 +242,7 @@ function doGet(e) {
   } catch (err) {
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Backend v4.9.0 is online.",
+      message: "Hotel Damview Google Apps Script Backend v5.0.0 is online.",
       error: err.toString(),
       timestamp: new Date().toISOString()
     });
@@ -313,7 +313,7 @@ function doPost(e) {
       var sheetList = getDiscoveredSheets(ss);
       return responseJSON({
         success: true,
-        message: "Hotel Damview Google Apps Script Central Backend v4.9.0 is active and connected.",
+        message: "Hotel Damview Google Apps Script Central Backend v5.0.0 is active and connected.",
         sheetName: ss.getName(),
         sheetUrl: ss.getUrl(),
         tabs: sheetList,

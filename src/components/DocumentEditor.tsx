@@ -327,16 +327,22 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   // Particulars catalog loaded from IndexedDB
   const [dbCatalogueItems, setDbCatalogueItems] = useState<CatalogueItem[]>([]);
+  const [dbRoomSpaces, setDbRoomSpaces] = useState<any[]>([]);
+  const [dbPOSMenuItems, setDbPOSMenuItems] = useState<any[]>([]);
 
   useEffect(() => {
-    dbService.getCatalogueItems().then((items) => {
-      if (items && items.length > 0) {
-        setDbCatalogueItems(items);
-      }
+    Promise.all([
+      dbService.getCatalogueItems(),
+      dbService.getRoomSpaceItems(),
+      dbService.getPOSMenuItems(),
+    ]).then(([catItems, spaces, posItems]) => {
+      if (catItems && catItems.length > 0) setDbCatalogueItems(catItems);
+      if (spaces && spaces.length > 0) setDbRoomSpaces(spaces);
+      if (posItems && posItems.length > 0) setDbPOSMenuItems(posItems);
     });
   }, []);
 
-  // Intelligent predictive catalog gathered from local db catalog, documents and hospitality presets
+  // Intelligent predictive catalog gathered from local db catalog, spaces, POS menu, documents and hospitality presets
   const catalogSuggestions = useMemo(() => {
     const map = new Map<string, { particulars: string; rate: number; defaultDays?: number; category?: string }>();
 
@@ -344,11 +350,39 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     dbCatalogueItems.forEach((c) => {
       const key = (c.particulars || '').trim().toLowerCase();
       if (key) {
-        map.set(key, { particulars: c.particulars, rate: c.standardRate || 0, defaultDays: 1, category: c.category });
+        map.set(key, { particulars: c.particulars, rate: c.standardRate || 0, defaultDays: 1, category: c.category || 'Service Catalogue' });
       }
     });
 
-    // 2. Fallback Standard Presets
+    // 2. Room & Conference Hall Spaces
+    dbRoomSpaces.forEach((s) => {
+      const name = (s.name || '').trim();
+      const key = name.toLowerCase();
+      if (key && !map.has(key)) {
+        map.set(key, {
+          particulars: `${name} - ${s.spaceType === 'Conference Hall' ? 'Conference Facility Hire' : 'Accommodation Stay'}`,
+          rate: Number(s.baseRate) || 0,
+          defaultDays: 1,
+          category: s.spaceType || 'Accommodation',
+        });
+      }
+    });
+
+    // 3. POS Dining & Catering Offerings
+    dbPOSMenuItems.forEach((m) => {
+      const name = (m.name || '').trim();
+      const key = name.toLowerCase();
+      if (key && !map.has(key)) {
+        map.set(key, {
+          particulars: `${name} (Food & Beverage Catering)`,
+          rate: Number(m.unitRate || m.price) || 0,
+          defaultDays: 1,
+          category: m.category || 'Dining & Catering',
+        });
+      }
+    });
+
+    // 4. Standard Hospitality Presets
     HOSPITALITY_PRESETS.forEach((p) => {
       const key = p.particulars.trim().toLowerCase();
       if (!map.has(key)) {
@@ -356,7 +390,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       }
     });
 
-    // 3. Historical items from all local documents in memory
+    // 5. Historical items from all local documents in memory
     localDocs.forEach((doc) => {
       (doc.lineItems || []).forEach((item) => {
         if (item.particulars && item.particulars.trim().length > 2 && Number(item.rate) > 0) {
@@ -374,7 +408,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     });
 
     return Array.from(map.values());
-  }, [dbCatalogueItems, localDocs]);
+  }, [dbCatalogueItems, dbRoomSpaces, dbPOSMenuItems, localDocs]);
 
   // Mandatory PDF Generation & Recording Validation Gates
   const isClientValid = Boolean(clientName && clientName.trim().length > 0);
@@ -707,8 +741,10 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       validityDays,
       dueDate,
       lineItems: activeLineItems.length > 0 ? activeLineItems : lineItems,
-      subtotal: totals.subtotal,
+      grossSubtotal: totals.grossSubtotal,
       discount: totals.discount,
+      discountedTotal: totals.discountedTotal,
+      subtotal: totals.taxableSubtotal,
       vatAmount: totals.vatAmount,
       grandTotal: totals.grandTotal,
       amountPaid,
@@ -804,6 +840,27 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
       // 2. Instant Local Journal Record (L1 Cache & IndexedDB in < 1ms)
       await dbService.saveDocument(docToPersist);
+
+      // Dynamically learn new line item particulars and standard rates into catalog
+      try {
+        const existingCat = await dbService.getCatalogueItems();
+        const existingMap = new Set(existingCat.map((c) => c.particulars.trim().toLowerCase()));
+        for (const item of docToPersist.lineItems) {
+          const normPart = (item.particulars || '').trim();
+          if (normPart.length > 2 && item.rate > 0 && !existingMap.has(normPart.toLowerCase())) {
+            await dbService.saveCatalogueItem({
+              id: 'cat-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+              particulars: normPart,
+              standardRate: item.rate,
+              category: docToPersist.documentType === 'INVOICE' ? 'Accommodation' : 'Conference & Banqueting',
+              taxable: true,
+              defaultUnit: 'Day',
+            });
+            existingMap.add(normPart.toLowerCase());
+          }
+        }
+      } catch {}
+
       try {
         localStorage.removeItem('damview_draft_document_editor');
       } catch {}
@@ -1558,18 +1615,21 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                         />
 
                         {/* Predictive Autocomplete Suggestions Popover */}
-                        {activeAutocompleteRow === idx && item.particulars.trim().length >= 1 && (
+                        {activeAutocompleteRow === idx && (
                           (() => {
                             const q = item.particulars.trim().toLowerCase();
-                            const matches = catalogSuggestions
-                              .filter((c) => c.particulars.toLowerCase().includes(q))
-                              .slice(0, 6);
+                            const matches = q.length >= 1
+                              ? catalogSuggestions.filter((c) => c.particulars.toLowerCase().includes(q)).slice(0, 7)
+                              : catalogSuggestions.slice(0, 5);
                             if (matches.length === 0) return null;
                             return (
-                              <div className="absolute left-0 top-full mt-1 w-96 max-w-lg bg-white border border-slate-300 rounded shadow-xl z-50 py-1 divide-y divide-slate-100">
-                                <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 bg-slate-50 flex items-center justify-between">
-                                  <span>Suggested Services</span>
-                                  <span>Rate</span>
+                              <div className="absolute left-0 top-full mt-1 w-96 max-w-lg bg-white border border-slate-300 rounded-lg shadow-xl z-50 py-1 divide-y divide-slate-100 overflow-hidden animate-fade-in">
+                                <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-50 flex items-center justify-between">
+                                  <span className="flex items-center gap-1">
+                                    <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+                                    {q.length >= 1 ? 'Matching Services' : 'Suggested Hotel Services & Presets'}
+                                  </span>
+                                  <span>Standard Rate</span>
                                 </div>
                                 {matches.map((suggestion, sIdx) => (
                                   <div
@@ -1578,17 +1638,17 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                                       e.preventDefault();
                                       handleSelectAutocomplete(idx, suggestion);
                                     }}
-                                    className="px-2.5 py-1.5 hover:bg-amber-50 cursor-pointer flex items-center justify-between gap-3 text-xs"
+                                    className="px-2.5 py-1.5 hover:bg-amber-50 cursor-pointer flex items-center justify-between gap-3 text-xs transition-colors"
                                   >
                                     <div className="flex flex-col min-w-0">
                                       <span className="font-semibold text-slate-900 truncate">
                                         {suggestion.particulars}
                                       </span>
-                                      <span className="text-[10px] text-slate-400">
-                                        {suggestion.category} &bull; {suggestion.defaultDays || 1} day(s)
+                                      <span className="text-[10px] text-slate-500">
+                                        {suggestion.category || 'Hospitality Service'} &bull; {suggestion.defaultDays || 1} day(s)/unit(s)
                                       </span>
                                     </div>
-                                    <span className="font-mono font-bold text-amber-900 shrink-0">
+                                    <span className="font-mono font-bold text-amber-800 shrink-0">
                                       {formatKsh(suggestion.rate)}
                                     </span>
                                   </div>

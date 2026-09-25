@@ -9,13 +9,18 @@
 
 import { BillingDocument, Client, PaymentRecord } from '../types';
 import { dbService } from './db';
-import { normalizeKraPin, normalizePhoneNumber } from './sync';
+import { normalizeKraPin, normalizePhoneNumber, normalizeCurrency } from './sync';
+import {
+  verifyDocumentSchema,
+  verifySheetHeadersAgainstSchema,
+  verifyBidirectionalSyncKeys,
+} from './schemaDiagnostics';
 
 export const KRA_PIN_REGEX = /\b([A-Z]\d{9}[A-Z])\b/i;
 export const KENYA_PHONE_REGEX = /\b(?:\+?254|0)[17]\d{8}\b/;
 export const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/;
 export const DATE_REGEX = /\b(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2})\b/;
-export const DOC_NUMBER_REGEX = /\b((?:INV|Q|PI|PRO|REC|QUO)[-_]?\d{3,6})\b/i;
+export const DOC_NUMBER_REGEX = /\b((?:INV|QUO|Q|PI|PRO|REC|FOL|POS|EXP|SOA|STMT)[-_]?(?:\d{4}[-_])?\d{1,6})\b/i;
 
 export interface HealingReport {
   entityType: 'DOCUMENT' | 'CLIENT' | 'PAYMENT';
@@ -38,7 +43,7 @@ export function autoCorrectIncomingDocument(raw: any, defaultType: 'INVOICE' | '
   if (doc.documentNumber) {
     const docNumStr = String(doc.documentNumber).trim();
     const docNumMatch = docNumStr.match(DOC_NUMBER_REGEX);
-    if (docNumMatch && docNumMatch[1] !== docNumStr) {
+    if (docNumMatch && docNumMatch[1] && docNumMatch[1].toUpperCase() !== docNumStr) {
       corrections.push({
         field: 'documentNumber',
         from: docNumStr,
@@ -46,6 +51,22 @@ export function autoCorrectIncomingDocument(raw: any, defaultType: 'INVOICE' | '
         reason: 'Cleaned extraneous characters from document number',
       });
       doc.documentNumber = docNumMatch[1].toUpperCase();
+    } else {
+      doc.documentNumber = docNumStr;
+    }
+  }
+
+  // 1b. Client Name Normalization
+  if (doc.clientName !== undefined && doc.clientName !== null) {
+    const trimmedName = String(doc.clientName).trim();
+    if (trimmedName !== doc.clientName) {
+      corrections.push({
+        field: 'clientName',
+        from: doc.clientName,
+        to: trimmedName,
+        reason: 'Trimmed whitespace from client name',
+      });
+      doc.clientName = trimmedName;
     }
   }
 
@@ -62,6 +83,7 @@ export function autoCorrectIncomingDocument(raw: any, defaultType: 'INVOICE' | '
       { field: 'clientName', val: doc.clientName },
     ];
 
+    let foundPin = false;
     for (const source of candidateSources) {
       if (source.val) {
         const match = String(source.val).match(KRA_PIN_REGEX);
@@ -74,10 +96,19 @@ export function autoCorrectIncomingDocument(raw: any, defaultType: 'INVOICE' | '
             reason: `Realigned KRA PIN detected in ${source.field}`,
           });
           doc.clientKraPin = normPin;
+          foundPin = true;
           break;
         }
       }
     }
+    if (!foundPin && currentPin) {
+      const normPin = normalizeKraPin(currentPin);
+      if (normPin && normPin !== currentPin) {
+        doc.clientKraPin = normPin;
+      }
+    }
+  } else {
+    doc.clientKraPin = normalizeKraPin(currentPin);
   }
 
   // 3. Phone Number Alignment
@@ -154,15 +185,18 @@ export function autoCorrectIncomingDocument(raw: any, defaultType: 'INVOICE' | '
   }
 
   // 6. Currency / Numeric Sanitization
-  ['subtotal', 'grandTotal', 'amountPaid', 'balanceDue', 'vatAmount', 'discount'].forEach((numKey) => {
+  ['grossSubtotal', 'subtotal', 'grandTotal', 'amountPaid', 'balanceDue', 'vatAmount', 'discount', 'discountedTotal'].forEach((numKey) => {
     if (doc[numKey] !== undefined && doc[numKey] !== null) {
-      const rawVal = doc[numKey];
-      if (typeof rawVal === 'string') {
-        const cleaned = parseFloat(rawVal.replace(/[^\d.-]/g, ''));
-        if (!isNaN(cleaned)) {
-          doc[numKey] = cleaned;
-        }
+      const cleaned = normalizeCurrency(doc[numKey]);
+      if (cleaned !== doc[numKey]) {
+        corrections.push({
+          field: numKey,
+          from: doc[numKey],
+          to: cleaned,
+          reason: 'Normalized numeric/currency precision (no float drift)',
+        });
       }
+      doc[numKey] = cleaned;
     }
   });
 
@@ -217,6 +251,7 @@ export function autoCorrectIncomingClient(raw: any): {
   const currentPhone = client.phone ? String(client.phone).trim() : '';
   if (!KENYA_PHONE_REGEX.test(currentPhone.replace(/\s+/g, ''))) {
     const candidateSources = [
+      { field: 'kraPin', val: currentPin },
       { field: 'address', val: client.address },
       { field: 'email', val: client.email },
     ];
@@ -260,6 +295,8 @@ export function autoCorrectIncomingClient(raw: any): {
         }
       }
     }
+  } else if (currentEmail !== currentEmail.toLowerCase()) {
+    client.email = currentEmail.toLowerCase();
   }
 
   return {
@@ -274,57 +311,100 @@ export function autoCorrectIncomingClient(raw: any): {
 }
 
 /**
- * Defensive Document Merger: Protects existing local fields from undefined/null corruption,
- * but fully respects explicit user modifications (including empty text fields) from Google Sheets.
+ * Defensive Client Merger: Protects existing local client fields from empty/null overwrite,
+ * while allowing intentional non-empty updates from remote sync.
+ */
+export function safelyMergeClientWithDefensiveShields(
+  existing: Client,
+  incoming: any
+): Client {
+  const pickText = (inc: any, ext: string) => {
+    if (inc !== undefined && inc !== null && String(inc).trim().length > 0) {
+      return String(inc).trim();
+    }
+    return ext || '';
+  };
+
+  const incomingPhone = incoming.phone && String(incoming.phone).trim().length > 0 ? normalizePhoneNumber(incoming.phone) : '';
+  const incomingPin = incoming.kraPin && String(incoming.kraPin).trim().length > 0 ? normalizeKraPin(incoming.kraPin) : '';
+
+  return {
+    ...existing,
+    name: pickText(incoming.name, existing.name),
+    contactPerson: pickText(incoming.contactPerson, existing.contactPerson),
+    email: pickText(incoming.email, existing.email),
+    phone: incomingPhone || existing.phone || '',
+    kraPin: incomingPin || existing.kraPin || '',
+    address: pickText(incoming.address, existing.address),
+    updatedAt: incoming.updatedAt || new Date().toISOString(),
+  };
+}
+
+/**
+ * Defensive Document Merger: Protects existing local fields from undefined/null/empty column corruption,
+ * but fully respects explicit user modifications from Google Sheets.
  */
 export function safelyMergeDocumentWithDefensiveShields(
   existing: BillingDocument,
   incoming: any
 ): BillingDocument {
-  // Respect explicit incoming text values (even if cleared to empty string)
   const pickText = (inc: any, ext: string) => {
-    if (inc !== undefined && inc !== null) return String(inc).trim();
+    if (inc !== undefined && inc !== null && String(inc).trim().length > 0) {
+      return String(inc).trim();
+    }
     return ext || '';
   };
 
   const pickNumeric = (inc: any, ext: number | undefined) => {
-    if (inc !== undefined && inc !== null) {
+    if (inc !== undefined && inc !== null && inc !== '') {
       const num = typeof inc === 'number' ? inc : parseFloat(String(inc).replace(/[^\d.-]/g, ''));
       if (!isNaN(num) && Number.isFinite(num)) {
-        return num;
+        return Math.round((num + Number.EPSILON) * 100) / 100;
       }
     }
-    return ext || 0;
+    return typeof ext === 'number' && Number.isFinite(ext) ? Math.round((ext + Number.EPSILON) * 100) / 100 : 0;
   };
 
   const mergedLineItems =
     Array.isArray(incoming.lineItems) && incoming.lineItems.length > 0
       ? incoming.lineItems
-      : existing.lineItems;
+      : (existing.lineItems || []);
 
-  const subtotal = pickNumeric(incoming.subtotal, existing.subtotal);
-  const grandTotal = pickNumeric(incoming.grandTotal, existing.grandTotal);
-  const amountPaid = pickNumeric(incoming.amountPaid, existing.amountPaid);
-  const balanceDue = pickNumeric(incoming.balanceDue, existing.balanceDue);
-  const vatAmount = pickNumeric(incoming.vatAmount, existing.vatAmount);
+  const grossSubtotal = pickNumeric(incoming.grossSubtotal || incoming.subtotal, existing.grossSubtotal || existing.subtotal);
   const discount = pickNumeric(incoming.discount, existing.discount);
+  const discountedTotal = pickNumeric(incoming.discountedTotal, existing.discountedTotal || Math.max(0, grossSubtotal - discount));
+  const subtotal = pickNumeric(incoming.subtotal, existing.subtotal || discountedTotal);
+  const vatAmount = pickNumeric(incoming.vatAmount, existing.vatAmount);
+  const grandTotal = pickNumeric(incoming.grandTotal, existing.grandTotal || (subtotal + vatAmount));
+  const amountPaid = pickNumeric(incoming.amountPaid, existing.amountPaid);
+  const balanceDue = incoming.balanceDue !== undefined && incoming.balanceDue !== null && incoming.balanceDue !== ''
+    ? pickNumeric(incoming.balanceDue, existing.balanceDue)
+    : Math.max(0, Math.round((grandTotal - amountPaid) * 100) / 100);
+
+  const status = incoming.status || (balanceDue <= 0 && existing.documentType === 'INVOICE' ? 'Paid' : existing.status);
+
+  const incomingPhone = incoming.clientPhone && String(incoming.clientPhone).trim().length > 0 ? normalizePhoneNumber(incoming.clientPhone) : '';
+  const incomingPin = incoming.clientKraPin && String(incoming.clientKraPin).trim().length > 0 ? normalizeKraPin(incoming.clientKraPin) : '';
 
   return {
     ...existing,
     clientName: pickText(incoming.clientName, existing.clientName),
-    clientKraPin: pickText(incoming.clientKraPin, existing.clientKraPin).toUpperCase(),
+    clientKraPin: incomingPin || existing.clientKraPin || '',
     clientAddress: pickText(incoming.clientAddress, existing.clientAddress),
-    clientPhone: pickText(incoming.clientPhone, existing.clientPhone || ''),
-    clientEmail: pickText(incoming.clientEmail, existing.clientEmail || ''),
+    clientPhone: incomingPhone || existing.clientPhone || undefined,
+    clientEmail: incoming.clientEmail && String(incoming.clientEmail).trim().length > 0 ? String(incoming.clientEmail).trim().toLowerCase() : (existing.clientEmail || undefined),
     issueDate: pickText(incoming.issueDate, existing.issueDate),
     dueDate: pickText(incoming.dueDate, existing.dueDate),
+    validityDays: typeof incoming.validityDays === 'number' && incoming.validityDays > 0 ? incoming.validityDays : (existing.validityDays || 14),
+    grossSubtotal,
+    discount,
+    discountedTotal,
     subtotal,
+    vatAmount,
     grandTotal,
     amountPaid,
     balanceDue,
-    vatAmount,
-    discount,
-    status: incoming.status || existing.status,
+    status: status as any,
     notes: pickText(incoming.notes, existing.notes || ''),
     terms: pickText(incoming.terms, existing.terms || ''),
     driveFileUrl: incoming.driveFileUrl || existing.driveFileUrl,
@@ -332,7 +412,7 @@ export function safelyMergeDocumentWithDefensiveShields(
     lineItems: mergedLineItems,
     syncedToGoogle: true,
     lastSyncStatus: 'synced',
-    updatedAt: incoming.updatedAt || new Date().toISOString().split('T')[0],
+    updatedAt: incoming.updatedAt || new Date().toISOString(),
   };
 }
 
@@ -652,6 +732,84 @@ export async function runEndToEndSyncVerification(): Promise<SyncVerificationRes
       title: 'IndexedDB Audit Log Persistence & Snapshot Retrieval',
       status: 'FAIL',
       details: `Audit log verification error: ${err.message}`,
+    });
+  }
+
+  // Check 7: Document JSON Schema & Google Sheets Parity Validation
+  try {
+    const testDocPayload: BillingDocument = {
+      id: 'schema-test-doc-' + Date.now(),
+      documentType: 'INVOICE',
+      documentNumber: 'INV-2026-SCHEMA1',
+      clientId: 'cli-schema-001',
+      clientName: 'Audit Schema Client Ltd',
+      clientKraPin: 'P051234567Z',
+      clientAddress: 'Machakos CBD Office Suites',
+      issueDate: '2026-09-25',
+      validityDays: 30,
+      dueDate: '2026-10-25',
+      lineItems: [
+        {
+          id: 'li-1',
+          particulars: 'Conference Hall Full Day',
+          quantity: 1,
+          days: 1,
+          rate: 35000,
+          amount: 35000,
+        },
+      ],
+      grossSubtotal: 35000,
+      discount: 0,
+      discountedTotal: 35000,
+      subtotal: 30172.41,
+      vatAmount: 4827.59,
+      grandTotal: 35000,
+      amountPaid: 0,
+      balanceDue: 35000,
+      status: 'Sent',
+      notes: 'Schema parity check',
+      terms: 'Net 30 days',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const schemaReport = verifyDocumentSchema(testDocPayload, 'INVOICE');
+    const bidiPush = verifyBidirectionalSyncKeys(testDocPayload, 'OUTBOUND_PUSH', 'INVOICE');
+    const bidiPull = verifyBidirectionalSyncKeys(testDocPayload, 'INBOUND_PULL', 'INVOICE');
+    const sheetHeadersReport = verifySheetHeadersAgainstSchema('Invoices', [
+      'Invoice #', 'Issue Date', 'Due Date', 'Client Name', 'KRA PIN', 'Client Address',
+      'Gross Subtotal (Ksh)', 'Discount (Ksh)', 'Net Subtotal (Ksh)', 'VAT 16% (Ksh)',
+      'Grand Total (Ksh)', 'Paid (Ksh)', 'Balance (Ksh)', 'Status', 'Drive PDF Link', 'Last Updated', 'Doc ID'
+    ]);
+
+    if (schemaReport.isFullyCompliant && bidiPush.passed && bidiPull.passed && sheetHeadersReport.status === 'PERFECT') {
+      checks.push({
+        id: 'schema_parity_verification',
+        title: 'Local JSON Schema & Google Sheets Bidirectional Parity',
+        status: 'PASS',
+        details: '100% field mapping parity between local BillingDocument JSON and Google Sheets Invoices columns.',
+        diagnostic: {
+          parityScore: schemaReport.parityScore,
+          matchedHeadersCount: sheetHeadersReport.matchedHeaders.length,
+          outboundKeys: Object.keys(bidiPush.resolvedTargetKeys).length,
+          inboundKeys: Object.keys(bidiPull.resolvedTargetKeys).length,
+        },
+      });
+    } else {
+      checks.push({
+        id: 'schema_parity_verification',
+        title: 'Local JSON Schema & Google Sheets Bidirectional Parity',
+        status: 'FAIL',
+        details: 'Schema parity check identified mismatched keys or missing required fields.',
+        diagnostic: { schemaReport, bidiPush, bidiPull, sheetHeadersReport },
+      });
+    }
+  } catch (err: any) {
+    checks.push({
+      id: 'schema_parity_verification',
+      title: 'Local JSON Schema & Google Sheets Bidirectional Parity',
+      status: 'FAIL',
+      details: `Schema parity verification threw error: ${err.message}`,
     });
   }
 

@@ -53,6 +53,8 @@ import { A4DocumentPreview } from './A4DocumentPreview';
 import { A4ReceiptPreview } from './A4ReceiptPreview';
 import { SyncTelemetryBadge } from './SyncTelemetryBadge';
 import { AppsScriptDiffInspector } from './AppsScriptDiffInspector';
+import { SchemaDiagnosticsInspector } from './SchemaDiagnosticsInspector';
+import { Cpu } from 'lucide-react';
 
 interface GoogleSyncModuleProps {
   profile?: HotelProfile;
@@ -92,18 +94,18 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
   // Active sub-tab
   const [activeTab, setActiveTabState] = useState<
-    'LiveSheets' | 'Queue' | 'Audit' | 'Script'
+    'LiveSheets' | 'Queue' | 'Audit' | 'Diagnostics' | 'Script'
   >(() => {
     if (typeof window !== 'undefined' && window.localStorage) {
       const saved = localStorage.getItem('damview_googlesync_active_tab') as any;
-      if (saved && ['LiveSheets', 'Queue', 'Audit', 'Script'].includes(saved)) {
+      if (saved && ['LiveSheets', 'Queue', 'Audit', 'Diagnostics', 'Script'].includes(saved)) {
         return saved;
       }
     }
     return 'LiveSheets';
   });
 
-  const setActiveTab = (tab: 'LiveSheets' | 'Queue' | 'Audit' | 'Script') => {
+  const setActiveTab = (tab: 'LiveSheets' | 'Queue' | 'Audit' | 'Diagnostics' | 'Script') => {
     setActiveTabState(tab);
     try {
       localStorage.setItem('damview_googlesync_active_tab', tab);
@@ -1424,6 +1426,12 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               count: auditLogs?.length || 0,
             },
             {
+              id: 'Diagnostics',
+              label: 'Schema & Field Diagnostics',
+              icon: Cpu,
+              badge: 'Parity Engine',
+            },
+            {
               id: 'Script',
               label: 'Companion Code (Code.gs)',
               icon: FileCode,
@@ -2017,7 +2025,18 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
           </div>
         )}
 
-        {/* 5. COMPANION GOOGLE APPS SCRIPT (CODE.GS) & DEPLOYMENT WALKTHROUGH */}
+        {/* 5. SCHEMA & FIELD DIAGNOSTICS INSPECTOR */}
+        {activeTab === 'Diagnostics' && (
+          <SchemaDiagnosticsInspector
+            documents={documents}
+            clients={clients}
+            payments={payments}
+            liveSheetData={liveSheetData}
+            onRefreshLiveSheet={loadLiveSheetData}
+          />
+        )}
+
+        {/* 6. COMPANION GOOGLE APPS SCRIPT (CODE.GS) & DEPLOYMENT WALKTHROUGH */}
         {activeTab === 'Script' && (
           <AppsScriptDiffInspector
             currentVersion={GOOGLE_APPS_SCRIPT_VERSION}

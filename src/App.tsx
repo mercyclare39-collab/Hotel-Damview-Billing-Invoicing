@@ -347,9 +347,9 @@ export default function App() {
       }
     } catch {}
 
-    // Initial immediate sync & start 5-second real-time auto-sync background loop
+    // Initial immediate sync & start 3-second real-time auto-sync background loop
     syncManager.syncBidirectional().catch(() => {});
-    syncManager.startAutoSync(5);
+    syncManager.startAutoSync(3);
 
     // Non-disruptive background local refresh interval (auto-refreshes state safely without interrupting active form inputs)
     const interval = setInterval(() => {
@@ -897,7 +897,11 @@ export default function App() {
           {/* Restaurant & Bar POS Quick-Billing Module */}
           {currentModule === 'pos' && (
             <div className="p-6 max-w-7xl mx-auto">
-              <RestaurantPOS profile={profile} clients={clients} />
+              <RestaurantPOS
+                profile={profile}
+                clients={clients}
+                onConvertToInvoice={handleConvertFolioToInvoice}
+              />
             </div>
           )}
 

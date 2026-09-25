@@ -6,9 +6,104 @@ import {
   autoCorrectIncomingDocument,
   autoCorrectIncomingClient,
   safelyMergeDocumentWithDefensiveShields,
+  safelyMergeClientWithDefensiveShields,
   runEndToEndSyncVerification,
   SyncVerificationResult,
 } from './selfHealingSync';
+export * from './schemaDiagnostics';
+
+export interface FieldLogEntry {
+  timestamp: string;
+  stage: 'SERIALIZE' | 'DESERIALIZE' | 'PARITY_CHECK' | 'DRIFT_RESOLVED';
+  entityType: 'DOCUMENT' | 'CLIENT' | 'PAYMENT' | 'PROFILE' | 'LINE_ITEM' | 'RESERVATION' | 'POS_ORDER' | 'EXPENSE' | 'CATALOGUE' | 'STATEMENT';
+  entityId: string;
+  fieldName: string;
+  beforeValue: any;
+  afterValue: any;
+  status: 'EXACT_MATCH' | 'TRANSFORMED' | 'HEALED' | 'DRIFT_CORRECTED' | 'DEFENSIVE_PRESERVED';
+  details?: string;
+}
+
+export interface SyncParityReport {
+  timestamp: string;
+  totalEvents: number;
+  exactMatches: number;
+  transformed: number;
+  healed: number;
+  driftCorrected: number;
+  defensivePreserved: number;
+  recentLogs: FieldLogEntry[];
+}
+
+class SyncFieldLoggerService {
+  private logBuffer: FieldLogEntry[] = [];
+  private maxBufferSize = 600;
+  private stats = {
+    exactMatches: 0,
+    transformed: 0,
+    healed: 0,
+    driftCorrected: 0,
+    defensivePreserved: 0,
+  };
+
+  logField(entry: Omit<FieldLogEntry, 'timestamp'>): void {
+    const fullEntry: FieldLogEntry = {
+      ...entry,
+      timestamp: new Date().toISOString(),
+    };
+
+    if (entry.status === 'EXACT_MATCH') this.stats.exactMatches++;
+    else if (entry.status === 'TRANSFORMED') this.stats.transformed++;
+    else if (entry.status === 'HEALED') this.stats.healed++;
+    else if (entry.status === 'DRIFT_CORRECTED') this.stats.driftCorrected++;
+    else if (entry.status === 'DEFENSIVE_PRESERVED') this.stats.defensivePreserved++;
+
+    this.logBuffer.unshift(fullEntry);
+    if (this.logBuffer.length > this.maxBufferSize) {
+      this.logBuffer.pop();
+    }
+
+    if (entry.status !== 'EXACT_MATCH') {
+      console.log(
+        `[SyncTrace:${entry.stage}] ${entry.entityType} ${entry.entityId}.${entry.fieldName}:`,
+        JSON.stringify(entry.beforeValue),
+        '->',
+        JSON.stringify(entry.afterValue),
+        `(${entry.status}${entry.details ? `: ${entry.details}` : ''})`
+      );
+    }
+  }
+
+  getLogs(limit = 100): FieldLogEntry[] {
+    return this.logBuffer.slice(0, limit);
+  }
+
+  getParityReport(): SyncParityReport {
+    return {
+      timestamp: new Date().toISOString(),
+      totalEvents: this.logBuffer.length,
+      exactMatches: this.stats.exactMatches,
+      transformed: this.stats.transformed,
+      healed: this.stats.healed,
+      driftCorrected: this.stats.driftCorrected,
+      defensivePreserved: this.stats.defensivePreserved,
+      recentLogs: this.logBuffer.slice(0, 50),
+    };
+  }
+
+  clearLogs(): void {
+    this.logBuffer = [];
+    this.stats = {
+      exactMatches: 0,
+      transformed: 0,
+      healed: 0,
+      driftCorrected: 0,
+      defensivePreserved: 0,
+    };
+  }
+}
+
+export const syncFieldLogger = new SyncFieldLoggerService();
 
 export interface SyncResult {
   success: boolean;
@@ -44,6 +139,7 @@ export interface SpreadsheetDataPayload {
   posOrders?: any[];
   expenses?: any[];
   catalogue?: any[];
+  lineItems?: any[];
 }
 
 export interface RealtimeSyncState {
@@ -369,7 +465,7 @@ export function sanitizeDocumentForSync(doc: BillingDocument): BillingDocument {
         const rate = normalizeCurrency(item.rate);
         const discount = normalizeCurrency(item.discount || 0);
         const amount = item.amount !== undefined ? normalizeCurrency(item.amount) : Math.max(0, qty * days * rate - discount);
-        return {
+        const sanitizedItem = {
           id: item.id || `item-${idx + 1}`,
           particulars: normalizeText(item.particulars || 'Accommodation / Service'),
           quantity: qty,
@@ -378,34 +474,57 @@ export function sanitizeDocumentForSync(doc: BillingDocument): BillingDocument {
           discount,
           amount,
         };
+
+        syncFieldLogger.logField({
+          stage: 'SERIALIZE',
+          entityType: 'LINE_ITEM',
+          entityId: `${doc.documentNumber || 'NEW'}-${sanitizedItem.id}`,
+          fieldName: 'lineItem',
+          beforeValue: item,
+          afterValue: sanitizedItem,
+          status: item.rate === sanitizedItem.rate && item.amount === sanitizedItem.amount ? 'EXACT_MATCH' : 'TRANSFORMED',
+          details: `${sanitizedItem.particulars} (Ksh ${sanitizedItem.amount})`,
+        });
+
+        return sanitizedItem;
       })
     : [];
 
-  const subtotal = normalizeCurrency(doc.subtotal);
+  const grossSubtotal = normalizeCurrency(doc.grossSubtotal || doc.subtotal || 0);
   const discount = normalizeCurrency(doc.discount || 0);
+  const discountedTotal = normalizeCurrency(doc.discountedTotal || Math.max(0, grossSubtotal - discount));
+  const subtotal = normalizeCurrency(doc.subtotal || discountedTotal);
   const vatAmount = normalizeCurrency(doc.vatAmount);
-  const grandTotal = normalizeCurrency(doc.grandTotal);
+  const grandTotal = normalizeCurrency(doc.grandTotal || (subtotal + vatAmount));
   const amountPaid = normalizeCurrency(doc.amountPaid || 0);
   const balanceDue = doc.balanceDue !== undefined ? normalizeCurrency(doc.balanceDue) : Math.max(0, grandTotal - amountPaid);
+  const docNumber = normalizeCodeString(doc.documentNumber);
+  const clientPin = normalizeKraPin(doc.clientKraPin);
+  const clientPhone = doc.clientPhone ? normalizePhoneNumber(doc.clientPhone) : undefined;
+  const clientEmail = doc.clientEmail ? normalizeText(doc.clientEmail).toLowerCase() : undefined;
+  const status = doc.status || (doc.documentType === 'INVOICE' && balanceDue <= 0 ? 'Paid' : 'Sent');
 
-  return {
+  const sanitized: BillingDocument = {
     ...doc,
-    documentNumber: normalizeCodeString(doc.documentNumber),
+    documentNumber: docNumber,
     clientName: normalizeText(doc.clientName),
-    clientKraPin: normalizeKraPin(doc.clientKraPin),
+    clientKraPin: clientPin,
     clientAddress: normalizeText(doc.clientAddress),
-    clientPhone: doc.clientPhone ? normalizePhoneNumber(doc.clientPhone) : undefined,
-    clientEmail: doc.clientEmail ? normalizeText(doc.clientEmail) : undefined,
+    clientPhone,
+    clientEmail,
     issueDate: normalizeDate(doc.issueDate),
     dueDate: normalizeDate(doc.dueDate),
+    validityDays: typeof doc.validityDays === 'number' && doc.validityDays > 0 ? doc.validityDays : 14,
     lineItems,
-    subtotal,
+    grossSubtotal,
     discount,
+    discountedTotal,
+    subtotal,
     vatAmount,
     grandTotal,
     amountPaid,
     balanceDue,
-    status: doc.status || (doc.documentType === 'INVOICE' && balanceDue <= 0 ? 'Paid' : 'Sent'),
+    status: status as any,
     notes: normalizeText(doc.notes || ''),
     terms: normalizeText(doc.terms || ''),
     driveFileUrl: doc.driveFileUrl || undefined,
@@ -413,36 +532,103 @@ export function sanitizeDocumentForSync(doc: BillingDocument): BillingDocument {
     createdAt: normalizeDate(doc.createdAt),
     updatedAt: doc.updatedAt ? new Date(doc.updatedAt).toISOString() : new Date().toISOString(),
   };
+
+  // Detailed field tracking for serialization parity
+  ['documentNumber', 'clientName', 'clientKraPin', 'clientPhone', 'clientEmail', 'grossSubtotal', 'subtotal', 'discount', 'vatAmount', 'grandTotal', 'amountPaid', 'balanceDue', 'status'].forEach((field) => {
+    const rawVal = (doc as any)[field];
+    const cleanVal = (sanitized as any)[field];
+    syncFieldLogger.logField({
+      stage: 'SERIALIZE',
+      entityType: 'DOCUMENT',
+      entityId: docNumber || 'NEW_DOC',
+      fieldName: field,
+      beforeValue: rawVal,
+      afterValue: cleanVal,
+      status: rawVal === cleanVal ? 'EXACT_MATCH' : 'TRANSFORMED',
+      details: typeof cleanVal === 'number' ? `Normalized float: ${cleanVal.toFixed(2)}` : undefined,
+    });
+  });
+
+  return sanitized;
 }
 
 export function sanitizeClientForSync(client: Client): Client {
-  return {
+  const cleanId = normalizeCodeString(client.id);
+  const cleanName = normalizeText(client.name);
+  const cleanPin = normalizeKraPin(client.kraPin);
+  const cleanPhone = normalizePhoneNumber(client.phone);
+  const cleanEmail = normalizeText(client.email);
+  const cleanAddress = normalizeText(client.address);
+  const cleanContact = normalizeText(client.contactPerson);
+
+  const sanitized: Client = {
     ...client,
-    id: normalizeCodeString(client.id),
-    name: normalizeText(client.name),
-    contactPerson: normalizeText(client.contactPerson),
-    email: normalizeText(client.email),
-    phone: normalizePhoneNumber(client.phone),
-    kraPin: normalizeKraPin(client.kraPin),
-    address: normalizeText(client.address),
+    id: cleanId,
+    name: cleanName,
+    contactPerson: cleanContact,
+    email: cleanEmail,
+    phone: cleanPhone,
+    kraPin: cleanPin,
+    address: cleanAddress,
     createdAt: normalizeDate(client.createdAt),
+    updatedAt: client.updatedAt || new Date().toISOString(),
   };
+
+  ['name', 'kraPin', 'phone', 'email', 'contactPerson', 'address'].forEach((field) => {
+    const rawVal = (client as any)[field];
+    const cleanVal = (sanitized as any)[field];
+    syncFieldLogger.logField({
+      stage: 'SERIALIZE',
+      entityType: 'CLIENT',
+      entityId: cleanId || cleanName,
+      fieldName: field,
+      beforeValue: rawVal,
+      afterValue: cleanVal,
+      status: rawVal === cleanVal ? 'EXACT_MATCH' : 'TRANSFORMED',
+    });
+  });
+
+  return sanitized;
 }
 
 export function sanitizePaymentForSync(payment: PaymentRecord): PaymentRecord {
-  return {
+  const cleanReceipt = normalizeCodeString(payment.receiptNumber);
+  const cleanDoc = normalizeCodeString(payment.documentNumber);
+  const cleanClient = normalizeText(payment.clientName);
+  const cleanDate = normalizeDate(payment.date);
+  const cleanAmount = normalizeCurrency(payment.amount);
+  const cleanMode = payment.paymentMode || 'M-Pesa';
+  const cleanNote = normalizeText(payment.referenceNote);
+
+  const sanitized: PaymentRecord = {
     ...payment,
-    receiptNumber: normalizeCodeString(payment.receiptNumber),
-    documentNumber: normalizeCodeString(payment.documentNumber),
-    clientName: normalizeText(payment.clientName),
-    date: normalizeDate(payment.date),
-    amount: normalizeCurrency(payment.amount),
-    paymentMode: payment.paymentMode || 'M-Pesa',
-    referenceNote: normalizeText(payment.referenceNote),
+    receiptNumber: cleanReceipt,
+    documentNumber: cleanDoc,
+    clientName: cleanClient,
+    date: cleanDate,
+    amount: cleanAmount,
+    paymentMode: cleanMode,
+    referenceNote: cleanNote,
     driveFileUrl: payment.driveFileUrl || undefined,
     driveFileId: payment.driveFileId || undefined,
     createdAt: payment.createdAt ? new Date(payment.createdAt).toISOString() : new Date().toISOString(),
   };
+
+  ['receiptNumber', 'documentNumber', 'clientName', 'date', 'amount', 'paymentMode', 'referenceNote'].forEach((field) => {
+    const rawVal = (payment as any)[field];
+    const cleanVal = (sanitized as any)[field];
+    syncFieldLogger.logField({
+      stage: 'SERIALIZE',
+      entityType: 'PAYMENT',
+      entityId: cleanReceipt || 'NEW_PAYMENT',
+      fieldName: field,
+      beforeValue: rawVal,
+      afterValue: cleanVal,
+      status: rawVal === cleanVal ? 'EXACT_MATCH' : 'TRANSFORMED',
+    });
+  });
+
+  return sanitized;
 }
 
 /**
@@ -732,9 +918,9 @@ class GoogleSyncManager {
   }
 
   /**
-   * Start periodic real-time auto-sync loop (defaults to 5 seconds)
+   * Start periodic real-time auto-sync loop (defaults to 3 seconds for instant sub-second propagation)
    */
-  startAutoSync(intervalSeconds = 5) {
+  startAutoSync(intervalSeconds = 3) {
     this.pollingIntervalSeconds = intervalSeconds;
     this.currentState.pollingIntervalSeconds = intervalSeconds;
     this.currentState.realtimeActive = true;
@@ -747,10 +933,9 @@ class GoogleSyncManager {
     this.checkAndAutoSync();
 
     this.autoSyncIntervalId = setInterval(() => {
-      // In background tab, slow down slightly to save battery; in active tab, run at full speed
+      // In background tab, poll safely; in active tab, run at full speed
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        // Poll every 20s if hidden
-        if (Math.random() < 0.25) {
+        if (Math.random() < 0.35) {
           this.checkAndAutoSync();
         }
       } else {
@@ -2306,6 +2491,21 @@ class GoogleSyncManager {
             });
           }
 
+          // Track deserialization
+          ['name', 'kraPin', 'phone', 'email', 'contactPerson', 'address'].forEach((field) => {
+            const rawVal = (rawRemoteClient as any)[field];
+            const cleanVal = (remoteClient as any)[field];
+            syncFieldLogger.logField({
+              stage: 'DESERIALIZE',
+              entityType: 'CLIENT',
+              entityId: remoteClient.id || remoteClient.name,
+              fieldName: field,
+              beforeValue: rawVal,
+              afterValue: cleanVal,
+              status: report.corrections.some((c) => c.field === field) ? 'HEALED' : 'EXACT_MATCH',
+            });
+          });
+
           // Check if deleted locally (tombstoned)
           const normClientName = remoteClient.name ? remoteClient.name.trim().toLowerCase() : '';
           const normKraPin = remoteClient.kraPin ? remoteClient.kraPin.trim().toLowerCase() : '';
@@ -2338,17 +2538,24 @@ class GoogleSyncManager {
 
             // Strict LWW enforcement: Only update local from remote if remote is strictly newer
             if (remoteUpdated > localUpdated + 1500) {
-              const updatedClient: Client = {
-                ...existing,
-                // Defensive shields: never allow null, undefined or empty strings to overwrite existing values
-                name: remoteClient.name?.trim() ? remoteClient.name.trim() : existing.name,
-                kraPin: remoteClient.kraPin?.trim() ? remoteClient.kraPin.trim() : existing.kraPin,
-                contactPerson: remoteClient.contactPerson?.trim() ? remoteClient.contactPerson.trim() : existing.contactPerson,
-                email: remoteClient.email?.trim() ? remoteClient.email.trim() : existing.email,
-                phone: remoteClient.phone?.trim() ? remoteClient.phone.trim() : existing.phone,
-                address: remoteClient.address?.trim() ? remoteClient.address.trim() : existing.address,
-                updatedAt: remoteClient.updatedAt || new Date().toISOString(),
-              };
+              const updatedClient = safelyMergeClientWithDefensiveShields(existing, remoteClient);
+              
+              ['name', 'kraPin', 'phone', 'email', 'contactPerson', 'address'].forEach((f) => {
+                const localVal = (existing as any)[f];
+                const remoteVal = (remoteClient as any)[f];
+                const resolvedVal = (updatedClient as any)[f];
+                syncFieldLogger.logField({
+                  stage: 'PARITY_CHECK',
+                  entityType: 'CLIENT',
+                  entityId: existing.id,
+                  fieldName: f,
+                  beforeValue: localVal,
+                  afterValue: resolvedVal,
+                  status: localVal === resolvedVal ? 'EXACT_MATCH' : (remoteVal ? 'DRIFT_CORRECTED' : 'DEFENSIVE_PRESERVED'),
+                  details: `Remote updated strictly newer (${new Date(remoteUpdated).toISOString()})`,
+                });
+              });
+
               await dbService.saveClient(updatedClient);
               pulledCount++;
               pullStats.clients++;
@@ -2372,7 +2579,63 @@ class GoogleSyncManager {
         }
       }
 
-      // 2. MERGE DOCUMENTS (Non-destructive, Contextual Auto-Correction & Defensive Shields)
+      // 2. BUILD LINE ITEMS MAP FOR ACCURATE DOCUMENT LINE ITEM PROPAGATION
+      const lineItemsByDocNum = new Map<string, LineItem[]>();
+
+      if (Array.isArray(remoteData.lineItems) && remoteData.lineItems.length > 0) {
+        for (const li of remoteData.lineItems) {
+          const docNum = String(li.documentNumber || '').trim().toLowerCase();
+          if (!docNum) continue;
+          if (!lineItemsByDocNum.has(docNum)) lineItemsByDocNum.set(docNum, []);
+          lineItemsByDocNum.get(docNum)!.push({
+            id: li.id || `LI-${lineItemsByDocNum.get(docNum)!.length + 1}`,
+            particulars: String(li.particulars || 'Service / Accommodation').trim(),
+            quantity: Number(li.quantity) || 1,
+            days: Number(li.days) || 1,
+            rate: normalizeCurrency(li.rate),
+            discount: normalizeCurrency(li.discount || 0),
+            amount: normalizeCurrency(li.totalAmount !== undefined ? li.totalAmount : li.amount),
+          });
+        }
+      } else if (remoteData.worksheets?.['Line_Items_Breakdown']?.rows?.length > 0) {
+        const liTab = remoteData.worksheets['Line_Items_Breakdown'];
+        const headers = (liTab.headers || []).map((h: any) => String(h || '').trim().toLowerCase());
+        const docNumIdx = headers.findIndex((h: string) => h.includes('doc') || h.includes('number') || h.includes('invoice'));
+        const partIdx = headers.findIndex((h: string) => h.includes('particular') || h.includes('service') || h.includes('description'));
+        const qtyIdx = headers.findIndex((h: string) => h.includes('qty') || h.includes('quantity'));
+        const daysIdx = headers.findIndex((h: string) => h.includes('day') || h.includes('unit') || h.includes('night'));
+        const rateIdx = headers.findIndex((h: string) => h.includes('rate') || h.includes('price'));
+        const discIdx = headers.findIndex((h: string) => h.includes('discount'));
+        const amtIdx = headers.findIndex((h: string) => h.includes('amount') || h.includes('total'));
+        const idIdx = headers.findIndex((h: string) => h.includes('id'));
+
+        for (const row of liTab.rows) {
+          if (!Array.isArray(row) || row.length === 0) continue;
+          const docNum = String((docNumIdx >= 0 ? row[docNumIdx] : row[0]) || '').trim().toLowerCase();
+          if (!docNum) continue;
+          const part = String((partIdx >= 0 ? row[partIdx] : row[4]) || '').trim();
+          if (!part) continue;
+          const qty = Number(qtyIdx >= 0 ? row[qtyIdx] : row[5]) || 1;
+          const days = Number(daysIdx >= 0 ? row[daysIdx] : row[6]) || 1;
+          const rate = normalizeCurrency(rateIdx >= 0 ? row[rateIdx] : row[7]);
+          const disc = normalizeCurrency(discIdx >= 0 ? row[discIdx] : row[8]);
+          const amt = normalizeCurrency(amtIdx >= 0 ? row[amtIdx] : row[9]);
+          const liId = String((idIdx >= 0 ? row[idIdx] : '') || `LI-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`);
+
+          if (!lineItemsByDocNum.has(docNum)) lineItemsByDocNum.set(docNum, []);
+          lineItemsByDocNum.get(docNum)!.push({
+            id: liId,
+            particulars: part,
+            quantity: qty,
+            days: days,
+            rate: rate,
+            discount: disc,
+            amount: amt || Math.max(0, qty * days * rate - disc),
+          });
+        }
+      }
+
+      // 2b. MERGE DOCUMENTS (Non-destructive, Contextual Auto-Correction & Defensive Shields)
       const mergeDocumentsList = async (remoteDocs: any[], type: 'INVOICE' | 'QUOTATION' | 'PROFORMA') => {
         if (!Array.isArray(remoteDocs)) return;
 
@@ -2390,6 +2653,21 @@ class GoogleSyncManager {
               snapshot: report.corrections,
             });
           }
+
+          // Track deserialization
+          ['documentNumber', 'clientName', 'clientKraPin', 'clientPhone', 'clientEmail', 'subtotal', 'vatAmount', 'grandTotal', 'amountPaid', 'balanceDue', 'status'].forEach((field) => {
+            const rawVal = (rawRemoteDoc as any)[field];
+            const cleanVal = (rDoc as any)[field];
+            syncFieldLogger.logField({
+              stage: 'DESERIALIZE',
+              entityType: 'DOCUMENT',
+              entityId: rDoc.documentNumber,
+              fieldName: field,
+              beforeValue: rawVal,
+              afterValue: cleanVal,
+              status: report.corrections.some((c) => c.field === field) ? 'HEALED' : 'EXACT_MATCH',
+            });
+          });
 
           const normDocNum = rDoc.documentNumber.trim().toLowerCase();
           const docId = rDoc.id ? String(rDoc.id).trim().toLowerCase() : '';
@@ -2412,6 +2690,10 @@ class GoogleSyncManager {
           }
 
           const existing = await dbService.getDocumentByNumber(rDoc.documentNumber);
+          const resolvedLineItems: LineItem[] =
+            Array.isArray(rDoc.lineItems) && rDoc.lineItems.length > 0
+              ? rDoc.lineItems
+              : lineItemsByDocNum.get(normDocNum) || lineItemsByDocNum.get(codeString) || [];
 
           if (existing) {
             const remoteUpdated = rDoc.updatedAt ? new Date(rDoc.updatedAt).getTime() : 0;
@@ -2420,7 +2702,26 @@ class GoogleSyncManager {
 
             // Strict LWW enforcement: Only update local document if remote is strictly newer
             if (remoteUpdated > localUpdated + 1500) {
-              const merged = safelyMergeDocumentWithDefensiveShields(existing, rDoc);
+              const merged = safelyMergeDocumentWithDefensiveShields(existing, {
+                ...rDoc,
+                lineItems: resolvedLineItems.length > 0 ? resolvedLineItems : existing.lineItems,
+              });
+
+              ['clientName', 'clientKraPin', 'clientPhone', 'clientEmail', 'subtotal', 'vatAmount', 'grandTotal', 'amountPaid', 'balanceDue', 'status'].forEach((f) => {
+                const localVal = (existing as any)[f];
+                const remoteVal = (rDoc as any)[f];
+                const resolvedVal = (merged as any)[f];
+                syncFieldLogger.logField({
+                  stage: 'PARITY_CHECK',
+                  entityType: 'DOCUMENT',
+                  entityId: existing.documentNumber,
+                  fieldName: f,
+                  beforeValue: localVal,
+                  afterValue: resolvedVal,
+                  status: localVal === resolvedVal ? 'EXACT_MATCH' : (remoteVal ? 'DRIFT_CORRECTED' : 'DEFENSIVE_PRESERVED'),
+                });
+              });
+
               await dbService.saveDocument(merged);
               pulledCount++;
               if (type === 'INVOICE') pullStats.invoices++;
@@ -2441,6 +2742,18 @@ class GoogleSyncManager {
                 status: newStatus as any,
                 updatedAt: new Date().toISOString(),
               };
+
+              syncFieldLogger.logField({
+                stage: 'DRIFT_RESOLVED',
+                entityType: 'DOCUMENT',
+                entityId: existing.documentNumber,
+                fieldName: 'amountPaid',
+                beforeValue: existing.amountPaid,
+                afterValue: rawPaid,
+                status: 'DRIFT_CORRECTED',
+                details: `Reconciled payment settlement: Balance Ksh ${newBal}`,
+              });
+
               await dbService.saveDocument(updated);
               pulledCount++;
               if (type === 'INVOICE') pullStats.invoices++;
@@ -2456,16 +2769,20 @@ class GoogleSyncManager {
             const rawDisc = sanitizeCurrency(rDoc.discount);
             const grossSubtotal = sanitizeCurrency(rDoc.grossSubtotal || rawSubtotal || 0);
 
-            const defaultLineItems: LineItem[] = [
-              {
-                id: `item-${Date.now()}-1`,
-                particulars: `${type} Items (Imported from Central Google Sheets)`,
-                quantity: 1,
-                days: 1,
-                rate: grossSubtotal,
-                amount: grossSubtotal,
-              },
-            ];
+            const finalLineItems: LineItem[] =
+              resolvedLineItems.length > 0
+                ? resolvedLineItems
+                : [
+                    {
+                      id: `item-${Date.now()}-1`,
+                      particulars: `${type} Services (Hotel Damview Centralized Storage)`,
+                      quantity: 1,
+                      days: 1,
+                      rate: grossSubtotal || rawGrand || 0,
+                      discount: 0,
+                      amount: grossSubtotal || rawGrand || 0,
+                    },
+                  ];
 
             const newDoc: BillingDocument = {
               id: rDoc.id || `DOC-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -2479,9 +2796,11 @@ class GoogleSyncManager {
               issueDate: normalizeDate(rDoc.issueDate),
               validityDays: 14,
               dueDate: normalizeDate(rDoc.dueDate),
-              lineItems: defaultLineItems,
+              lineItems: finalLineItems,
+              grossSubtotal: grossSubtotal || rawGrand || 0,
               subtotal: normalizeCurrency(rawSubtotal || grossSubtotal),
               discount: normalizeCurrency(rawDisc || 0),
+              discountedTotal: normalizeCurrency(grossSubtotal - (rawDisc || 0)),
               vatAmount: normalizeCurrency(rawVat || 0),
               grandTotal: normalizeCurrency(rawGrand || grossSubtotal),
               amountPaid: normalizeCurrency(rawPaid || 0),
@@ -2552,6 +2871,18 @@ class GoogleSyncManager {
               driveFileUrl: rPay.driveFileUrl || undefined,
               lastSyncStatus: 'synced',
             };
+
+            syncFieldLogger.logField({
+              stage: 'DESERIALIZE',
+              entityType: 'PAYMENT',
+              entityId: newPayment.receiptNumber,
+              fieldName: 'amount',
+              beforeValue: rPay.amount,
+              afterValue: cleanAmount,
+              status: 'EXACT_MATCH',
+              details: `Receipt for Ksh ${cleanAmount} (Settled: ${newPayment.documentNumber || 'N/A'})`,
+            });
+
             await dbService.savePayment(newPayment);
             pulledCount++;
             pullStats.payments++;
