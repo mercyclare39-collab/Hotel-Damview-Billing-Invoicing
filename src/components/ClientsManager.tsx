@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Users,
   Search,
@@ -17,6 +17,7 @@ import { Client } from '../types';
 import { ClientModal } from './ClientModal';
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { formatDate } from '../utils/formatters';
+import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
 
 interface ClientsManagerProps {
   clients: Client[];
@@ -37,6 +38,13 @@ export const ClientsManager: React.FC<ClientsManagerProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
 
+  // Persistent multi-column table sorting hook
+  const { sortConfig, toggleSort, sortData } = usePersistentSort<Client>(
+    'clients_directory',
+    'name',
+    'asc'
+  );
+
   const openCreateModal = () => {
     setEditingClient(null);
     setIsModalOpen(true);
@@ -52,17 +60,30 @@ export const ClientsManager: React.FC<ClientsManagerProps> = ({
     setIsModalOpen(false);
   };
 
-  const filteredClients = clients.filter((c) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      c.name.toLowerCase().includes(q) ||
-      (c.contactPerson && c.contactPerson.toLowerCase().includes(q)) ||
-      (c.kraPin && c.kraPin.toLowerCase().includes(q)) ||
-      (c.email && c.email.toLowerCase().includes(q)) ||
-      (c.phone && c.phone.toLowerCase().includes(q))
-    );
-  });
+  const filteredClients = useMemo(() => {
+    return clients.filter((c) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        c.name.toLowerCase().includes(q) ||
+        (c.contactPerson && c.contactPerson.toLowerCase().includes(q)) ||
+        (c.kraPin && c.kraPin.toLowerCase().includes(q)) ||
+        (c.email && c.email.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.toLowerCase().includes(q))
+      );
+    });
+  }, [clients, searchQuery]);
+
+  const sortedClients = useMemo(() => {
+    return sortData(filteredClients, {
+      name: (c) => c.name,
+      contactPerson: (c) => c.contactPerson || '',
+      kraPin: (c) => c.kraPin || '',
+      phone: (c) => c.phone || '',
+      address: (c) => c.address || '',
+      createdAt: (c) => c.createdAt || '',
+    });
+  }, [filteredClients, sortData]);
 
   const handleExportXlsx = async () => {
     if (filteredClients.length === 0) {
@@ -160,17 +181,17 @@ export const ClientsManager: React.FC<ClientsManagerProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-stone-100 border-b border-stone-200 text-stone-700 font-bold">
-                <th className="py-2.5 px-3">Client / Organization</th>
-                <th className="py-2.5 px-3">Contact Person</th>
-                <th className="py-2.5 px-3">KRA PIN</th>
-                <th className="py-2.5 px-3">Phone & Email</th>
-                <th className="py-2.5 px-3">Physical Address</th>
+                <SortableHeader column="name" label="Client / Organization" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="contactPerson" label="Contact Person" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="kraPin" label="KRA PIN" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="phone" label="Phone & Email" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="address" label="Physical Address" currentSort={sortConfig} onSort={toggleSort} />
                 <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-200">
-              {filteredClients.length > 0 ? (
-                filteredClients.map((client) => (
+              {sortedClients.length > 0 ? (
+                sortedClients.map((client) => (
                   <tr key={client.id} className="hover:bg-stone-50/80 transition-colors">
                     <td className="py-2.5 px-3">
                       <div className="font-bold text-stone-900 text-sm">{client.name}</div>

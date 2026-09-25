@@ -1,5 +1,5 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v4.8.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v4.9.0)
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Universal Drive Archival Engine
  * Single Source of Truth for Hotel Damview ERP Across All App Workstations & Mobile Devices
  *
@@ -234,7 +234,7 @@ function doGet(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Central Backend v4.8.0 is active and ready.",
+      message: "Hotel Damview Google Apps Script Central Backend v4.9.0 is active and ready.",
       sheetName: ss ? ss.getName() : "Spreadsheet",
       sheetUrl: ss ? ss.getUrl() : "",
       timestamp: new Date().toISOString()
@@ -242,7 +242,7 @@ function doGet(e) {
   } catch (err) {
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Backend v4.8.0 is online.",
+      message: "Hotel Damview Google Apps Script Backend v4.9.0 is online.",
       error: err.toString(),
       timestamp: new Date().toISOString()
     });
@@ -313,7 +313,7 @@ function doPost(e) {
       var sheetList = getDiscoveredSheets(ss);
       return responseJSON({
         success: true,
-        message: "Hotel Damview Google Apps Script Central Backend v4.8.0 is active and connected.",
+        message: "Hotel Damview Google Apps Script Central Backend v4.9.0 is active and connected.",
         sheetName: ss.getName(),
         sheetUrl: ss.getUrl(),
         tabs: sheetList,
@@ -718,6 +718,166 @@ function getStandardTabDefinitions() {
   ];
 }
 
+/**
+ * Automatically resets, reorders, and standardizes all column headers to align strictly
+ * with the authoritative schema defined in Google Apps Script.
+ * Detects and prunes duplicate, orphaned, or obsolete column headers, while moving existing row
+ * values to their canonical columns without data loss or column shift.
+ */
+function reconcileAndSanitizeTabHeaders(sheet, tabDef, ss) {
+  var canonicalHeaders = tabDef.headers;
+  var lastCol = sheet.getLastColumn();
+  var lastRow = sheet.getLastRow();
+
+  if (lastCol === 0 || lastRow === 0) {
+    sheet.clearContents();
+    sheet.appendRow(canonicalHeaders);
+    var hRangeInit = sheet.getRange(1, 1, 1, canonicalHeaders.length);
+    hRangeInit.setBackground("#0f172a");
+    hRangeInit.setFontColor("#fef08a");
+    hRangeInit.setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    return;
+  }
+
+  var existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0] || [];
+
+  // Check if existing headers already strictly equal canonical headers
+  var isStrictMatch = (existingHeaders.length === canonicalHeaders.length);
+  if (isStrictMatch) {
+    for (var i = 0; i < canonicalHeaders.length; i++) {
+      if (String(existingHeaders[i] || "").trim() !== canonicalHeaders[i]) {
+        isStrictMatch = false;
+        break;
+      }
+    }
+  }
+
+  if (isStrictMatch) {
+    // Ensure executive header styling and frozen row
+    var hRangeMatch = sheet.getRange(1, 1, 1, canonicalHeaders.length);
+    hRangeMatch.setBackground("#0f172a");
+    hRangeMatch.setFontColor("#fef08a");
+    hRangeMatch.setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    return;
+  }
+
+  // Column matching & duplicate detection
+  var schemaKey = tabDef.name.toUpperCase();
+  var schemaList = CANONICAL_SCHEMAS[schemaKey] || [];
+  var existingColByCanonicalIdx = {};
+  var duplicateColsToPrune = [];
+  var usedExistingCols = {};
+
+  for (var j = 0; j < canonicalHeaders.length; j++) {
+    var canHeader = canonicalHeaders[j];
+    var normCan = normalizeHeaderKey(canHeader);
+    var matchedCol = -1;
+
+    // 1. Direct normalized match
+    for (var c = 0; c < existingHeaders.length; c++) {
+      var colNum = c + 1;
+      if (usedExistingCols[colNum]) continue;
+      if (normalizeHeaderKey(existingHeaders[c]) === normCan) {
+        matchedCol = colNum;
+        break;
+      }
+    }
+
+    // 2. Schema alias match
+    if (matchedCol === -1 && schemaList.length > 0) {
+      for (var f = 0; f < schemaList.length; f++) {
+        var fieldDef = schemaList[f];
+        if (normalizeHeaderKey(fieldDef.key) === normCan || (fieldDef.aliases && fieldDef.aliases.indexOf(normCan) >= 0)) {
+          for (var ec = 0; ec < existingHeaders.length; ec++) {
+            var eColNum = ec + 1;
+            if (usedExistingCols[eColNum]) continue;
+            var eNorm = normalizeHeaderKey(existingHeaders[ec]);
+            if (eNorm === normalizeHeaderKey(fieldDef.key) || (fieldDef.aliases && fieldDef.aliases.indexOf(eNorm) >= 0)) {
+              matchedCol = eColNum;
+              break;
+            }
+          }
+          if (matchedCol > 0) break;
+        }
+      }
+    }
+
+    // 3. Loose substring match
+    if (matchedCol === -1) {
+      for (var sc = 0; sc < existingHeaders.length; sc++) {
+        var sColNum = sc + 1;
+        if (usedExistingCols[sColNum]) continue;
+        var sNorm = normalizeHeaderKey(existingHeaders[sc]);
+        if (sNorm && (sNorm.indexOf(normCan) >= 0 || normCan.indexOf(sNorm) >= 0)) {
+          matchedCol = sColNum;
+          break;
+        }
+      }
+    }
+
+    if (matchedCol > 0) {
+      existingColByCanonicalIdx[j] = matchedCol;
+      usedExistingCols[matchedCol] = true;
+    }
+  }
+
+  // Any remaining existing columns are duplicates or orphaned/obsolete
+  for (var ec2 = 0; ec2 < existingHeaders.length; ec2++) {
+    var cNum = ec2 + 1;
+    if (!usedExistingCols[cNum]) {
+      duplicateColsToPrune.push(cNum);
+    }
+  }
+
+  // Reorder and align existing data rows
+  var reorderedRows = [];
+  if (lastRow > 1) {
+    var existingData = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+    for (var r = 0; r < existingData.length; r++) {
+      var row = new Array(canonicalHeaders.length);
+      for (var colIdx = 0; colIdx < canonicalHeaders.length; colIdx++) {
+        var oldCol = existingColByCanonicalIdx[colIdx];
+        var val = (oldCol > 0 && oldCol <= existingHeaders.length) ? existingData[r][oldCol - 1] : "";
+        row[colIdx] = val;
+      }
+      reorderedRows.push(row);
+    }
+  }
+
+  // Clear sheet and ensure exact column count
+  sheet.clearContents();
+
+  // If sheet has fewer columns than canonical, add columns
+  if (sheet.getMaxColumns() < canonicalHeaders.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), canonicalHeaders.length - sheet.getMaxColumns());
+  }
+  // If sheet has more columns than canonical, delete excess columns
+  if (sheet.getMaxColumns() > canonicalHeaders.length) {
+    sheet.deleteColumns(canonicalHeaders.length + 1, sheet.getMaxColumns() - canonicalHeaders.length);
+  }
+
+  // Write standardized canonical headers
+  var hRangeNew = sheet.getRange(1, 1, 1, canonicalHeaders.length);
+  hRangeNew.setValues([canonicalHeaders]);
+  hRangeNew.setBackground("#0f172a");
+  hRangeNew.setFontColor("#fef08a");
+  hRangeNew.setFontWeight("bold");
+  sheet.setFrozenRows(1);
+
+  // Write reordered rows
+  if (reorderedRows.length > 0) {
+    sheet.getRange(2, 1, reorderedRows.length, canonicalHeaders.length).setValues(reorderedRows);
+  }
+
+  // Format columns
+  if (schemaList.length > 0) {
+    var lookup = createHeaderIndexLookup(sheet, schemaList);
+    applyColumnFormatting(sheet, lookup);
+  }
+}
+
 function autoGenerateAndDeduplicateTabs(ss) {
   var standardTabs = getStandardTabDefinitions();
   var standardNames = [];
@@ -729,7 +889,7 @@ function autoGenerateAndDeduplicateTabs(ss) {
     standardMap[def.name.toLowerCase().trim()] = def;
   }
 
-  // 1. Auto generate or self-heal missing columns in official tabs
+  // 1. Auto generate, standardize, reorder, and cleanse headers in official tabs
   standardTabs.forEach(function(tabDef) {
     var sheet = ss.getSheetByName(tabDef.name);
     if (!sheet) {
@@ -741,26 +901,7 @@ function autoGenerateAndDeduplicateTabs(ss) {
       headerRange.setFontWeight("bold");
       sheet.setFrozenRows(1);
     } else {
-      var lastCol = Math.max(1, sheet.getLastColumn());
-      var existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0] || [];
-      var normalizedExisting = existingHeaders.map(function(h) { return normalizeHeaderKey(h); });
-
-      var missingHeaders = [];
-      tabDef.headers.forEach(function(officialHeader) {
-        var normOfficial = normalizeHeaderKey(officialHeader);
-        if (normalizedExisting.indexOf(normOfficial) === -1) {
-          missingHeaders.push(officialHeader);
-        }
-      });
-
-      if (missingHeaders.length > 0) {
-        // Appends missing official columns dynamically to the right of Row 1
-        var appendRange = sheet.getRange(1, lastCol + 1, 1, missingHeaders.length);
-        appendRange.setValues([missingHeaders]);
-        appendRange.setBackground("#0f172a");
-        appendRange.setFontColor("#fef08a");
-        appendRange.setFontWeight("bold");
-      }
+      reconcileAndSanitizeTabHeaders(sheet, tabDef, ss);
     }
   });
 

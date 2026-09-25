@@ -57,6 +57,20 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
     );
     const dynamicBalanceWidth = `${Math.max(88, maxBalChars * 8 + 18)}px`;
 
+    // Dynamically set the Period Covered header to reflect the date range from the oldest included invoice issue date to the most recent invoice issue date
+    const dynamicPeriodCovered = React.useMemo(() => {
+      const invoiceDates = entries
+        .filter((e) => e.debit > 0 && e.date)
+        .map((e) => e.date)
+        .sort();
+      if (invoiceDates.length > 0) {
+        const oldest = invoiceDates[0];
+        const newest = invoiceDates[invoiceDates.length - 1];
+        return `${formatDate(oldest)} to ${formatDate(newest)}`;
+      }
+      return `${formatDate(startDate)} to ${formatDate(endDate)}`;
+    }, [entries, startDate, endDate]);
+
     const contactParts = [profile.phone?.trim(), profile.email?.trim()].filter(Boolean);
     const phoneEmail = contactParts.join(' | ');
 
@@ -130,85 +144,71 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN DETAILS TABLES (Separated by Gutter, Borderless Key-Value Pairs) */}
-            <div className="details-grid-container grid grid-cols-2 gap-4 mb-4 text-[11pt] w-full items-stretch">
-              {/* Left Table: Statement To */}
-              <div className="border border-stone-400 rounded overflow-hidden bg-white flex flex-col">
-                <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr className="bg-stone-100 border-b border-stone-400 text-stone-900">
-                      <th colSpan={2} className="text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-3">
+            {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE (Row-Level Parallelism with Shared Dynamic Heights) */}
+            <div className="mb-4 w-full">
+              <table className="w-full text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: '14px 0' }}>
+                <thead>
+                  <tr>
+                    <th className="w-1/2 p-0 text-left">
+                      <div className="bg-stone-50 border border-stone-200 rounded-t px-3 py-1.5 text-left uppercase font-bold text-[10pt] tracking-wider text-stone-900 border-b border-stone-200">
                         STATEMENT TO
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-200">
-                    <tr>
-                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
-                        Client Name:
-                      </td>
-                      <td className="py-1.5 px-3 text-right font-bold text-stone-900 break-words align-middle">
-                        {client?.name || 'Selected Client'}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
-                        KRA PIN:
-                      </td>
-                      <td className="py-1.5 px-3 text-right font-mono text-stone-800 tracking-wider align-middle">
-                        {client?.kraPin || 'N/A'}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
-                        Physical Address:
-                      </td>
-                      <td className="py-1.5 px-3 text-right text-stone-800 break-words align-middle">
-                        {client?.address || 'N/A'}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Right Table: Document Details */}
-              <div className="border border-stone-400 rounded overflow-hidden bg-white flex flex-col">
-                <table className="w-full text-[11pt]" style={{ borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr className="bg-stone-100 border-b border-stone-400 text-stone-900">
-                      <th colSpan={2} className="text-left uppercase font-bold text-[11pt] tracking-wider py-1.5 px-3">
+                      </div>
+                    </th>
+                    <th className="w-1/2 p-0 text-left">
+                      <div className="bg-stone-50 border border-stone-200 rounded-t px-3 py-1.5 text-left uppercase font-bold text-[10pt] tracking-wider text-stone-900 border-b border-stone-200">
                         DOCUMENT DETAILS
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-200">
-                    <tr>
-                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
-                        Statement No:
-                      </td>
-                      <td className="py-1.5 px-3 text-right font-bold font-mono text-stone-950 align-middle">
-                        {statementNumber}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
-                        Issue Date:
-                      </td>
-                      <td className="py-1.5 px-3 text-right text-stone-800 align-middle">
-                        {issueDate ? formatDate(issueDate) : formatDate()}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 px-3 text-left font-semibold text-stone-700 whitespace-nowrap align-middle">
-                        Period Covered:
-                      </td>
-                      <td className="py-1.5 px-3 text-right font-medium text-stone-800 align-middle">
-                        {formatDate(startDate)} to {formatDate(endDate)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Row 1: Client Name & Statement Number */}
+                  <tr>
+                    <td className="w-1/2 p-0 align-middle">
+                      <div className="border-x border-b border-stone-200 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Client Name:</span>
+                        <span className="font-bold text-stone-950 text-right break-words text-[10pt] pl-2 max-w-[70%]">{client?.name || 'Selected Client'}</span>
+                      </div>
+                    </td>
+                    <td className="w-1/2 p-0 align-middle">
+                      <div className="border-x border-b border-stone-200 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Statement No:</span>
+                        <span className="font-bold font-mono text-stone-950 text-right text-[10.5pt] pl-2 max-w-[70%]">{statementNumber}</span>
+                      </div>
+                    </td>
+                  </tr>
+                  {/* Row 2: KRA PIN & Issue Date */}
+                  <tr>
+                    <td className="w-1/2 p-0 align-middle">
+                      <div className="border-x border-b border-stone-200 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">KRA PIN:</span>
+                        <span className="font-mono text-stone-900 text-right text-[10pt] tracking-wider pl-2 max-w-[70%]">{client?.kraPin || 'N/A'}</span>
+                      </div>
+                    </td>
+                    <td className="w-1/2 p-0 align-middle">
+                      <div className="border-x border-b border-stone-200 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Issue Date:</span>
+                        <span className="text-stone-900 text-right text-[10pt] pl-2 max-w-[70%]">{issueDate ? formatDate(issueDate) : formatDate()}</span>
+                      </div>
+                    </td>
+                  </tr>
+                  {/* Row 3: Physical Address & Period Covered */}
+                  <tr>
+                    <td className="w-1/2 p-0 align-middle">
+                      <div className="border-x border-b border-stone-200 rounded-b px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Physical Address:</span>
+                        <span className="text-stone-800 text-right break-words text-[10pt] pl-2 max-w-[75%]">{client?.address || 'N/A'}</span>
+                      </div>
+                    </td>
+                    <td className="w-1/2 p-0 align-middle">
+                      <div className="border-x border-b border-stone-200 rounded-b px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Period Covered:</span>
+                        <span className="font-medium text-stone-900 text-right text-[10pt] pl-2 max-w-[70%]">{dynamicPeriodCovered}</span>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
 
             {/* 4. LEDGER TABLE: Dynamic Table Layout Engine */}
@@ -324,7 +324,7 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
             {/* 5. HEADERLESS FINANCIAL SUMMARY BLOCK */}
             <div className="flex justify-end mb-4 w-full">
               <div className="w-[50%] min-w-[320px] max-w-[380px]">
-                <table className="financial-summary-table border border-stone-300 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <table className="financial-summary-table border border-stone-200/90 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <tbody>
                     <tr className="financial-summary-row-intermediate">
                       <td className="px-3 py-1 label-cell text-stone-600 font-normal">Total Invoiced (Debit):</td>

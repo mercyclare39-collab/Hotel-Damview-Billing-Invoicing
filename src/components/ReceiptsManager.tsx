@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   Receipt,
   Plus,
@@ -19,16 +19,22 @@ import {
   Trash2,
   AlertTriangle,
   RefreshCw,
-  MessageSquare,
   FileSpreadsheet,
 } from 'lucide-react';
 import { PaymentRecord, HotelProfile, Client, BillingDocument } from '../types';
 import { formatKsh, formatDate } from '../utils/formatters';
 import { A4ReceiptPreview } from './A4ReceiptPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
-import { generatePdfFromElement, shareDocumentPdf, validatePdfBlob, getReceiptWhatsAppShareUrl } from '../utils/pdfGenerator';
+import {
+  generatePdfFromElement,
+  universalSharePdfDocument,
+  getReceiptOperationalSummary,
+  validatePdfBlob,
+  printPdfBlob,
+} from '../utils/pdfGenerator';
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { localBackupService } from '../services/localBackupService';
+import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
 
 interface ReceiptsManagerProps {
   payments: PaymentRecord[];
@@ -85,6 +91,13 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
     }
   };
 
+  // Persistent multi-column table sorting hook
+  const { sortConfig, toggleSort, sortData } = usePersistentSort<PaymentRecord>(
+    'receipts_register',
+    'date',
+    'desc'
+  );
+
   // Filtered payments
   const filteredPayments = payments.filter((p) => {
     const matchesSearch =
@@ -98,13 +111,42 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
     return matchesSearch && matchesMode;
   });
 
+  // Sort filtered payments with persistent multi-column comparator
+  const sortedPayments = useMemo(() => {
+    return sortData(filteredPayments, {
+      amount: (p) => p.amount,
+      date: (p) => p.date,
+      receiptNumber: (p) => p.receiptNumber,
+      clientName: (p) => p.clientName,
+      paymentMode: (p) => p.paymentMode,
+    });
+  }, [filteredPayments, sortData]);
+
   const totalRevenueCollected = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
 
   const handlePrint = (payment: PaymentRecord) => {
     setSelectedPayment(payment);
     setIsPreviewModalOpen(true);
-    setTimeout(() => {
-      window.print();
+    setTimeout(async () => {
+      const el =
+        document.getElementById(`modal-a4-receipt-${payment.receiptNumber}`) ||
+        document.getElementById(`a4-receipt-${payment.receiptNumber}`);
+      if (el) {
+        try {
+          const res = await generatePdfFromElement(
+            el,
+            payment.receiptNumber,
+            payment.clientName,
+            payment.date,
+            { download: false }
+          );
+          await printPdfBlob(res.blob);
+        } catch {
+          window.print();
+        }
+      } else {
+        window.print();
+      }
     }, 250);
   };
 
@@ -161,36 +203,24 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
             payment.date,
             { download: false }
           );
-          const shared = await shareDocumentPdf(
-            res.blob,
-            res.fileName,
-            `Receipt ${payment.receiptNumber} - ${profile.name}`,
-            `Attached is payment receipt ${payment.receiptNumber} for ${payment.clientName} amounting to ${formatKsh(payment.amount)}.`
+          const summaryText = getReceiptOperationalSummary(payment, profile);
+          const client = clients.find(
+            (c) => c.id === payment.clientId || c.name.toLowerCase() === payment.clientName.toLowerCase()
           );
-          if (!shared) {
-            handleWhatsApp(payment);
-          }
+          await universalSharePdfDocument({
+            blob: res.blob,
+            fileName: res.fileName,
+            title: `Receipt ${payment.receiptNumber} - ${profile.name}`,
+            summaryText,
+            clientPhone: client?.phone,
+            driveUrl: payment.driveFileUrl,
+          });
         } catch (err) {
           console.error('Failed to share receipt PDF:', err);
         }
       }
       setIsGeneratingPdf(false);
     }, 250);
-  };
-
-  const handleWhatsApp = (payment: PaymentRecord) => {
-    setSelectedPayment(payment);
-    setIsPreviewModalOpen(true);
-    const client = clients.find(
-      (c) => c.id === payment.clientId || c.name.toLowerCase() === payment.clientName.toLowerCase()
-    );
-    const waUrl = getReceiptWhatsAppShareUrl(
-      payment,
-      profile,
-      client?.phone,
-      payment.driveFileUrl
-    );
-    window.open(waUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleExportXlsx = async () => {
@@ -308,21 +338,21 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
 
           {/* Receipts Table */}
           <div className="overflow-x-auto divide-y divide-stone-200">
-            {filteredPayments.length > 0 ? (
+            {sortedPayments.length > 0 ? (
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-stone-100 text-stone-700 font-semibold sticky top-0 z-10">
                   <tr>
-                    <th className="px-4 py-2.5">Receipt #</th>
-                    <th className="px-4 py-2.5">Date</th>
-                    <th className="px-4 py-2.5">Guest / Client</th>
-                    <th className="px-4 py-2.5">Mode</th>
-                    <th className="px-4 py-2.5 text-right">Amount</th>
+                    <SortableHeader column="receiptNumber" label="Receipt #" currentSort={sortConfig} onSort={toggleSort} />
+                    <SortableHeader column="date" label="Date" currentSort={sortConfig} onSort={toggleSort} defaultDirection="desc" />
+                    <SortableHeader column="clientName" label="Guest / Client" currentSort={sortConfig} onSort={toggleSort} />
+                    <SortableHeader column="paymentMode" label="Mode" currentSort={sortConfig} onSort={toggleSort} />
+                    <SortableHeader column="amount" label="Amount" currentSort={sortConfig} onSort={toggleSort} align="right" defaultDirection="desc" />
                     <th className="px-4 py-2.5 text-center">Sync / Remote</th>
                     <th className="px-4 py-2.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100">
-                  {filteredPayments.map((payment) => {
+                  {sortedPayments.map((payment) => {
                     const isSelected = selectedPayment?.id === payment.id;
                     return (
                       <tr
@@ -386,11 +416,11 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
                           <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
-                              onClick={() => handleWhatsApp(payment)}
-                              className="p-1.5 text-emerald-600 hover:text-emerald-800 rounded hover:bg-emerald-50 transition-colors"
-                              title="Share Receipt on WhatsApp"
+                              onClick={() => handleSharePdf(payment)}
+                              className="p-1.5 text-stone-600 hover:text-stone-900 rounded hover:bg-stone-200/60 transition-colors cursor-pointer"
+                              title="Share Receipt (Vector PDF & Summary)"
                             >
-                              <MessageSquare className="w-3.5 h-3.5" />
+                              <Share2 className="w-3.5 h-3.5 text-stone-700" />
                             </button>
                             <button
                               type="button"
@@ -512,18 +542,9 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => handleWhatsApp(selectedPayment)}
-                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                title="Send receipt summary on WhatsApp"
-              >
-                <MessageSquare className="w-3.5 h-3.5 text-white" />
-                <span className="hidden sm:inline">WhatsApp</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => handleDownloadPdf(selectedPayment)}
                 disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs transition-colors"
+                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>

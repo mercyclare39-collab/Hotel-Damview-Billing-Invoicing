@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef } from "react";
 import {
   FileSpreadsheet,
   Download,
@@ -26,7 +26,7 @@ import {
   ChevronRight,
   TrendingUp,
   MessageSquare,
-} from 'lucide-react';
+} from "lucide-react";
 import {
   Client,
   BillingDocument,
@@ -35,17 +35,25 @@ import {
   LedgerEntry,
   StatementRecord,
   DocumentType,
-} from '../types';
-import { formatKsh, formatDate } from '../utils/formatters';
-import { generatePdfFromElement, shareDocumentPdf, getStatementWhatsAppShareUrl, getWhatsAppShareUrl, getReceiptWhatsAppShareUrl } from '../utils/pdfGenerator';
-import { dbService } from '../services/db';
-import { localBackupService } from '../services/localBackupService';
-import { syncManager } from '../services/sync';
-import { exportTableToXlsx } from '../utils/excelExporter';
-import { A4StatementPreview } from './A4StatementPreview';
-import { AutoScalingA4Container } from './AutoScalingA4Container';
-import { A4DocumentPreview } from './A4DocumentPreview';
-import { A4ReceiptPreview } from './A4ReceiptPreview';
+} from "../types";
+import { formatKsh, formatDate } from "../utils/formatters";
+import {
+  generatePdfFromElement,
+  universalSharePdfDocument,
+  getStatementOperationalSummary,
+  getDocumentOperationalSummary,
+  getReceiptOperationalSummary,
+  printPdfBlob,
+} from "../utils/pdfGenerator";
+import { dbService } from "../services/db";
+import { localBackupService } from "../services/localBackupService";
+import { syncManager } from "../services/sync";
+import { exportTableToXlsx } from "../utils/excelExporter";
+import { A4StatementPreview } from "./A4StatementPreview";
+import { AutoScalingA4Container } from "./AutoScalingA4Container";
+import { A4DocumentPreview } from "./A4DocumentPreview";
+import { A4ReceiptPreview } from "./A4ReceiptPreview";
+import { usePersistentSort, SortableHeader } from "../hooks/usePersistentSort";
 
 interface StatementOfAccountProps {
   clients: Client[];
@@ -59,12 +67,13 @@ interface StatementOfAccountProps {
   onNewDocumentForClient?: (clientId: string) => void;
 }
 
-type JournalFilterType = 'ALL' | 'QUOTATION' | 'PROFORMA' | 'INVOICE' | 'RECEIPT';
+type JournalFilterType =
+  "ALL" | "QUOTATION" | "PROFORMA" | "INVOICE" | "RECEIPT";
 
 interface JournalRecordItem {
   id: string;
   date: string;
-  type: 'QUOTATION' | 'PROFORMA' | 'INVOICE' | 'RECEIPT';
+  type: "QUOTATION" | "PROFORMA" | "INVOICE" | "RECEIPT";
   documentNumber: string;
   clientId: string;
   clientName: string;
@@ -90,33 +99,35 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   onNewDocumentForClient,
 }) => {
   const [selectedClientId, setSelectedClientId] = useState<string>(
-    initialClientId || (clients[0]?.id ?? '')
+    initialClientId || (clients[0]?.id ?? ""),
   );
 
   // Active Main View: 'journal' for Document Journal, 'ledger' for Financial Ledger & Statement
-  const [activeView, setActiveView] = useState<'journal' | 'ledger'>('journal');
+  const [activeView, setActiveView] = useState<"journal" | "ledger">("journal");
 
   // Default date range: first day of current month to today
   const defaultStartDate = useMemo(() => {
     const d = new Date();
     d.setDate(1);
-    return d.toISOString().split('T')[0];
+    return d.toISOString().split("T")[0];
   }, []);
 
   const [startDate, setStartDate] = useState(defaultStartDate);
   const [endDate, setEndDate] = useState(formatDate());
   // Editable statement issue date
   const [issueDate, setIssueDate] = useState(formatDate());
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'UNSETTLED' | 'SETTLED'>('ALL');
-  const [docTypeFilter, setDocTypeFilter] = useState<JournalFilterType>('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<
+    "ALL" | "UNSETTLED" | "SETTLED"
+  >("ALL");
+  const [docTypeFilter, setDocTypeFilter] = useState<JournalFilterType>("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isPdfPreviewModalOpen, setIsPdfPreviewModalOpen] = useState(false);
 
   // Preview Modal state for individual Journal records
   const [previewItem, setPreviewItem] = useState<{
-    type: 'DOCUMENT' | 'RECEIPT';
+    type: "DOCUMENT" | "RECEIPT";
     doc?: BillingDocument;
     payment?: PaymentRecord;
   } | null>(null);
@@ -161,16 +172,16 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
     const clientInvoices = documents.filter(
       (d) =>
         d.clientId === selectedClient.id &&
-        d.documentType === 'INVOICE' &&
+        d.documentType === "INVOICE" &&
         d.issueDate >= startDate &&
-        d.issueDate <= endDate
+        d.issueDate <= endDate,
     );
 
     const clientPayments = payments.filter(
       (p) =>
         p.clientId === selectedClient.id &&
         p.date >= startDate &&
-        p.date <= endDate
+        p.date <= endDate,
     );
 
     let settledCount = 0;
@@ -185,39 +196,47 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
       description: string;
       debit: number;
       credit: number;
-      status: 'Settled' | 'Partially Settled' | 'Unsettled' | 'Payment';
+      status: "Settled" | "Partially Settled" | "Unsettled" | "Payment";
       doc?: BillingDocument;
     };
 
     const rawTxs: RawTx[] = [];
 
     clientInvoices.forEach((inv) => {
-      let txStatus: 'Settled' | 'Partially Settled' | 'Unsettled' = 'Unsettled';
-      const balance = inv.balanceDue !== undefined ? inv.balanceDue : inv.grandTotal;
+      let txStatus: "Settled" | "Partially Settled" | "Unsettled" = "Unsettled";
+      const balance =
+        inv.balanceDue !== undefined ? inv.balanceDue : inv.grandTotal;
       const paid = inv.amountPaid || 0;
 
-      if (balance <= 0 || inv.status === 'Paid') {
-        txStatus = 'Settled';
+      if (balance <= 0 || inv.status === "Paid") {
+        txStatus = "Settled";
         settledCount++;
         settledTotal += inv.grandTotal;
       } else if (paid > 0 && balance > 0) {
-        txStatus = 'Partially Settled';
+        txStatus = "Partially Settled";
         partialCount++;
         unsettledCount++;
         unsettledTotal += balance;
       } else {
-        txStatus = 'Unsettled';
+        txStatus = "Unsettled";
         unsettledCount++;
         unsettledTotal += balance;
+      }
+
+      const validParticulars =
+        inv.lineItems?.map((li) => li.particulars?.trim()).filter(Boolean) ||
+        [];
+      let conciseDescription = "Hospitality Services";
+      if (validParticulars.length === 1) {
+        conciseDescription = `Invoice: ${validParticulars[0]}`;
+      } else if (validParticulars.length > 1) {
+        conciseDescription = `Invoice: ${validParticulars[0]} (+${validParticulars.length - 1} item${validParticulars.length > 2 ? "s" : ""})`;
       }
 
       rawTxs.push({
         date: inv.issueDate,
         reference: inv.documentNumber,
-        description: `Invoice: ${
-          inv.lineItems?.map((li) => li.particulars).filter(Boolean).join(', ') ||
-          'Hospitality Services'
-        }`,
+        description: conciseDescription,
         debit: inv.grandTotal,
         credit: 0,
         status: txStatus,
@@ -229,12 +248,12 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
       rawTxs.push({
         date: p.date,
         reference: p.receiptNumber,
-        description: `Payment Settled - ${p.documentNumber || 'Direct'} (${p.paymentMode}${
-          p.referenceNote ? `: ${p.referenceNote}` : ''
+        description: `Payment Settled - ${p.documentNumber || "Direct"} (${p.paymentMode}${
+          p.referenceNote ? `: ${p.referenceNote}` : ""
         })`,
         debit: 0,
         credit: p.amount,
-        status: 'Payment',
+        status: "Payment",
       });
     });
 
@@ -280,25 +299,46 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   }, [selectedClient, documents, payments, startDate, endDate]);
 
   const statementNumber = useMemo(() => {
-    const clientCode = (selectedClient?.name || 'SOA')
+    const clientCode = (selectedClient?.name || "SOA")
       .substring(0, 3)
       .toUpperCase()
-      .replace(/[^A-Z]/g, 'X');
-    return `SOA-${clientCode}-${endDate.replace(/-/g, '')}`;
+      .replace(/[^A-Z]/g, "X");
+    return `SOA-${clientCode}-${endDate.replace(/-/g, "")}`;
   }, [selectedClient, endDate]);
 
   const displayLedgerEntries = useMemo(() => {
-    if (statusFilter === 'ALL') return ledgerEntries;
-    if (statusFilter === 'UNSETTLED') {
+    if (statusFilter === "ALL") return ledgerEntries;
+    if (statusFilter === "UNSETTLED") {
       return ledgerEntries.filter(
-        (e) => e.status === 'Unsettled' || e.status === 'Partially Settled'
+        (e) => e.status === "Unsettled" || e.status === "Partially Settled",
       );
     }
-    if (statusFilter === 'SETTLED') {
-      return ledgerEntries.filter((e) => e.status === 'Settled' || e.status === 'Payment');
+    if (statusFilter === "SETTLED") {
+      return ledgerEntries.filter(
+        (e) => e.status === "Settled" || e.status === "Payment",
+      );
     }
     return ledgerEntries;
   }, [ledgerEntries, statusFilter]);
+
+  // Persistent multi-column sorting for client ledger
+  const {
+    sortConfig: ledgerSortConfig,
+    toggleSort: toggleLedgerSort,
+    sortData: sortLedgerData,
+  } = usePersistentSort<LedgerEntry>("statement_ledger", "date", "asc");
+
+  const sortedDisplayLedgerEntries = useMemo(() => {
+    return sortLedgerData(displayLedgerEntries, {
+      debit: (e) => e.debit,
+      credit: (e) => e.credit,
+      cumulativeBalance: (e) => e.cumulativeBalance,
+      date: (e) => e.date,
+      reference: (e) => e.reference,
+      description: (e) => e.description,
+      status: (e) => e.status || "",
+    });
+  }, [displayLedgerEntries, sortLedgerData]);
 
   // =========================================================================
   // 2. DOCUMENT JOURNAL COMPUTATIONS (All documents & receipts)
@@ -310,13 +350,17 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
     const clientDocs = documents.filter((d) => {
       const matchClient = !selectedClientId || d.clientId === selectedClientId;
       const matchDate =
-        (!startDate || d.issueDate >= startDate) && (!endDate || d.issueDate <= endDate);
+        (!startDate || d.issueDate >= startDate) &&
+        (!endDate || d.issueDate <= endDate);
       return matchClient && matchDate;
     });
 
     clientDocs.forEach((d) => {
       const summary =
-        d.lineItems?.map((li) => li.particulars).filter(Boolean).join(', ') || 'No line items';
+        d.lineItems
+          ?.map((li) => li.particulars)
+          .filter(Boolean)
+          .join(", ") || "No line items";
       records.push({
         id: d.id,
         date: d.issueDate,
@@ -337,7 +381,8 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
     // Filter payments/receipts by client (if selected) and date range
     const clientPayments = payments.filter((p) => {
       const matchClient = !selectedClientId || p.clientId === selectedClientId;
-      const matchDate = (!startDate || p.date >= startDate) && (!endDate || p.date <= endDate);
+      const matchDate =
+        (!startDate || p.date >= startDate) && (!endDate || p.date <= endDate);
       return matchClient && matchDate;
     });
 
@@ -345,15 +390,15 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
       records.push({
         id: p.id,
         date: p.date,
-        type: 'RECEIPT',
+        type: "RECEIPT",
         documentNumber: p.receiptNumber,
         clientId: p.clientId,
         clientName: p.clientName,
-        particularsSummary: `Payment for ${p.documentNumber || 'Settlement'} via ${p.paymentMode}${
-          p.referenceNote ? ` (${p.referenceNote})` : ''
+        particularsSummary: `Payment for ${p.documentNumber || "Settlement"} via ${p.paymentMode}${
+          p.referenceNote ? ` (${p.referenceNote})` : ""
         }`,
         amount: p.amount,
-        status: 'Settled',
+        status: "Settled",
         notes: p.referenceNote,
         rawPayment: p,
       });
@@ -369,18 +414,41 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
 
   const filteredJournalRecords = useMemo(() => {
     return journalRecords.filter((rec) => {
-      if (docTypeFilter !== 'ALL' && rec.type !== docTypeFilter) return false;
+      if (docTypeFilter !== "ALL" && rec.type !== docTypeFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
         const inNum = rec.documentNumber.toLowerCase().includes(q);
         const inPart = rec.particularsSummary.toLowerCase().includes(q);
-        const inNotes = (rec.notes || '').toLowerCase().includes(q);
+        const inNotes = (rec.notes || "").toLowerCase().includes(q);
         const inClient = rec.clientName.toLowerCase().includes(q);
         if (!inNum && !inPart && !inNotes && !inClient) return false;
       }
       return true;
     });
   }, [journalRecords, docTypeFilter, searchQuery]);
+
+  // Persistent multi-column sorting for journal records
+  const {
+    sortConfig: journalSortConfig,
+    toggleSort: toggleJournalSort,
+    sortData: sortJournalData,
+  } = usePersistentSort<JournalRecordItem>(
+    "statement_journal_txs",
+    "date",
+    "desc",
+  );
+
+  const sortedJournalRecords = useMemo(() => {
+    return sortJournalData(filteredJournalRecords, {
+      date: (r) => r.date,
+      type: (r) => r.type,
+      documentNumber: (r) => r.documentNumber,
+      clientName: (r) => r.clientName,
+      particularsSummary: (r) => r.particularsSummary,
+      amount: (r) => r.amount,
+      status: (r) => r.status,
+    });
+  }, [filteredJournalRecords, sortJournalData]);
 
   // Journal metrics
   const journalMetrics = useMemo(() => {
@@ -394,16 +462,16 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
     let receiptsTotal = 0;
 
     journalRecords.forEach((r) => {
-      if (r.type === 'QUOTATION') {
+      if (r.type === "QUOTATION") {
         quotesCount++;
         quotesTotal += r.amount;
-      } else if (r.type === 'PROFORMA') {
+      } else if (r.type === "PROFORMA") {
         proformasCount++;
         proformasTotal += r.amount;
-      } else if (r.type === 'INVOICE') {
+      } else if (r.type === "INVOICE") {
         invoicesCount++;
         invoicesTotal += r.amount;
-      } else if (r.type === 'RECEIPT') {
+      } else if (r.type === "RECEIPT") {
         receiptsCount++;
         receiptsTotal += r.amount;
       }
@@ -426,7 +494,8 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   // 3. ACTIONS & EXPORTS
   // =========================================================================
   const handleDownloadStatementPdf = async () => {
-    const targetElement = modalPreviewRef.current || statementPreviewRef.current;
+    const targetElement =
+      modalPreviewRef.current || statementPreviewRef.current;
     if (!targetElement || !selectedClient) return;
     setIsGeneratingPdf(true);
     try {
@@ -435,7 +504,7 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
         statementNumber,
         selectedClient.name,
         issueDate || endDate,
-        { download: true }
+        { download: true },
       );
 
       // Persist StatementRecord to IndexedDB
@@ -464,16 +533,18 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             pdfRes.blob,
             pdfRes.fileName,
             stmtRecord,
-            statementNumber
+            statementNumber,
           )
-          .catch((err) => console.warn('Local statement backup warning:', err));
+          .catch((err) => console.warn("Local statement backup warning:", err));
 
         syncManager
           .archiveStatementPdf(stmtRecord, pdfRes.base64, pdfRes.fileName)
-          .catch((err) => console.warn('Google Drive statement sync warning:', err));
+          .catch((err) =>
+            console.warn("Google Drive statement sync warning:", err),
+          );
       }
     } catch (err: any) {
-      console.error('Failed to export Statement PDF:', err);
+      console.error("Failed to export Statement PDF:", err);
     } finally {
       setIsGeneratingPdf(false);
     }
@@ -481,13 +552,31 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
 
   const handlePrint = () => {
     setIsPdfPreviewModalOpen(true);
-    setTimeout(() => {
-      window.print();
+    setTimeout(async () => {
+      const targetElement =
+        modalPreviewRef.current || statementPreviewRef.current;
+      if (targetElement && selectedClient) {
+        try {
+          const res = await generatePdfFromElement(
+            targetElement,
+            statementNumber,
+            selectedClient.name,
+            issueDate || endDate,
+            { download: false },
+          );
+          await printPdfBlob(res.blob);
+        } catch {
+          window.print();
+        }
+      } else {
+        window.print();
+      }
     }, 250);
   };
 
   const handleShare = async () => {
-    const targetElement = modalPreviewRef.current || statementPreviewRef.current;
+    const targetElement =
+      modalPreviewRef.current || statementPreviewRef.current;
     if (!targetElement || !selectedClient) return;
     setIsPdfPreviewModalOpen(true);
     setIsGeneratingPdf(true);
@@ -497,63 +586,85 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
         statementNumber,
         selectedClient.name,
         issueDate || endDate,
-        { download: false }
+        { download: false },
       );
-      const shared = await shareDocumentPdf(
+      const summaryText = getStatementOperationalSummary(
+        {
+          statementNumber,
+          clientName: selectedClient.name,
+          startDate,
+          endDate,
+          closingBalance,
+          totalDebit,
+          totalCredit,
+        },
+        profile,
+      );
+      await universalSharePdfDocument({
         blob,
         fileName,
-        `Statement of Account: ${selectedClient.name} - ${profile.name}`,
-        `Attached is the Statement of Account for ${selectedClient.name} covering ${startDate} to ${endDate}. Balance due: ${formatKsh(
-          closingBalance
-        )}.`
-      );
-      if (!shared) {
-        handleWhatsAppStatement();
-      }
+        title: `Statement of Account: ${selectedClient.name} - ${profile.name}`,
+        summaryText,
+        clientPhone: selectedClient.phone,
+      });
     } catch (err) {
-      console.warn('Share error:', err);
+      console.warn("Share error:", err);
     } finally {
       setIsGeneratingPdf(false);
     }
   };
 
-  const handleWhatsAppStatement = () => {
-    if (!selectedClient) return;
-    setIsPdfPreviewModalOpen(true);
-    const waUrl = getStatementWhatsAppShareUrl(
-      {
-        statementNumber,
-        clientName: selectedClient.name,
-        startDate,
-        endDate,
-        closingBalance,
-        totalDebit,
-        totalCredit,
-      },
-      profile,
-      selectedClient.phone
-    );
-    window.open(waUrl, '_blank', 'noopener,noreferrer');
-  };
+  const handleShareItem = async () => {
+    if (!itemModalPreviewRef.current || !previewItem) return;
+    setIsGeneratingPdf(true);
+    try {
+      const number =
+        previewItem.type === "DOCUMENT"
+          ? previewItem.doc?.documentNumber || "DOCUMENT"
+          : previewItem.payment?.receiptNumber || "RECEIPT";
+      const client =
+        previewItem.type === "DOCUMENT"
+          ? previewItem.doc?.clientName || "Client"
+          : previewItem.payment?.clientName || "Client";
+      const date =
+        previewItem.type === "DOCUMENT"
+          ? previewItem.doc?.issueDate || ""
+          : previewItem.payment?.date || "";
+      const clientPhone =
+        previewItem.type === "DOCUMENT"
+          ? previewItem.doc?.clientPhone
+          : selectedClient?.phone;
 
-  const handleWhatsAppItem = () => {
-    if (!previewItem) return;
-    if (previewItem.type === 'DOCUMENT' && previewItem.doc) {
-      const waUrl = getWhatsAppShareUrl(
-        previewItem.doc,
-        profile,
-        previewItem.doc.clientPhone,
-        previewItem.doc.driveFileUrl
+      const { blob, fileName } = await generatePdfFromElement(
+        itemModalPreviewRef.current,
+        number,
+        client,
+        date,
+        { download: false },
       );
-      window.open(waUrl, '_blank', 'noopener,noreferrer');
-    } else if (previewItem.type === 'RECEIPT' && previewItem.payment) {
-      const waUrl = getReceiptWhatsAppShareUrl(
-        previewItem.payment,
-        profile,
-        undefined,
-        previewItem.payment.driveFileUrl
-      );
-      window.open(waUrl, '_blank', 'noopener,noreferrer');
+
+      const summaryText =
+        previewItem.type === "DOCUMENT" && previewItem.doc
+          ? getDocumentOperationalSummary(previewItem.doc, profile)
+          : previewItem.payment
+            ? getReceiptOperationalSummary(previewItem.payment, profile)
+            : `Document ${number} for ${client}`;
+
+      await universalSharePdfDocument({
+        blob,
+        fileName,
+        title: `${number} - ${profile.name}`,
+        summaryText,
+        clientPhone,
+        driveUrl:
+          previewItem.type === "DOCUMENT"
+            ? previewItem.doc?.driveFileUrl
+            : previewItem.payment?.driveFileUrl,
+      });
+    } catch (err) {
+      console.error("Share item error:", err);
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -562,23 +673,29 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
     setIsGeneratingPdf(true);
     try {
       const number =
-        previewItem.type === 'DOCUMENT'
-          ? previewItem.doc?.documentNumber || 'DOCUMENT'
-          : previewItem.payment?.receiptNumber || 'RECEIPT';
+        previewItem.type === "DOCUMENT"
+          ? previewItem.doc?.documentNumber || "DOCUMENT"
+          : previewItem.payment?.receiptNumber || "RECEIPT";
       const client =
-        previewItem.type === 'DOCUMENT'
-          ? previewItem.doc?.clientName || 'Client'
-          : previewItem.payment?.clientName || 'Client';
+        previewItem.type === "DOCUMENT"
+          ? previewItem.doc?.clientName || "Client"
+          : previewItem.payment?.clientName || "Client";
       const date =
-        previewItem.type === 'DOCUMENT'
+        previewItem.type === "DOCUMENT"
           ? previewItem.doc?.issueDate || formatDate()
           : previewItem.payment?.date || formatDate();
 
-      await generatePdfFromElement(itemModalPreviewRef.current, number, client, date, {
-        download: true,
-      });
+      await generatePdfFromElement(
+        itemModalPreviewRef.current,
+        number,
+        client,
+        date,
+        {
+          download: true,
+        },
+      );
     } catch (err: any) {
-      console.error('Download item PDF failed:', err);
+      console.error("Download item PDF failed:", err);
     } finally {
       setIsGeneratingPdf(false);
     }
@@ -593,11 +710,11 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
           <div className="inline-flex rounded-lg p-0.5 bg-stone-200/90 text-xs font-semibold shadow-inner">
             <button
               type="button"
-              onClick={() => setActiveView('journal')}
+              onClick={() => setActiveView("journal")}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeView === 'journal'
-                  ? 'bg-stone-900 text-amber-400 shadow-xs'
-                  : 'text-stone-700 hover:text-stone-900'
+                activeView === "journal"
+                  ? "bg-stone-900 text-amber-400 shadow-xs"
+                  : "text-stone-700 hover:text-stone-900"
               }`}
             >
               <BookOpen className="w-3.5 h-3.5" />
@@ -608,11 +725,11 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveView('ledger')}
+              onClick={() => setActiveView("ledger")}
               className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeView === 'ledger'
-                  ? 'bg-stone-900 text-amber-400 shadow-xs'
-                  : 'text-stone-700 hover:text-stone-900'
+                activeView === "ledger"
+                  ? "bg-stone-900 text-amber-400 shadow-xs"
+                  : "text-stone-700 hover:text-stone-900"
               }`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -631,7 +748,7 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
               <option value="">All Clients (Aggregated Journal)</option>
               {clients.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} {c.kraPin ? `(${c.kraPin})` : ''}
+                  {c.name} {c.kraPin ? `(${c.kraPin})` : ""}
                 </option>
               ))}
             </select>
@@ -656,7 +773,7 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
           </div>
 
           {/* Editable Issue Date Picker for SOA */}
-          {activeView === 'ledger' && (
+          {activeView === "ledger" && (
             <div className="flex items-center gap-1 text-xs bg-amber-50/80 border border-amber-300/80 px-2 py-0.5 rounded">
               <Calendar className="w-3.5 h-3.5 text-amber-800" />
               <span className="text-amber-900 font-bold">Issue Date:</span>
@@ -696,28 +813,58 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             </button>
           )}
 
-          {activeView === 'ledger' && selectedClient && (
+          {activeView === "ledger" && selectedClient && (
             <>
               <button
                 type="button"
                 onClick={async () => {
                   if (ledgerEntries.length === 0) {
-                    alert('No ledger transactions to export.');
+                    alert("No ledger transactions to export.");
                     return;
                   }
                   const columns = [
-                    { header: 'Date', key: 'date', type: 'date' as const, width: 13 },
-                    { header: 'Particulars / Description', key: 'description', type: 'text' as const, width: 35 },
-                    { header: 'Ref / Doc #', key: 'reference', type: 'code' as const, width: 16 },
-                    { header: 'Debit (Invoiced Ksh)', key: 'debit', type: 'currency' as const, width: 18 },
-                    { header: 'Credit (Paid Ksh)', key: 'credit', type: 'currency' as const, width: 18 },
-                    { header: 'Running Balance (Ksh)', key: 'balance', type: 'currency' as const, width: 18 },
+                    {
+                      header: "Date",
+                      key: "date",
+                      type: "date" as const,
+                      width: 13,
+                    },
+                    {
+                      header: "Particulars / Description",
+                      key: "description",
+                      type: "text" as const,
+                      width: 35,
+                    },
+                    {
+                      header: "Ref / Doc #",
+                      key: "reference",
+                      type: "code" as const,
+                      width: 16,
+                    },
+                    {
+                      header: "Debit (Invoiced Ksh)",
+                      key: "debit",
+                      type: "currency" as const,
+                      width: 18,
+                    },
+                    {
+                      header: "Credit (Paid Ksh)",
+                      key: "credit",
+                      type: "currency" as const,
+                      width: 18,
+                    },
+                    {
+                      header: "Running Balance (Ksh)",
+                      key: "balance",
+                      type: "currency" as const,
+                      width: 18,
+                    },
                   ];
 
                   const data = ledgerEntries.map((e) => ({
                     date: e.date,
                     description: e.description,
-                    reference: e.reference || '-',
+                    reference: e.reference || "-",
                     debit: e.debit,
                     credit: e.credit,
                     balance: e.cumulativeBalance,
@@ -725,11 +872,11 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
 
                   await exportTableToXlsx({
                     title: `Statement of Account — ${selectedClient.name}`,
-                    sheetName: 'SOA_Ledger',
+                    sheetName: "SOA_Ledger",
                     profile,
                     columns,
                     data,
-                    filename: `HotelDamview_SOA_${selectedClient.name.replace(/[^a-zA-Z0-9]/g, '_')}_${formatDate()}.xlsx`,
+                    filename: `HotelDamview_SOA_${selectedClient.name.replace(/[^a-zA-Z0-9]/g, "_")}_${formatDate()}.xlsx`,
                   });
                 }}
                 className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-stone-300 text-stone-800 rounded bg-white hover:bg-stone-50 font-semibold transition-colors cursor-pointer"
@@ -756,7 +903,9 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                 className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-stone-900 text-amber-400 hover:bg-stone-800 rounded font-bold transition-colors disabled:opacity-50 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>{isGeneratingPdf ? 'Generating...' : 'Download Statement PDF'}</span>
+                <span>
+                  {isGeneratingPdf ? "Generating..." : "Download Statement PDF"}
+                </span>
               </button>
             </>
           )}
@@ -768,7 +917,7 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
         {/* ================================================================= */}
         {/* VIEW 1: COMPREHENSIVE DOCUMENT JOURNAL                           */}
         {/* ================================================================= */}
-        {activeView === 'journal' && (
+        {activeView === "journal" && (
           <div className="max-w-6xl mx-auto space-y-4">
             {/* Journal Metrics Overview */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -830,20 +979,34 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                   Type:
                 </span>
                 {[
-                  { id: 'ALL', label: `All (${journalMetrics.totalCount})` },
-                  { id: 'QUOTATION', label: `Quotations (${journalMetrics.quotesCount})` },
-                  { id: 'PROFORMA', label: `Proformas (${journalMetrics.proformasCount})` },
-                  { id: 'INVOICE', label: `Invoices (${journalMetrics.invoicesCount})` },
-                  { id: 'RECEIPT', label: `Receipts (${journalMetrics.receiptsCount})` },
+                  { id: "ALL", label: `All (${journalMetrics.totalCount})` },
+                  {
+                    id: "QUOTATION",
+                    label: `Quotations (${journalMetrics.quotesCount})`,
+                  },
+                  {
+                    id: "PROFORMA",
+                    label: `Proformas (${journalMetrics.proformasCount})`,
+                  },
+                  {
+                    id: "INVOICE",
+                    label: `Invoices (${journalMetrics.invoicesCount})`,
+                  },
+                  {
+                    id: "RECEIPT",
+                    label: `Receipts (${journalMetrics.receiptsCount})`,
+                  },
                 ].map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
-                    onClick={() => setDocTypeFilter(tab.id as JournalFilterType)}
+                    onClick={() =>
+                      setDocTypeFilter(tab.id as JournalFilterType)
+                    }
                     className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
                       docTypeFilter === tab.id
-                        ? 'bg-stone-900 text-amber-400 shadow-xs'
-                        : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                        ? "bg-stone-900 text-amber-400 shadow-xs"
+                        : "bg-stone-100 text-stone-700 hover:bg-stone-200"
                     }`}
                   >
                     {tab.label}
@@ -867,31 +1030,37 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             {/* Chronological Document Journal Grid */}
             <div className="bg-white border border-stone-200 rounded-lg shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
-                {filteredJournalRecords.length > 0 ? (
+                {sortedJournalRecords.length > 0 ? (
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-stone-100 text-stone-700 font-semibold border-b border-stone-200">
                       <tr>
-                        <th className="px-3.5 py-2.5">Date</th>
-                        <th className="px-3 py-2.5 text-center">Type</th>
-                        <th className="px-3.5 py-2.5">Document #</th>
-                        <th className="px-3.5 py-2.5">Client</th>
-                        <th className="px-3.5 py-2.5">Particulars / Summary</th>
-                        <th className="px-3.5 py-2.5 text-right">Amount (Ksh)</th>
-                        <th className="px-3 py-2.5 text-center">Status</th>
-                        <th className="px-3.5 py-2.5 text-right">One-Click Actions</th>
+                        <SortableHeader column="date" label="Date" currentSort={journalSortConfig} onSort={toggleJournalSort} defaultDirection="desc" />
+                        <SortableHeader column="type" label="Type" currentSort={journalSortConfig} onSort={toggleJournalSort} align="center" />
+                        <SortableHeader column="documentNumber" label="Document #" currentSort={journalSortConfig} onSort={toggleJournalSort} />
+                        <SortableHeader column="clientName" label="Client" currentSort={journalSortConfig} onSort={toggleJournalSort} />
+                        <SortableHeader column="particularsSummary" label="Particulars / Summary" currentSort={journalSortConfig} onSort={toggleJournalSort} />
+                        <SortableHeader column="amount" label="Amount (Ksh)" currentSort={journalSortConfig} onSort={toggleJournalSort} align="right" defaultDirection="desc" />
+                        <SortableHeader column="status" label="Status" currentSort={journalSortConfig} onSort={toggleJournalSort} align="center" />
+                        <th className="px-3.5 py-2.5 text-right font-semibold">
+                          One-Click Actions
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-100">
-                      {filteredJournalRecords.map((rec) => {
+                      {sortedJournalRecords.map((rec) => {
                         const isQuoteOrProforma =
-                          rec.type === 'QUOTATION' || rec.type === 'PROFORMA';
-                        const isInvoice = rec.type === 'INVOICE';
-                        const isReceipt = rec.type === 'RECEIPT';
+                          rec.type === "QUOTATION" || rec.type === "PROFORMA";
+                        const isInvoice = rec.type === "INVOICE";
+                        const isReceipt = rec.type === "RECEIPT";
                         const isUnsettledInvoice =
-                          isInvoice && (rec.balanceDue === undefined || rec.balanceDue > 0);
+                          isInvoice &&
+                          (rec.balanceDue === undefined || rec.balanceDue > 0);
 
                         return (
-                          <tr key={rec.id} className="hover:bg-amber-50/20 transition-colors">
+                          <tr
+                            key={rec.id}
+                            className="hover:bg-amber-50/20 transition-colors"
+                          >
                             <td className="px-3.5 py-2.5 text-stone-600 whitespace-nowrap font-medium">
                               {rec.date}
                             </td>
@@ -900,13 +1069,13 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                             <td className="px-3 py-2.5 text-center whitespace-nowrap">
                               <span
                                 className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                                  rec.type === 'QUOTATION'
-                                    ? 'bg-purple-100 text-purple-900 border border-purple-200'
-                                    : rec.type === 'PROFORMA'
-                                    ? 'bg-amber-100 text-amber-900 border border-amber-200'
-                                    : rec.type === 'INVOICE'
-                                    ? 'bg-slate-100 text-slate-900 border border-slate-300'
-                                    : 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                                  rec.type === "QUOTATION"
+                                    ? "bg-purple-100 text-purple-900 border border-purple-200"
+                                    : rec.type === "PROFORMA"
+                                      ? "bg-amber-100 text-amber-900 border border-amber-200"
+                                      : rec.type === "INVOICE"
+                                        ? "bg-slate-100 text-slate-900 border border-slate-300"
+                                        : "bg-emerald-100 text-emerald-900 border border-emerald-200"
                                 }`}
                               >
                                 {rec.type}
@@ -926,7 +1095,10 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                             </td>
 
                             {/* Particulars Summary */}
-                            <td className="px-3.5 py-2.5 text-stone-700 max-w-xs truncate" title={rec.particularsSummary}>
+                            <td
+                              className="px-3.5 py-2.5 text-stone-700 max-w-xs truncate"
+                              title={rec.particularsSummary}
+                            >
                               {rec.particularsSummary}
                             </td>
 
@@ -939,13 +1111,14 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                             <td className="px-3 py-2.5 text-center whitespace-nowrap">
                               <span
                                 className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold ${
-                                  rec.status === 'Paid' || rec.status === 'Settled'
-                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                    : rec.status === 'Partially Settled'
-                                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                                    : rec.status === 'Sent'
-                                    ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                                    : 'bg-stone-100 text-stone-700 border border-stone-200'
+                                  rec.status === "Paid" ||
+                                  rec.status === "Settled"
+                                    ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                    : rec.status === "Partially Settled"
+                                      ? "bg-amber-50 text-amber-800 border border-amber-200"
+                                      : rec.status === "Sent"
+                                        ? "bg-blue-50 text-blue-800 border border-blue-200"
+                                        : "bg-stone-100 text-stone-700 border border-stone-200"
                                 }`}
                               >
                                 {rec.status}
@@ -960,10 +1133,13 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                                   type="button"
                                   onClick={() => {
                                     if (rec.rawDoc) {
-                                      setPreviewItem({ type: 'DOCUMENT', doc: rec.rawDoc });
+                                      setPreviewItem({
+                                        type: "DOCUMENT",
+                                        doc: rec.rawDoc,
+                                      });
                                     } else if (rec.rawPayment) {
                                       setPreviewItem({
-                                        type: 'RECEIPT',
+                                        type: "RECEIPT",
                                         payment: rec.rawPayment,
                                       });
                                     }
@@ -987,30 +1163,44 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                                 )}
 
                                 {/* Convert to Invoice Trigger (for quotes & proformas) */}
-                                {isQuoteOrProforma && rec.rawDoc && onConvertDocument && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onConvertDocument(rec.rawDoc!, 'INVOICE')}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 transition-colors"
-                                    title="Convert directly to Invoice"
-                                  >
-                                    <ArrowRightLeft className="w-3 h-3" />
-                                    <span>To Invoice</span>
-                                  </button>
-                                )}
+                                {isQuoteOrProforma &&
+                                  rec.rawDoc &&
+                                  onConvertDocument && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onConvertDocument(
+                                          rec.rawDoc!,
+                                          "INVOICE",
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 transition-colors"
+                                      title="Convert directly to Invoice"
+                                    >
+                                      <ArrowRightLeft className="w-3 h-3" />
+                                      <span>To Invoice</span>
+                                    </button>
+                                  )}
 
                                 {/* Record Payment / Settle Trigger (for unpaid invoices) */}
-                                {isUnsettledInvoice && rec.rawDoc && onRecordPayment && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onRecordPayment(rec.clientId, rec.rawDoc)}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-2xs cursor-pointer"
-                                    title="Record payment receipt"
-                                  >
-                                    <CreditCard className="w-3 h-3" />
-                                    <span>Settle</span>
-                                  </button>
-                                )}
+                                {isUnsettledInvoice &&
+                                  rec.rawDoc &&
+                                  onRecordPayment && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onRecordPayment(
+                                          rec.clientId,
+                                          rec.rawDoc,
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-2xs cursor-pointer"
+                                      title="Record payment receipt"
+                                    >
+                                      <CreditCard className="w-3 h-3" />
+                                      <span>Settle</span>
+                                    </button>
+                                  )}
                               </div>
                             </td>
                           </tr>
@@ -1020,7 +1210,8 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                   </table>
                 ) : (
                   <div className="text-center py-12 text-stone-400 text-xs italic">
-                    No matching journal documents found for the selected criteria.
+                    No matching journal documents found for the selected
+                    criteria.
                   </div>
                 )}
               </div>
@@ -1031,51 +1222,74 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
         {/* ================================================================= */}
         {/* VIEW 2: STATEMENT OF ACCOUNT & FINANCIAL LEDGER                   */}
         {/* ================================================================= */}
-        {activeView === 'ledger' && selectedClient && (
+        {activeView === "ledger" && selectedClient && (
           <div className="max-w-6xl mx-auto space-y-4">
             {/* Client Quick Overview Card */}
             <div className="bg-white border border-stone-200 rounded-lg p-4 shadow-xs text-xs space-y-3">
               <div className="flex flex-wrap justify-between items-start gap-2 border-b border-stone-200 pb-3">
                 <div>
-                  <span className="font-bold text-stone-900 text-base">{selectedClient.name}</span>
+                  <span className="font-bold text-stone-900 text-base">
+                    {selectedClient.name}
+                  </span>
                   {selectedClient.kraPin && (
-                    <div className="text-stone-600 font-medium">KRA PIN: {selectedClient.kraPin}</div>
+                    <div className="text-stone-600 font-medium">
+                      KRA PIN: {selectedClient.kraPin}
+                    </div>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span
                     className={`px-2.5 py-1 rounded text-xs font-bold uppercase ${
                       closingBalance <= 0
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : 'bg-rose-100 text-rose-800 border border-rose-300'
+                        ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                        : "bg-rose-100 text-rose-800 border border-rose-300"
                     }`}
                   >
-                    {closingBalance <= 0 ? 'Settled (Ksh 0.00)' : `Owing: ${formatKsh(closingBalance)}`}
+                    {closingBalance <= 0
+                      ? "Settled (Ksh 0.00)"
+                      : `Owing: ${formatKsh(closingBalance)}`}
                   </span>
                   <span className="text-[11px] text-stone-500 font-medium">
-                    Issue Date: <strong className="text-stone-800">{formatDate(issueDate)}</strong>
+                    Issue Date:{" "}
+                    <strong className="text-stone-800">
+                      {formatDate(issueDate)}
+                    </strong>
                   </span>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-stone-700 text-xs">
                 <div>
-                  <span className="text-stone-500 block font-medium">Contact Person:</span>
+                  <span className="text-stone-500 block font-medium">
+                    Contact Person:
+                  </span>
                   <span className="font-semibold text-stone-900">
-                    {selectedClient.contactPerson || '-'}
+                    {selectedClient.contactPerson || "-"}
                   </span>
                 </div>
                 <div>
-                  <span className="text-stone-500 block font-medium">Phone:</span>
-                  <span className="font-semibold text-stone-900">{selectedClient.phone || '-'}</span>
+                  <span className="text-stone-500 block font-medium">
+                    Phone:
+                  </span>
+                  <span className="font-semibold text-stone-900">
+                    {selectedClient.phone || "-"}
+                  </span>
                 </div>
                 <div>
-                  <span className="text-stone-500 block font-medium">Email:</span>
-                  <span className="font-semibold text-stone-900">{selectedClient.email || '-'}</span>
+                  <span className="text-stone-500 block font-medium">
+                    Email:
+                  </span>
+                  <span className="font-semibold text-stone-900">
+                    {selectedClient.email || "-"}
+                  </span>
                 </div>
                 <div>
-                  <span className="text-stone-500 block font-medium">Address:</span>
-                  <span className="font-semibold text-stone-900">{selectedClient.address || '-'}</span>
+                  <span className="text-stone-500 block font-medium">
+                    Address:
+                  </span>
+                  <span className="font-semibold text-stone-900">
+                    {selectedClient.address || "-"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1114,8 +1328,10 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                   {formatKsh(unsettledInvoicesTotal)}
                 </span>
                 <span className="text-[10px] text-rose-700 mt-0.5 block">
-                  {unsettledInvoicesCount} Unsettled{' '}
-                  {partialInvoicesCount > 0 ? `(${partialInvoicesCount} partial)` : ''}
+                  {unsettledInvoicesCount} Unsettled{" "}
+                  {partialInvoicesCount > 0
+                    ? `(${partialInvoicesCount} partial)`
+                    : ""}
                 </span>
               </div>
 
@@ -1128,8 +1344,8 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                 </span>
                 <span className="text-[10px] text-stone-300 mt-0.5 block">
                   {closingBalance <= 0
-                    ? 'Account is in good standing'
-                    : 'Payment settlement required'}
+                    ? "Account is in good standing"
+                    : "Payment settlement required"}
                 </span>
               </div>
             </div>
@@ -1150,22 +1366,22 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                 <div className="inline-flex rounded-lg p-0.5 bg-stone-200/80 text-[11px] font-semibold">
                   <button
                     type="button"
-                    onClick={() => setStatusFilter('ALL')}
+                    onClick={() => setStatusFilter("ALL")}
                     className={`px-2.5 py-1 rounded transition-colors ${
-                      statusFilter === 'ALL'
-                        ? 'bg-white text-stone-900 shadow-xs'
-                        : 'text-stone-600 hover:text-stone-900'
+                      statusFilter === "ALL"
+                        ? "bg-white text-stone-900 shadow-xs"
+                        : "text-stone-600 hover:text-stone-900"
                     }`}
                   >
                     All ({ledgerEntries.length})
                   </button>
                   <button
                     type="button"
-                    onClick={() => setStatusFilter('UNSETTLED')}
+                    onClick={() => setStatusFilter("UNSETTLED")}
                     className={`px-2.5 py-1 rounded transition-colors flex items-center gap-1 ${
-                      statusFilter === 'UNSETTLED'
-                        ? 'bg-rose-100 text-rose-900 shadow-xs font-bold'
-                        : 'text-stone-600 hover:text-stone-900'
+                      statusFilter === "UNSETTLED"
+                        ? "bg-rose-100 text-rose-900 shadow-xs font-bold"
+                        : "text-stone-600 hover:text-stone-900"
                     }`}
                   >
                     <AlertTriangle className="w-3 h-3 text-rose-600" />
@@ -1173,11 +1389,11 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setStatusFilter('SETTLED')}
+                    onClick={() => setStatusFilter("SETTLED")}
                     className={`px-2.5 py-1 rounded transition-colors flex items-center gap-1 ${
-                      statusFilter === 'SETTLED'
-                        ? 'bg-emerald-100 text-emerald-900 shadow-xs font-bold'
-                        : 'text-stone-600 hover:text-stone-900'
+                      statusFilter === "SETTLED"
+                        ? "bg-emerald-100 text-emerald-900 shadow-xs font-bold"
+                        : "text-stone-600 hover:text-stone-900"
                     }`}
                   >
                     <CheckCircle2 className="w-3 h-3 text-emerald-600" />
@@ -1187,24 +1403,26 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
               </div>
 
               <div className="overflow-x-auto">
-                {displayLedgerEntries.length > 0 ? (
+                {sortedDisplayLedgerEntries.length > 0 ? (
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-stone-100 text-stone-700 font-semibold border-b border-stone-200">
                       <tr>
-                        <th className="px-4 py-2.5">Date</th>
-                        <th className="px-4 py-2.5">Reference #</th>
-                        <th className="px-4 py-2.5">Particulars / Description</th>
-                        <th className="px-4 py-2.5 text-center">Settlement Status</th>
-                        <th className="px-4 py-2.5 text-right">Debit (Invoiced)</th>
-                        <th className="px-4 py-2.5 text-right">Credit (Paid)</th>
-                        <th className="px-4 py-2.5 text-right">Running Balance</th>
-                        <th className="px-4 py-2.5 text-right">Actions</th>
+                        <SortableHeader column="date" label="Date" currentSort={ledgerSortConfig} onSort={toggleLedgerSort} defaultDirection="asc" />
+                        <SortableHeader column="reference" label="Reference #" currentSort={ledgerSortConfig} onSort={toggleLedgerSort} />
+                        <SortableHeader column="description" label="Particulars / Description" currentSort={ledgerSortConfig} onSort={toggleLedgerSort} />
+                        <SortableHeader column="status" label="Settlement Status" currentSort={ledgerSortConfig} onSort={toggleLedgerSort} align="center" />
+                        <SortableHeader column="debit" label="Debit (Invoiced)" currentSort={ledgerSortConfig} onSort={toggleLedgerSort} align="right" defaultDirection="desc" />
+                        <SortableHeader column="credit" label="Credit (Paid)" currentSort={ledgerSortConfig} onSort={toggleLedgerSort} align="right" defaultDirection="desc" />
+                        <SortableHeader column="cumulativeBalance" label="Running Balance" currentSort={ledgerSortConfig} onSort={toggleLedgerSort} align="right" defaultDirection="desc" />
+                        <th className="px-4 py-2.5 text-right font-semibold">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-stone-100">
-                      {displayLedgerEntries.map((entry) => {
+                      {sortedDisplayLedgerEntries.map((entry) => {
                         const invoiceDoc = documents.find(
-                          (d) => d.documentNumber === entry.reference || d.id === entry.reference
+                          (d) =>
+                            d.documentNumber === entry.reference ||
+                            d.id === entry.reference,
                         );
 
                         return (
@@ -1220,28 +1438,31 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                                 {entry.reference}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-stone-800">{entry.description}</td>
+                            <td className="px-4 py-3 text-stone-800">
+                              {entry.description}
+                            </td>
 
                             <td className="px-4 py-3 text-center whitespace-nowrap">
-                              {entry.status === 'Settled' && (
+                              {entry.status === "Settled" && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
                                   <CheckCircle2 className="w-3 h-3 text-emerald-700" />
                                   Settled
                                 </span>
                               )}
-                              {entry.status === 'Partially Settled' && (
+                              {entry.status === "Partially Settled" && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
                                   <Clock className="w-3 h-3 text-amber-700" />
-                                  Partial ({formatKsh(invoiceDoc?.balanceDue || 0)})
+                                  Partial (
+                                  {formatKsh(invoiceDoc?.balanceDue || 0)})
                                 </span>
                               )}
-                              {entry.status === 'Unsettled' && (
+                              {entry.status === "Unsettled" && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
                                   <AlertTriangle className="w-3 h-3 text-rose-700" />
                                   Unsettled
                                 </span>
                               )}
-                              {entry.status === 'Payment' && (
+                              {entry.status === "Payment" && (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-teal-50 text-teal-800 border border-teal-200">
                                   Payment Credit
                                 </span>
@@ -1249,10 +1470,10 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                             </td>
 
                             <td className="px-4 py-3 text-right font-semibold text-stone-900 tabular-decimal whitespace-nowrap">
-                              {entry.debit > 0 ? formatKsh(entry.debit) : '-'}
+                              {entry.debit > 0 ? formatKsh(entry.debit) : "-"}
                             </td>
                             <td className="px-4 py-3 text-right font-semibold text-emerald-700 tabular-decimal whitespace-nowrap">
-                              {entry.credit > 0 ? formatKsh(entry.credit) : '-'}
+                              {entry.credit > 0 ? formatKsh(entry.credit) : "-"}
                             </td>
                             <td className="px-4 py-3 text-right font-bold text-stone-950 tabular-decimal whitespace-nowrap">
                               {formatKsh(entry.cumulativeBalance)}
@@ -1260,13 +1481,46 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
 
                             <td className="px-4 py-3 text-right whitespace-nowrap">
                               <div className="inline-flex items-center gap-1 justify-end">
+                                {/* Preview & Universal Share */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (invoiceDoc) {
+                                      setPreviewItem({
+                                        type: "DOCUMENT",
+                                        doc: invoiceDoc,
+                                      });
+                                    } else {
+                                      const p = payments.find(
+                                        (pay) =>
+                                          pay.receiptNumber === entry.reference,
+                                      );
+                                      if (p)
+                                        setPreviewItem({
+                                          type: "RECEIPT",
+                                          payment: p,
+                                        });
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold bg-white hover:bg-stone-50 text-stone-700 border border-stone-300 transition-colors cursor-pointer"
+                                  title={`Preview & Share ${entry.reference}`}
+                                >
+                                  <Share2 className="w-3 h-3 text-stone-600" />
+                                  <span>Share</span>
+                                </button>
+
                                 {invoiceDoc &&
-                                  (entry.status === 'Unsettled' ||
-                                    entry.status === 'Partially Settled') &&
+                                  (entry.status === "Unsettled" ||
+                                    entry.status === "Partially Settled") &&
                                   onRecordPayment && (
                                     <button
                                       type="button"
-                                      onClick={() => onRecordPayment(selectedClient.id, invoiceDoc)}
+                                      onClick={() =>
+                                        onRecordPayment(
+                                          selectedClient.id,
+                                          invoiceDoc,
+                                        )
+                                      }
                                       className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer shadow-2xs"
                                       title={`Record Payment Receipt for Invoice ${entry.reference}`}
                                     >
@@ -1294,7 +1548,8 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                   </table>
                 ) : (
                   <div className="text-center py-12 text-stone-400 text-xs italic">
-                    No matching transactions found for the current filter criteria.
+                    No matching transactions found for the current filter
+                    criteria.
                   </div>
                 )}
               </div>
@@ -1323,13 +1578,15 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
         )}
 
         {/* Prompt when in ledger view without a selected client */}
-        {activeView === 'ledger' && !selectedClient && (
+        {activeView === "ledger" && !selectedClient && (
           <div className="max-w-md mx-auto text-center py-16 bg-white border border-stone-200 rounded-lg p-6 shadow-xs space-y-3">
             <User className="w-8 h-8 text-amber-600 mx-auto" />
-            <h2 className="text-sm font-bold text-stone-900">Select a Client</h2>
+            <h2 className="text-sm font-bold text-stone-900">
+              Select a Client
+            </h2>
             <p className="text-xs text-stone-600">
-              Please choose a client from the dropdown above to view their financial ledger and
-              generate their Statement of Account.
+              Please choose a client from the dropdown above to view their
+              financial ledger and generate their Statement of Account.
             </p>
           </div>
         )}
@@ -1345,7 +1602,8 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                 Statement of Account: {statementNumber}
               </span>
               <span className="text-xs text-stone-500 hidden sm:inline">
-                ({selectedClient.name} &bull; Issue Date: {formatDate(issueDate)} &bull; Balance:{' '}
+                ({selectedClient.name} &bull; Issue Date:{" "}
+                {formatDate(issueDate)} &bull; Balance:{" "}
                 {formatKsh(closingBalance)})
               </span>
             </div>
@@ -1353,12 +1611,15 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleWhatsAppStatement}
-                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                title="Send Statement of Account via WhatsApp"
+                onClick={handleShare}
+                disabled={isGeneratingPdf}
+                className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                title="Share Statement of Account with direct PDF attachment & summary"
               >
-                <MessageSquare className="w-3.5 h-3.5 text-white" />
-                <span className="hidden sm:inline">WhatsApp</span>
+                <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                <span>
+                  {isGeneratingPdf ? "Preparing..." : "Share Statement"}
+                </span>
               </button>
               <button
                 type="button"
@@ -1367,7 +1628,9 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                 className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>{isGeneratingPdf ? 'Generating...' : 'Download Statement PDF'}</span>
+                <span>
+                  {isGeneratingPdf ? "Generating..." : "Download Statement PDF"}
+                </span>
               </button>
               <button
                 type="button"
@@ -1376,15 +1639,6 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleShare}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-stone-50 text-stone-700 border border-stone-300 rounded flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>Share</span>
               </button>
               <button
                 type="button"
@@ -1402,8 +1656,8 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
               ref={modalPreviewRef}
               className="bg-white shadow-2xl origin-top"
               style={{
-                transform: 'scale(0.85)',
-                transformOrigin: 'top center',
+                transform: "scale(0.85)",
+                transformOrigin: "top center",
               }}
             >
               <A4StatementPreview
@@ -1430,14 +1684,14 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             <div className="flex items-center gap-2">
               <FileCheck className="w-4 h-4 text-amber-700" />
               <span className="font-bold text-stone-900 text-sm">
-                Preview:{' '}
-                {previewItem.type === 'DOCUMENT'
+                Preview:{" "}
+                {previewItem.type === "DOCUMENT"
                   ? previewItem.doc?.documentNumber
                   : previewItem.payment?.receiptNumber}
               </span>
               <span className="text-xs text-stone-500 hidden sm:inline">
                 (
-                {previewItem.type === 'DOCUMENT'
+                {previewItem.type === "DOCUMENT"
                   ? previewItem.doc?.clientName
                   : previewItem.payment?.clientName}
                 )
@@ -1447,12 +1701,13 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleWhatsAppItem}
-                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                title="Send Document / Receipt via WhatsApp"
+                onClick={handleShareItem}
+                disabled={isGeneratingPdf}
+                className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                title="Share Document / Receipt with direct PDF attachment & summary"
               >
-                <MessageSquare className="w-3.5 h-3.5 text-white" />
-                <span className="hidden sm:inline">WhatsApp</span>
+                <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isGeneratingPdf ? "Preparing..." : "Share"}</span>
               </button>
               <button
                 type="button"
@@ -1461,7 +1716,9 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                 className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
+                <span>
+                  {isGeneratingPdf ? "Generating..." : "Download PDF"}
+                </span>
               </button>
               <button
                 type="button"
@@ -1487,15 +1744,23 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
               ref={itemModalPreviewRef}
               className="bg-white shadow-2xl origin-top"
               style={{
-                transform: 'scale(0.85)',
-                transformOrigin: 'top center',
+                transform: "scale(0.85)",
+                transformOrigin: "top center",
               }}
             >
-              {previewItem.type === 'DOCUMENT' && previewItem.doc && (
-                <A4DocumentPreview document={previewItem.doc} profile={profile} scale={1} />
+              {previewItem.type === "DOCUMENT" && previewItem.doc && (
+                <A4DocumentPreview
+                  document={previewItem.doc}
+                  profile={profile}
+                  scale={1}
+                />
               )}
-              {previewItem.type === 'RECEIPT' && previewItem.payment && (
-                <A4ReceiptPreview payment={previewItem.payment} profile={profile} scale={1} />
+              {previewItem.type === "RECEIPT" && previewItem.payment && (
+                <A4ReceiptPreview
+                  payment={previewItem.payment}
+                  profile={profile}
+                  scale={1}
+                />
               )}
             </div>
           </div>

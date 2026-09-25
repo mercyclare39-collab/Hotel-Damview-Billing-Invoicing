@@ -150,7 +150,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       {
         id: 'action-nav-vault',
         title: 'Google Drive & Document Vault',
-        subtitle: 'Browse all archived PDFs, WhatsApp dispatch & cloud sync ledger',
+        subtitle: 'Browse all archived PDFs, universal document sharing & cloud sync ledger',
         badge: 'VAULT',
         badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
         category: 'Actions' as const,

@@ -1,6 +1,7 @@
 import {
   Client,
   BillingDocument,
+  DocumentStatus,
   PaymentRecord,
   HotelProfile,
   SyncQueueItem,
@@ -14,6 +15,7 @@ import {
   SyncEntityType,
   SyncActionType,
 } from '../types';
+import { computeDocumentStatus } from '../utils/documentLifecycle';
 
 const DB_NAME = 'HotelDamviewDB';
 const DB_VERSION = 6;
@@ -1334,6 +1336,11 @@ class StorageEngine {
           updatedAt: doc.updatedAt || nowIso,
         };
 
+    // Auto-calculate lifecycle status unless manually overridden
+    if (!mergedDoc.isManualStatusOverride) {
+      mergedDoc.status = computeDocumentStatus(mergedDoc, undefined, false);
+    }
+
     // 1. Instant L1 cache update & localStorage mirror
     this.l1Documents.set(mergedDoc.id, mergedDoc);
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -1492,12 +1499,16 @@ class StorageEngine {
       if (doc) {
         const newPaid = Math.round(((doc.amountPaid || 0) + cleanPayment.amount) * 100) / 100;
         const newBalance = Math.max(0, Math.round((doc.grandTotal - newPaid) * 100) / 100);
-        const newStatus = newBalance <= 0 ? 'Paid' : 'Sent';
-        await this.saveDocument({
+        const updatedDocForStatus: BillingDocument = {
           ...doc,
           amountPaid: newPaid,
           balanceDue: newBalance,
+        };
+        const newStatus = computeDocumentStatus(updatedDocForStatus, undefined, true);
+        await this.saveDocument({
+          ...updatedDocForStatus,
           status: newStatus,
+          isManualStatusOverride: false,
           updatedAt: new Date().toISOString(),
         });
       }
@@ -1541,13 +1552,17 @@ class StorageEngine {
         );
         const newPaid = Math.round(remainingPayments.reduce((sum, p) => sum + (p.amount || 0), 0) * 100) / 100;
         const newBalance = Math.max(0, Math.round((doc.grandTotal - newPaid) * 100) / 100);
-        const newStatus = newBalance <= 0 ? 'Paid' : 'Sent';
-
-        updatedDoc = {
+        const updatedDocForStatus: BillingDocument = {
           ...doc,
           amountPaid: newPaid,
           balanceDue: newBalance,
+        };
+        const newStatus = computeDocumentStatus(updatedDocForStatus, undefined, true);
+
+        updatedDoc = {
+          ...updatedDocForStatus,
           status: newStatus,
+          isManualStatusOverride: false,
           updatedAt: new Date().toISOString(),
         };
         await this.saveDocument(updatedDoc);

@@ -52,7 +52,12 @@ import {
   roundToTwoDecimals,
   DEFAULT_KENYAN_VAT_RATE,
 } from '../utils/financial';
-import { generatePdfFromElement, shareDocumentPdf, validatePdfBlob, getWhatsAppShareUrl } from '../utils/pdfGenerator';
+import {
+  generatePdfFromElement,
+  universalSharePdfDocument,
+  getDocumentOperationalSummary,
+  validatePdfBlob,
+} from '../utils/pdfGenerator';
 import { dbService } from '../services/db';
 import { syncManager } from '../services/sync';
 import { localBackupService } from '../services/localBackupService';
@@ -895,7 +900,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   // =========================================================================
 
   // State for Auto-Firing action upon Modal Launch
-  const [modalAutoAction, setModalAutoAction] = useState<'NONE' | 'PRINT' | 'DOWNLOAD' | 'SHARE' | 'WHATSAPP'>('NONE');
+  const [modalAutoAction, setModalAutoAction] = useState<'NONE' | 'PRINT' | 'DOWNLOAD' | 'SHARE'>('NONE');
 
   // Direct Trigger: Save & Record
   const handleSaveAndRecordDirect = async () => {
@@ -952,7 +957,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }, 350);
   };
 
-  // Chained Trigger: Web Share (Single-click Save -> Launch Modal -> Auto-fire Web Share API with attached PDF binary)
+  // Chained Trigger: Universal Share (Single-click Save -> Launch Modal -> Auto-fire Universal Share with attached vector PDF binary)
   const handleShareChained = async () => {
     const saved = await runSaveAndRecordPipeline(true);
     if (!saved) return;
@@ -970,32 +975,20 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         saved.issueDate,
         { download: false }
       );
-      const shared = await shareDocumentPdf(
+      const summaryText = getDocumentOperationalSummary(saved, profile);
+      await universalSharePdfDocument({
         blob,
         fileName,
-        `${saved.documentType}: ${saved.documentNumber} - ${profile.name}`,
-        `Please find attached ${saved.documentType} ${saved.documentNumber} for ${saved.clientName} amounting to ${formatKsh(saved.grandTotal)}.`
-      );
-      if (!shared) {
-        // Fallback to WhatsApp link with Drive download URL
-        const waUrl = getWhatsAppShareUrl(saved, profile, saved.clientPhone, saved.driveFileUrl);
-        window.open(waUrl, '_blank', 'noopener,noreferrer');
-      }
+        title: `${saved.documentType} ${saved.documentNumber} - ${profile.name}`,
+        summaryText,
+        clientPhone: saved.clientPhone,
+        driveUrl: saved.driveFileUrl,
+      });
     } catch (err: any) {
       console.warn('Share error:', err);
     } finally {
       setIsGeneratingPdf(false);
     }
-  };
-
-  // Chained Trigger: Direct WhatsApp Dispatch (Single-click Save -> Launch Modal -> Auto-fire WhatsApp with summary + Drive URL)
-  const handleWhatsAppChained = async () => {
-    const saved = await runSaveAndRecordPipeline(true);
-    if (!saved) return;
-    setModalAutoAction('WHATSAPP');
-    setShowFullPreviewModal(true);
-    const waUrl = getWhatsAppShareUrl(saved, profile, saved.clientPhone, saved.driveFileUrl);
-    window.open(waUrl, '_blank', 'noopener,noreferrer');
   };
 
   // Chained Trigger: Conversion Trigger (e.g. Quotation -> Proforma -> Invoice)
@@ -1160,28 +1153,16 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
           </button>
 
-          {/* Chained Trigger: WhatsApp */}
-          <button
-            type="button"
-            onClick={handleWhatsAppChained}
-            disabled={isSaving}
-            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-emerald-300 text-emerald-800 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer"
-            title="Saves & dispatches PDF summary directly via WhatsApp"
-          >
-            <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="hidden sm:inline">WhatsApp</span>
-          </button>
-
-          {/* Chained Trigger: Share */}
+          {/* Chained Trigger: Universal Share */}
           <button
             type="button"
             onClick={handleShareChained}
             disabled={isSaving || isGeneratingPdf}
-            className="inline-flex items-center gap-1 text-xs px-2 py-1.5 border border-stone-300 text-stone-700 rounded bg-white hover:bg-stone-50 transition-colors"
-            title="Saves & triggers Web Share API with PDF attachment"
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-stone-300 text-stone-700 rounded bg-white hover:bg-stone-50 transition-colors cursor-pointer"
+            title="Saves & shares document with direct vector PDF binary attachment"
           >
             <Share2 className="w-3.5 h-3.5 text-stone-600" />
-            <span className="hidden md:inline">Share</span>
+            <span>Share</span>
           </button>
 
           {/* Clear Form */}
@@ -1882,18 +1863,19 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleWhatsAppChained}
-                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                title="Send document summary and direct PDF link on WhatsApp"
+                onClick={handleShareChained}
+                disabled={isGeneratingPdf}
+                className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1.5 shadow-xs cursor-pointer"
+                title="Share Document with direct PDF attachment & summary"
               >
-                <MessageSquare className="w-3.5 h-3.5 text-white" />
-                <span className="hidden sm:inline">WhatsApp</span>
+                <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isGeneratingPdf ? 'Preparing...' : 'Share'}</span>
               </button>
               <button
                 type="button"
                 onClick={handleDownloadPdfChained}
                 disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1 shadow-xs cursor-pointer"
+                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs cursor-pointer font-bold"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
@@ -1905,15 +1887,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleShareChained}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-stone-50 text-stone-700 border border-stone-300 rounded flex items-center gap-1 cursor-pointer"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>Share</span>
               </button>
               <button
                 type="button"

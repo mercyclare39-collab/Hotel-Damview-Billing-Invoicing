@@ -17,7 +17,6 @@ import {
   Calendar,
   Cloud,
   HardDrive,
-  MessageCircle,
   X,
 } from 'lucide-react';
 import { BillingDocument, PaymentRecord, StatementRecord, HotelProfile } from '../types';
@@ -45,25 +44,8 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
   const [selectedType, setSelectedType] = useState<string>('ALL');
   const [selectedDrivePreviewUrl, setSelectedDrivePreviewUrl] = useState<{ url: string; name: string } | null>(null);
 
-  // Auto-Refresh state for Google Drive Live Preview
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(true);
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(15);
-  const [autoRefreshCountdown, setAutoRefreshCountdown] = useState<number>(15);
+  // Drive Vault state
   const [driveCacheBuster, setDriveCacheBuster] = useState<number>(Date.now());
-
-  useEffect(() => {
-    if (!autoRefreshEnabled) return;
-    const timer = setInterval(() => {
-      setAutoRefreshCountdown((prev) => {
-        if (prev <= 1) {
-          setDriveCacheBuster(Date.now());
-          return autoRefreshInterval;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [autoRefreshEnabled, autoRefreshInterval]);
 
   // Grouped Vault Documents (Auto-hydrated with Billing Documents, Receipts, and Statements)
   const allVaultItems = [
@@ -120,14 +102,21 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
   });
 
   const handleDownloadPdf = (item: (typeof allVaultItems)[0]) => {
+    if (item.driveUrl) {
+      window.open(item.driveUrl, '_blank');
+      return;
+    }
     if (item.rawDoc) {
       onViewDocument(item.rawDoc);
     } else {
-      window.print();
+      setSelectedDrivePreviewUrl({
+        url: item.driveUrl || `https://drive.google.com`,
+        name: `${item.docType} ${item.number} - ${item.clientName}`,
+      });
     }
   };
 
-  const handleWhatsAppShare = (item: (typeof allVaultItems)[0]) => {
+  const handleUniversalShare = (item: (typeof allVaultItems)[0]) => {
     let phone = item.clientPhone ? item.clientPhone.replace(/[^0-9]/g, '') : '';
     if (phone.startsWith('0')) {
       phone = '254' + phone.substring(1);
@@ -142,15 +131,30 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
       ? `\nBank: ${profile.bankName.trim()} | Acc: ${profile.accountNumber.trim()}`
       : '';
     const phoneInfo = profile?.phone ? `at ${profile.phone}` : hotelName;
-    const message = encodeURIComponent(
-      `Dear ${item.clientName},\n\nPlease find your official ${item.docType} (${item.number}) from ${hotelName}.\nTotal Amount: Ksh ${item.amount.toLocaleString()}.${tillInfo ? `${tillInfo}\n` : ''}\n\nFor queries or settlement, contact ${phoneInfo}.\nThank you for choosing ${hotelName}.`
-    );
+    const driveLink = item.driveUrl ? `\n\nOfficial PDF Archive: ${item.driveUrl}` : '';
+    const message = `Dear ${item.clientName},\n\nPlease find your official ${item.docType} (${item.number}) from ${hotelName}.\nTotal Amount: Ksh ${item.amount.toLocaleString()}.${tillInfo ? `${tillInfo}\n` : ''}${driveLink}\n\nFor queries or settlement, contact ${phoneInfo}.\nThank you for choosing ${hotelName}.`;
 
-    const url = phone
-      ? `https://wa.me/${phone}?text=${message}`
-      : `https://wa.me/?text=${message}`;
-
-    window.open(url, '_blank');
+    if (navigator.share) {
+      navigator
+        .share({
+          title: `${item.docType} ${item.number} - ${hotelName}`,
+          text: message,
+          url: item.driveUrl || undefined,
+        })
+        .catch((err) => {
+          if (err.name !== 'AbortError') {
+            console.warn('Share error:', err);
+          }
+        });
+    } else {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(message);
+      }
+      const url = phone
+        ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
+        : `https://wa.me/?text=${encodeURIComponent(message)}`;
+      window.open(url, '_blank');
+    }
   };
 
   return (
@@ -164,7 +168,7 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
           <div>
             <h2 className="text-lg font-bold text-stone-900">Google Drive & Document Vault</h2>
             <p className="text-xs text-stone-500">
-              Central repository of all generated PDF archives, automated cloud backup & WhatsApp dispatch.
+              Central repository of all generated PDF archives, automated cloud backup & universal document sharing.
             </p>
           </div>
         </div>
@@ -218,7 +222,7 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
 
         <div className="bg-white p-4 rounded-lg border border-stone-200 shadow-xs flex items-center gap-3">
           <div className="p-2.5 bg-amber-50 text-amber-600 rounded-lg">
-            <MessageCircle className="w-5 h-5" />
+            <Share2 className="w-5 h-5" />
           </div>
           <div>
             <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block">
@@ -244,45 +248,20 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
-          {/* Auto Refresh Toggle & Controls */}
-          <div className="flex items-center gap-2 bg-stone-50 border border-stone-200 px-2.5 py-1.5 rounded-md text-xs">
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={autoRefreshEnabled}
-                onChange={(e) => {
-                  setAutoRefreshEnabled(e.target.checked);
-                  if (e.target.checked) setAutoRefreshCountdown(autoRefreshInterval);
-                }}
-                className="rounded border-stone-300 text-amber-600 focus:ring-0 w-3.5 h-3.5"
-              />
-              <span className="font-semibold text-stone-700">Auto Refresh</span>
-            </label>
-
-            {autoRefreshEnabled && (
-              <>
-                <select
-                  value={autoRefreshInterval}
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    setAutoRefreshInterval(val);
-                    setAutoRefreshCountdown(val);
-                  }}
-                  className="bg-white border border-stone-300 rounded px-1.5 py-0.5 text-[11px] text-stone-800 font-semibold focus:outline-hidden"
-                >
-                  <option value={10}>10s</option>
-                  <option value={15}>15s</option>
-                  <option value={30}>30s</option>
-                  <option value={60}>60s</option>
-                </select>
-
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                  <RefreshCw className="w-2.5 h-2.5 animate-spin text-emerald-600" />
-                  <span>{autoRefreshCountdown}s</span>
-                </span>
-              </>
-            )}
-          </div>
+          {/* Manual Refresh Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setDriveCacheBuster(Date.now());
+              if (onSyncToDrive) onSyncToDrive();
+            }}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 bg-stone-50 hover:bg-stone-100 border border-stone-200 px-2.5 py-1.5 rounded-md text-xs font-semibold text-stone-700 transition-colors cursor-pointer"
+            title="Refresh Drive Vault links and status"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-amber-600 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Syncing...' : 'Refresh Vault'}</span>
+          </button>
 
           <select
             value={selectedType}
@@ -372,11 +351,11 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => handleWhatsAppShare(item)}
-                          title="Share via WhatsApp"
-                          className="p-1.5 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 rounded"
+                          onClick={() => handleUniversalShare(item)}
+                          title="Share Document (PDF Archive & Summary)"
+                          className="p-1.5 text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded cursor-pointer"
                         >
-                          <MessageCircle className="w-3.5 h-3.5" />
+                          <Share2 className="w-3.5 h-3.5 text-stone-700" />
                         </button>
                       </div>
                     </td>

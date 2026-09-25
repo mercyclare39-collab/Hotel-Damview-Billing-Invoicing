@@ -1,6 +1,6 @@
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
-import { getPdfFileName, formatKsh } from './formatters';
+import { getPdfFileName, formatKsh, formatDate } from './formatters';
 import { BillingDocument, HotelProfile } from '../types';
 
 export interface GeneratePdfResult {
@@ -14,6 +14,15 @@ export interface PdfValidationResult {
   isValid: boolean;
   byteLength: number;
   error?: string;
+}
+
+export interface UniversalSharePayload {
+  blob: Blob;
+  fileName: string;
+  title: string;
+  summaryText: string;
+  clientPhone?: string;
+  driveUrl?: string;
 }
 
 /**
@@ -61,7 +70,156 @@ export function validatePdfBlob(blob: Blob | null | undefined, base64?: string):
 }
 
 /**
- * Generate high-resolution A4 PDF from an HTML element
+ * Injects a 1:1 searchable & selectable vector text layer into a jsPDF document.
+ * 
+ * Uses standard PDF text rendering mode 3 (ISO 32000-1: "Neither fill nor stroke text / invisible")
+ * positioned at the exact pixel-to-millimeter coordinates of every text node in the DOM.
+ * This guarantees:
+ * 1. Fully recognizable, selectable, copyable, and searchable (Ctrl+F) vector text in Acrobat, Chrome, Preview & Foxit.
+ * 2. Standard PDF text layer structure compatible with external PDF viewers, readers, and editors.
+ * 3. Zero visual distortion or double-rendering over the high-resolution graphical canvas.
+ */
+export function injectSearchableVectorTextLayer(
+  pdf: jsPDF,
+  rootElement: HTMLElement,
+  pdfWidthMm: number = 210,
+  pdfHeightMm: number = 297
+): void {
+  const rootRect = rootElement.getBoundingClientRect();
+  if (rootRect.width <= 0 || rootRect.height <= 0) return;
+
+  const pxToMm = pdfWidthMm / rootRect.width;
+
+  // Create DOM TreeWalker to find all visible text nodes
+  const walker = document.createTreeWalker(rootElement, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const text = node.textContent?.trim();
+      if (!text) return NodeFilter.FILTER_REJECT;
+
+      const parent = node.parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+
+      const tag = parent.tagName.toLowerCase();
+      if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'canvas') {
+        return NodeFilter.FILTER_REJECT;
+      }
+
+      const style = window.getComputedStyle(parent);
+      if (
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        parseFloat(style.opacity || '1') === 0
+      ) {
+        return NodeFilter.FILTER_REJECT;
+      }
+
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  const range = document.createRange();
+  let currentNode = walker.nextNode();
+
+  while (currentNode) {
+    const parent = currentNode.parentElement;
+    if (parent) {
+      const style = window.getComputedStyle(parent);
+      const isBold = parseInt(style.fontWeight, 10) >= 600 || style.fontWeight === 'bold';
+      const isItalic = style.fontStyle === 'italic';
+      const fontStyle: 'normal' | 'bold' | 'italic' | 'bolditalic' =
+        isBold && isItalic ? 'bolditalic' : isBold ? 'bold' : isItalic ? 'italic' : 'normal';
+
+      const isMono =
+        style.fontFamily.toLowerCase().includes('mono') ||
+        style.fontFamily.toLowerCase().includes('consolas') ||
+        style.fontFamily.toLowerCase().includes('courier');
+      const fontName = isMono ? 'courier' : 'helvetica';
+
+      const fontSizePx = parseFloat(style.fontSize) || 12;
+      // In jsPDF, setFontSize is in pt (1 pt = 25.4 / 72 mm ≈ 0.352778 mm)
+      const fontSizePt = Math.max(4, Math.min(48, fontSizePx * pxToMm * (72 / 25.4)));
+
+      try {
+        range.selectNodeContents(currentNode);
+        const rects = range.getClientRects();
+
+        if (rects.length <= 1) {
+          // Single-line text node: write entire phrase for optimal phrase search & clipboard copy
+          const rect = range.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            const relX_mm = (rect.left - rootRect.left) * pxToMm;
+            const relY_mm = (rect.top - rootRect.top) * pxToMm;
+
+            const pageIndex = Math.floor(relY_mm / pdfHeightMm);
+            const pageY_mm = relY_mm - pageIndex * pdfHeightMm;
+
+            while (pdf.getNumberOfPages() <= pageIndex) {
+              pdf.addPage();
+            }
+            pdf.setPage(pageIndex + 1);
+
+            pdf.setFont(fontName, fontStyle);
+            pdf.setFontSize(fontSizePt);
+            const cleanText = (currentNode.textContent || '').replace(/\s+/g, ' ').trim();
+            if (cleanText) {
+              pdf.text(cleanText, relX_mm, pageY_mm, {
+                baseline: 'top',
+                renderingMode: 'invisible',
+              });
+            }
+          }
+        } else {
+          // Multi-line wrapped text: calculate each word position to preserve exact wrapped line baselines
+          const fullText = currentNode.textContent || '';
+          const wordRegex = /\S+/g;
+          let match: RegExpExecArray | null;
+
+          while ((match = wordRegex.exec(fullText)) !== null) {
+            const word = match[0];
+            const start = match.index;
+            const end = start + word.length;
+
+            try {
+              range.setStart(currentNode, start);
+              range.setEnd(currentNode, end);
+              const wordRect = range.getBoundingClientRect();
+
+              if (wordRect.width > 0 && wordRect.height > 0) {
+                const relX_mm = (wordRect.left - rootRect.left) * pxToMm;
+                const relY_mm = (wordRect.top - rootRect.top) * pxToMm;
+
+                const pageIndex = Math.floor(relY_mm / pdfHeightMm);
+                const pageY_mm = relY_mm - pageIndex * pdfHeightMm;
+
+                while (pdf.getNumberOfPages() <= pageIndex) {
+                  pdf.addPage();
+                }
+                pdf.setPage(pageIndex + 1);
+
+                pdf.setFont(fontName, fontStyle);
+                pdf.setFontSize(fontSizePt);
+                pdf.text(word, relX_mm, pageY_mm, {
+                  baseline: 'top',
+                  renderingMode: 'invisible',
+                });
+              }
+            } catch {
+              // Word measurement boundary fallback
+            }
+          }
+        }
+      } catch (err) {
+        // Fallback gracefully on complex node selections
+      }
+    }
+
+    currentNode = walker.nextNode();
+  }
+}
+
+/**
+ * Generate high-resolution, vector-searchable A4 PDF from an HTML element.
+ * Combines 2x ultra-crisp visual rendering with a 1:1 searchable & selectable vector text layer.
  */
 export async function generatePdfFromElement(
   element: HTMLElement,
@@ -72,6 +230,7 @@ export async function generatePdfFromElement(
 ): Promise<GeneratePdfResult> {
   const fileName = getPdfFileName(documentNumber, clientName, issueDate);
 
+  // High-resolution canvas rendering for graphics, backgrounds, subtle borders, and logos
   const canvas = await html2canvas(element, {
     scale: 2,
     useCORS: true,
@@ -93,20 +252,37 @@ export async function generatePdfFromElement(
     compress: true,
   });
 
-  const pdfWidth = pdf.internal.pageSize.getWidth();
-  const pdfHeight = pdf.internal.pageSize.getHeight();
+  const pdfWidth = pdf.internal.pageSize.getWidth(); // 210 mm
+  const pdfHeight = pdf.internal.pageSize.getHeight(); // 297 mm
 
   const imgWidth = pdfWidth;
   const imgHeight = (canvas.height * pdfWidth) / canvas.width;
 
-  pdf.addImage(imgData, 'JPEG', 0, 0, imgWidth, Math.min(pdfHeight, imgHeight));
+  // Pagination support: ensure multi-page documents (long statements/invoices) are completely rendered
+  const totalPages = Math.max(1, Math.ceil((imgHeight - 1) / pdfHeight));
 
-  if (options?.download) {
-    pdf.save(fileName);
+  for (let page = 0; page < totalPages; page++) {
+    if (page > 0) {
+      pdf.addPage();
+    }
+    pdf.setPage(page + 1);
+    const yOffset = -page * pdfHeight;
+    pdf.addImage(imgData, 'JPEG', 0, yOffset, imgWidth, imgHeight);
+  }
+
+  // Inject searchable, selectable vector text layer on top of all pages
+  try {
+    injectSearchableVectorTextLayer(pdf, element, pdfWidth, pdfHeight);
+  } catch (err) {
+    console.warn('Vector text layer injection notice:', err);
   }
 
   const blob = pdf.output('blob');
   const base64 = pdf.output('datauristring');
+
+  if (options?.download) {
+    downloadPdfBlob(blob, fileName);
+  }
 
   const validation = validatePdfBlob(blob, base64);
   if (!validation.isValid) {
@@ -118,6 +294,55 @@ export async function generatePdfFromElement(
     base64,
     fileName,
     byteLength: blob.size,
+  };
+}
+
+/**
+ * Directly downloads an authentic PDF binary blob to the user device
+ */
+export function downloadPdfBlob(blob: Blob, fileName: string): void {
+  const blobUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+}
+
+/**
+ * Directly prints an authentic app-generated PDF binary via a dedicated background iframe
+ * Eliminates screen distortions, scrollbars, and browser UI artifacts
+ */
+export async function printPdfBlob(blob: Blob): Promise<void> {
+  const blobUrl = URL.createObjectURL(blob);
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.src = blobUrl;
+  document.body.appendChild(iframe);
+
+  iframe.onload = () => {
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch {
+        window.print();
+      } finally {
+        setTimeout(() => {
+          if (iframe.parentNode) {
+            document.body.removeChild(iframe);
+          }
+          URL.revokeObjectURL(blobUrl);
+        }, 60000);
+      }
+    }, 250);
   };
 }
 
@@ -288,9 +513,9 @@ export function generateTestPdfDocument(options?: {
 }
 
 /**
- * Normalizes any Kenyan phone number to the international format required by WhatsApp (254XXXXXXXXX)
+ * Standardizes Kenyan phone number to international format (254XXXXXXXXX)
  */
-export function formatKenyanPhoneForWhatsApp(phone?: string): string {
+export function formatKenyanPhone(phone?: string): string {
   if (!phone) return '';
   const digitsOnly = phone.replace(/\D/g, '');
   if (!digitsOnly) return '';
@@ -306,14 +531,15 @@ export function formatKenyanPhoneForWhatsApp(phone?: string): string {
   return digitsOnly;
 }
 
+/** Backward compatibility alias */
+export const formatKenyanPhoneForWhatsApp = formatKenyanPhone;
+
 /**
- * Builds formatted WhatsApp billing link and pre-filled message text for Billing Documents (INV, QT, PI)
+ * Builds concise, standardized operational summary text for Billing Documents (INV, QT, PI)
  */
-export function getWhatsAppShareUrl(
+export function getDocumentOperationalSummary(
   doc: BillingDocument,
-  profile: HotelProfile,
-  phoneNumber?: string,
-  driveUrl?: string
+  profile: HotelProfile
 ): string {
   const docTypeLabel =
     doc.documentType === 'INVOICE'
@@ -322,29 +548,209 @@ export function getWhatsAppShareUrl(
       ? 'Quotation'
       : 'Proforma Invoice';
 
-  const bankDetails = (profile.bankName?.trim() && profile.accountNumber?.trim())
-    ? `\n🏦 *Bank:* ${profile.bankName.trim()} | *Acc:* ${profile.accountNumber.trim()}`
+  const hotelName = (profile.name || 'Hotel Damview Resort').trim();
+  const bankDetails =
+    profile.bankName?.trim() && profile.accountNumber?.trim()
+      ? `• Bank Settlement: ${profile.bankName.trim()} | Acc: ${profile.accountNumber.trim()}`
+      : '';
+  const mpesaDetails = profile.mpesaTillNumber?.trim()
+    ? `• M-Pesa Buy Goods Till: ${profile.mpesaTillNumber.trim()}`
     : '';
-  const mpesaDetails = profile.mpesaTillNumber
-    ? `\n📱 *M-Pesa Till:* ${profile.mpesaTillNumber}`
-    : '';
+  const contactPhone = profile.phone?.trim() ? `• Accounts / Inquiries: ${profile.phone.trim()}` : '';
 
-  const pdfLink = (driveUrl || doc.driveFileUrl)
-    ? `\n\n📄 *Download PDF Document:*\n${driveUrl || doc.driveFileUrl}`
-    : '';
+  const settlementBlock = [bankDetails, mpesaDetails, contactPhone].filter(Boolean).join('\n');
 
-  const message = `*${profile.name.toUpperCase()}*\n${docTypeLabel} Ref: *${doc.documentNumber}*\nClient: *${doc.clientName}*\nIssue Date: ${doc.issueDate}\n\n*Total Amount:* ${formatKsh(doc.grandTotal)}\n*Amount Paid:* ${formatKsh(doc.amountPaid || 0)}\n*Balance Due:* *${formatKsh(doc.balanceDue || 0)}*${bankDetails}${mpesaDetails}${pdfLink}\n\nThank you for choosing ${profile.name}!`;
-
-  const targetPhone = formatKenyanPhoneForWhatsApp(phoneNumber || doc.clientPhone);
-
-  return targetPhone
-    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`
-    : `https://wa.me/?text=${encodeURIComponent(message)}`;
+  return [
+    `*${hotelName.toUpperCase()}*`,
+    `${docTypeLabel} Ref: *${doc.documentNumber}*`,
+    `Client: *${doc.clientName}*`,
+    `Issue Date: ${formatDate(doc.issueDate)} | Due Date: ${formatDate(doc.dueDate)}`,
+    ``,
+    `*Total Invoiced:* ${formatKsh(doc.grandTotal)}`,
+    doc.documentType !== 'QUOTATION' ? `*Amount Paid:* ${formatKsh(doc.amountPaid || 0)}` : '',
+    doc.documentType !== 'QUOTATION' ? `*Balance Due:* *${formatKsh(doc.balanceDue || 0)}*` : '',
+    settlementBlock ? `\nPayment Settlement:\n${settlementBlock}` : '',
+    doc.driveFileUrl ? `\nCloud Archive Link:\n${doc.driveFileUrl}` : '',
+    `\nThank you for choosing ${hotelName}!`,
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
 }
 
 /**
- * Builds formatted WhatsApp link for Payment Receipts (REC)
+ * Builds concise, standardized operational summary text for Payment Receipts (REC)
  */
+export function getReceiptOperationalSummary(
+  payment: {
+    receiptNumber: string;
+    clientName: string;
+    date: string;
+    amount: number;
+    paymentMode: string;
+    documentNumber?: string;
+    referenceNote?: string;
+    driveFileUrl?: string;
+  },
+  profile: HotelProfile
+): string {
+  const hotelName = (profile.name || 'Hotel Damview Resort').trim();
+  const contactPhone = profile.phone?.trim() ? `\nAccounts Desk: ${profile.phone.trim()}` : '';
+
+  return [
+    `*${hotelName.toUpperCase()} - OFFICIAL RECEIPT*`,
+    `Receipt Voucher: *${payment.receiptNumber}*`,
+    `Received From: *${payment.clientName}*`,
+    `Payment Date: ${formatDate(payment.date)}`,
+    ``,
+    `*Amount Settled:* *${formatKsh(payment.amount)}*`,
+    `*Payment Mode:* ${payment.paymentMode}`,
+    payment.documentNumber ? `*Settled Document:* ${payment.documentNumber}` : '',
+    payment.referenceNote ? `*Reference / Note:* ${payment.referenceNote}` : '',
+    payment.driveFileUrl ? `\nOfficial Drive Receipt:\n${payment.driveFileUrl}` : '',
+    contactPhone,
+    `\nThank you for your prompt settlement!`,
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
+}
+
+/**
+ * Builds concise, standardized operational summary text for Statements of Account (SOA)
+ */
+export function getStatementOperationalSummary(
+  statement: {
+    statementNumber?: string;
+    clientName: string;
+    startDate: string;
+    endDate: string;
+    closingBalance: number;
+    totalDebit?: number;
+    totalCredit?: number;
+    driveFileUrl?: string;
+  },
+  profile: HotelProfile
+): string {
+  const hotelName = (profile.name || 'Hotel Damview Resort').trim();
+  const contactPhone = profile.phone?.trim() ? `\nAccounts Inquiries: ${profile.phone.trim()}` : '';
+
+  return [
+    `*${hotelName.toUpperCase()} - STATEMENT OF ACCOUNT*`,
+    statement.statementNumber ? `Statement Ref: *${statement.statementNumber}*` : '',
+    `Client: *${statement.clientName}*`,
+    `Period Covered: ${formatDate(statement.startDate)} to ${formatDate(statement.endDate)}`,
+    ``,
+    `*Total Invoiced (Debit):* ${formatKsh(statement.totalDebit || 0)}`,
+    `*Total Settled (Credit):* ${formatKsh(statement.totalCredit || 0)}`,
+    `*Current Outstanding Balance:* *${formatKsh(statement.closingBalance)}*`,
+    statement.driveFileUrl ? `\nStatement PDF Cloud Link:\n${statement.driveFileUrl}` : '',
+    contactPhone,
+    `\nPlease find your official Statement of Account PDF attached.`,
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
+}
+
+/**
+ * Universal Native Sharing Engine with direct binary PDF attachment.
+ * 
+ * 1. Attaches the generated vector PDF binary directly via the native Web Share API (File/Blob payload).
+ * 2. Accompanies the attachment with the concise, standardized operational summary message.
+ * 3. Gracefully falls back to direct PDF binary download and clipboard summary copy if native share sheet is unavailable.
+ */
+export async function universalSharePdfDocument(
+  payload: UniversalSharePayload
+): Promise<{ shared: boolean; method: 'native' | 'download_fallback' | 'fallback' }> {
+  const { blob, fileName, title, summaryText, clientPhone } = payload;
+  const file = new File([blob], fileName, { type: 'application/pdf' });
+
+  // 1. Primary Route: Native Web Share API with direct binary file attachment
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        title,
+        text: summaryText,
+        files: [file],
+      });
+      return { shared: true, method: 'native' };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        // User intentionally closed the share sheet
+        return { shared: false, method: 'native' };
+      }
+      console.warn('Native file share failed, falling back to download & clipboard:', err);
+    }
+  }
+
+  // 2. Secondary Route: Native text share + direct PDF binary download
+  if (navigator.share) {
+    try {
+      downloadPdfBlob(blob, fileName);
+      await navigator.share({
+        title,
+        text: summaryText,
+      });
+      return { shared: true, method: 'native' };
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return { shared: false, method: 'native' };
+      }
+    }
+  }
+
+  // 3. Robust Desktop Fallback: Direct vector PDF binary download + copy summary to clipboard
+  downloadPdfBlob(blob, fileName);
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(summaryText);
+    }
+  } catch (copyErr) {
+    console.warn('Clipboard write notice:', copyErr);
+  }
+
+  // Optional direct messenger launch if client phone is provided
+  if (clientPhone) {
+    const formattedPhone = formatKenyanPhone(clientPhone);
+    const encoded = encodeURIComponent(summaryText);
+    const link = formattedPhone
+      ? `https://wa.me/${formattedPhone}?text=${encoded}`
+      : `https://wa.me/?text=${encoded}`;
+    window.open(link, '_blank', 'noopener,noreferrer');
+  }
+
+  return { shared: true, method: 'download_fallback' };
+}
+
+/** Backward compatibility Web Share API helper */
+export async function shareDocumentPdf(
+  blob: Blob,
+  fileName: string,
+  title: string,
+  text: string
+): Promise<boolean> {
+  const result = await universalSharePdfDocument({
+    blob,
+    fileName,
+    title,
+    summaryText: text,
+  });
+  return result.shared;
+}
+
+/** Helper URL builders for legacy integration fallbacks */
+export function getWhatsAppShareUrl(
+  doc: BillingDocument,
+  profile: HotelProfile,
+  phoneNumber?: string,
+  driveUrl?: string
+): string {
+  const summary = getDocumentOperationalSummary(doc, profile);
+  const targetPhone = formatKenyanPhone(phoneNumber || doc.clientPhone);
+  return targetPhone
+    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(summary)}`
+    : `https://wa.me/?text=${encodeURIComponent(summary)}`;
+}
+
 export function getReceiptWhatsAppShareUrl(
   payment: {
     receiptNumber: string;
@@ -360,22 +766,13 @@ export function getReceiptWhatsAppShareUrl(
   phoneNumber?: string,
   driveUrl?: string
 ): string {
-  const pdfLink = (driveUrl || payment.driveFileUrl)
-    ? `\n\n📄 *Official PDF Receipt:*\n${driveUrl || payment.driveFileUrl}`
-    : '';
-
-  const message = `*${profile.name.toUpperCase()} - OFFICIAL RECEIPT*\nReceipt No: *${payment.receiptNumber}*\nReceived From: *${payment.clientName}*\nPayment Date: ${payment.date}\n\n*Amount Paid:* *${formatKsh(payment.amount)}*\n*Payment Channel:* ${payment.paymentMode}${payment.documentNumber ? `\n*Settled Document:* ${payment.documentNumber}` : ''}${payment.referenceNote ? `\n*Reference:* ${payment.referenceNote}` : ''}${pdfLink}\n\nThank you for your prompt settlement!`;
-
-  const targetPhone = formatKenyanPhoneForWhatsApp(phoneNumber);
-
+  const summary = getReceiptOperationalSummary(payment, profile);
+  const targetPhone = formatKenyanPhone(phoneNumber);
   return targetPhone
-    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`
-    : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(summary)}`
+    : `https://wa.me/?text=${encodeURIComponent(summary)}`;
 }
 
-/**
- * Builds formatted WhatsApp link for Statements of Account (SOA)
- */
 export function getStatementWhatsAppShareUrl(
   statement: {
     statementNumber?: string;
@@ -391,53 +788,9 @@ export function getStatementWhatsAppShareUrl(
   phoneNumber?: string,
   driveUrl?: string
 ): string {
-  const pdfLink = (driveUrl || statement.driveFileUrl)
-    ? `\n\n📄 *Statement PDF:*\n${driveUrl || statement.driveFileUrl}`
-    : '';
-
-  const message = `*${profile.name.toUpperCase()} - STATEMENT OF ACCOUNT*\n${statement.statementNumber ? `Statement Ref: *${statement.statementNumber}*\n` : ''}Client: *${statement.clientName}*\nPeriod: ${statement.startDate} to ${statement.endDate}\n\n*Total Invoiced:* ${formatKsh(statement.totalDebit || 0)}\n*Total Settled:* ${formatKsh(statement.totalCredit || 0)}\n*Current Outstanding Balance:* *${formatKsh(statement.closingBalance)}*${pdfLink}\n\nFor any billing inquiries, please contact our accounts desk.`;
-
-  const targetPhone = formatKenyanPhoneForWhatsApp(phoneNumber);
-
+  const summary = getStatementOperationalSummary(statement, profile);
+  const targetPhone = formatKenyanPhone(phoneNumber);
   return targetPhone
-    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(message)}`
-    : `https://wa.me/?text=${encodeURIComponent(message)}`;
-}
-
-/**
- * Web Share API helper with fallback
- */
-export async function shareDocumentPdf(
-  blob: Blob,
-  fileName: string,
-  title: string,
-  text: string
-): Promise<boolean> {
-  if (navigator.canShare && navigator.canShare({ files: [new File([blob], fileName, { type: 'application/pdf' })] })) {
-    try {
-      const file = new File([blob], fileName, { type: 'application/pdf' });
-      await navigator.share({
-        title,
-        text,
-        files: [file],
-      });
-      return true;
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        console.warn('Share failed:', err);
-      }
-      return false;
-    }
-  } else if (navigator.share) {
-    try {
-      await navigator.share({
-        title,
-        text: `${title}\n${text}`,
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  return false;
+    ? `https://wa.me/${targetPhone}?text=${encodeURIComponent(summary)}`
+    : `https://wa.me/?text=${encodeURIComponent(summary)}`;
 }

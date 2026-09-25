@@ -17,11 +17,20 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  Share2,
 } from 'lucide-react';
 import { BillingDocument, DocumentType, DocumentStatus, HotelProfile } from '../types';
 import { formatKsh, formatDate } from '../utils/formatters';
-import { generatePdfFromElement } from '../utils/pdfGenerator';
+import {
+  generatePdfFromElement,
+  universalSharePdfDocument,
+  getDocumentOperationalSummary,
+  printPdfBlob,
+} from '../utils/pdfGenerator';
 import { A4DocumentPreview } from './A4DocumentPreview';
+import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
+import { DocumentStatusDropdown } from './DocumentStatusDropdown';
+import { dbService } from '../services/db';
 
 interface DocumentJournalProps {
   documents: BillingDocument[];
@@ -31,6 +40,7 @@ interface DocumentJournalProps {
   onDeleteDocument: (docId: string) => void;
   onRecordPayment: (doc: BillingDocument) => void;
   onConvertDocument: (sourceDoc: BillingDocument, targetType: DocumentType) => void;
+  onSaveDocument?: (doc: BillingDocument) => void;
 }
 
 export const DocumentJournal: React.FC<DocumentJournalProps> = ({
@@ -41,6 +51,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
   onDeleteDocument,
   onRecordPayment,
   onConvertDocument,
+  onSaveDocument,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | DocumentType>('ALL');
@@ -49,6 +60,28 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 25;
+
+  // Persistent multi-column table sorting hook
+  const { sortConfig, toggleSort, sortData } = usePersistentSort<BillingDocument>(
+    'document_journal',
+    'issueDate',
+    'desc'
+  );
+
+  // Status override handler
+  const handleStatusChange = async (doc: BillingDocument, newStatus: DocumentStatus, isManual: boolean) => {
+    const updated: BillingDocument = {
+      ...doc,
+      status: newStatus,
+      isManualStatusOverride: isManual,
+      updatedAt: new Date().toISOString(),
+    };
+    if (onSaveDocument) {
+      onSaveDocument(updated);
+    } else {
+      await dbService.saveDocument(updated);
+    }
+  };
 
   // Memoized Filtered document list for zero-jank searching and filtering
   const filteredDocs = useMemo(() => {
@@ -69,12 +102,26 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
     });
   }, [documents, typeFilter, statusFilter, searchQuery]);
 
+  // Sort filtered documents using persistent multi-column sorting
+  const sortedDocs = useMemo(() => {
+    return sortData(filteredDocs, {
+      grandTotal: (d) => d.grandTotal,
+      balanceDue: (d) => d.balanceDue || 0,
+      issueDate: (d) => d.issueDate,
+      dueDate: (d) => d.dueDate || '',
+      status: (d) => d.status,
+      documentType: (d) => d.documentType,
+      documentNumber: (d) => d.documentNumber,
+      clientName: (d) => d.clientName,
+    });
+  }, [filteredDocs, sortData]);
+
   // Memoized page items
-  const totalPages = Math.max(1, Math.ceil(filteredDocs.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(sortedDocs.length / pageSize));
   const paginatedDocs = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return filteredDocs.slice(start, start + pageSize);
-  }, [filteredDocs, currentPage, pageSize]);
+    return sortedDocs.slice(start, start + pageSize);
+  }, [sortedDocs, currentPage, pageSize]);
 
   // Download PDF directly from journal
   const handleQuickDownload = async (doc: BillingDocument) => {
@@ -91,6 +138,56 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
         } catch (err: any) {
           alert('PDF generation error: ' + err.message);
         }
+      }
+      setIsGeneratingPdf(false);
+    }, 300);
+  };
+
+  // Universal share helper with direct vector PDF binary attachment
+  const handleQuickShare = async (doc: BillingDocument) => {
+    setSelectedDocForPreview(doc);
+    setIsGeneratingPdf(true);
+    setTimeout(async () => {
+      const previewEl = document.getElementById(`journal-modal-a4`);
+      if (previewEl) {
+        try {
+          const res = await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
+            download: false,
+          });
+          const summaryText = getDocumentOperationalSummary(doc, profile);
+          await universalSharePdfDocument({
+            blob: res.blob,
+            fileName: res.fileName,
+            title: `${doc.documentType} ${doc.documentNumber} - ${profile.name}`,
+            summaryText,
+            clientPhone: doc.clientPhone,
+            driveUrl: doc.driveFileUrl,
+          });
+        } catch (err: any) {
+          console.error('Universal share error:', err);
+        }
+      }
+      setIsGeneratingPdf(false);
+    }, 300);
+  };
+
+  // Direct vector PDF printing helper
+  const handleQuickPrint = async (doc: BillingDocument) => {
+    setSelectedDocForPreview(doc);
+    setIsGeneratingPdf(true);
+    setTimeout(async () => {
+      const previewEl = document.getElementById(`journal-modal-a4`);
+      if (previewEl) {
+        try {
+          const res = await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
+            download: false,
+          });
+          await printPdfBlob(res.blob);
+        } catch {
+          window.print();
+        }
+      } else {
+        window.print();
       }
       setIsGeneratingPdf(false);
     }, 300);
@@ -229,14 +326,14 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
         {/* Status Filter */}
         <div className="flex items-center gap-1 text-xs">
           <span className="text-stone-500 font-medium">Status:</span>
-          {(['ALL', 'Draft', 'Sent', 'Paid', 'Overdue'] as const).map((s) => (
+          {(['ALL', 'Draft', 'Sent', 'Partial', 'Paid', 'Overdue'] as const).map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => setStatusFilter(s)}
-              className={`px-2 py-1 rounded font-medium transition-colors ${
+              className={`px-2 py-1 rounded font-medium transition-colors cursor-pointer ${
                 statusFilter === s
-                  ? 'bg-stone-800 text-white'
+                  ? 'bg-stone-800 text-white font-bold'
                   : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
               }`}
             >
@@ -252,14 +349,14 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-stone-100 border-b border-stone-200 text-stone-700 font-bold">
-                <th className="py-2.5 px-3">Type</th>
-                <th className="py-2.5 px-3">Doc No</th>
-                <th className="py-2.5 px-3">Client Name</th>
-                <th className="py-2.5 px-3">Issue Date</th>
-                <th className="py-2.5 px-3">Due Date</th>
-                <th className="py-2.5 px-3 text-right">Grand Total (Ksh)</th>
-                <th className="py-2.5 px-3 text-right">Balance Due (Ksh)</th>
-                <th className="py-2.5 px-3 text-center">Status</th>
+                <SortableHeader column="documentType" label="Type" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="documentNumber" label="Doc No" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="clientName" label="Client Name" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="issueDate" label="Issue Date" currentSort={sortConfig} onSort={toggleSort} defaultDirection="desc" />
+                <SortableHeader column="dueDate" label="Due Date" currentSort={sortConfig} onSort={toggleSort} defaultDirection="desc" />
+                <SortableHeader column="grandTotal" label="Grand Total (Ksh)" currentSort={sortConfig} onSort={toggleSort} align="right" defaultDirection="desc" />
+                <SortableHeader column="balanceDue" label="Balance Due (Ksh)" currentSort={sortConfig} onSort={toggleSort} align="right" defaultDirection="desc" />
+                <SortableHeader column="status" label="Status" currentSort={sortConfig} onSort={toggleSort} align="center" />
                 <th className="py-2.5 px-3 text-center">Drive PDF Link</th>
                 <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
@@ -301,7 +398,12 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 px-3 text-center">{getStatusBadge(doc.status)}</td>
+                    <td className="py-2.5 px-3 text-center">
+                      <DocumentStatusDropdown
+                        document={doc}
+                        onStatusChange={(newStatus, isManual) => handleStatusChange(doc, newStatus, isManual)}
+                      />
+                    </td>
                     <td className="py-2.5 px-3 text-center whitespace-nowrap">
                       {doc.driveFileUrl ? (
                         <a
@@ -379,6 +481,16 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                             <ArrowRightLeft className="w-3.5 h-3.5" />
                           </button>
                         )}
+
+                        {/* Universal Share Action */}
+                        <button
+                          type="button"
+                          onClick={() => handleQuickShare(doc)}
+                          className="p-1 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded"
+                          title="Share Document (Vector PDF & Summary)"
+                        >
+                          <Share2 className="w-3.5 h-3.5 text-stone-700" />
+                        </button>
 
                         {/* Quick PDF Download */}
                         <button
@@ -464,11 +576,21 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="px-3 py-1 bg-stone-800 hover:bg-stone-700 text-white rounded text-xs flex items-center gap-1"
+                onClick={() => handleQuickPrint(selectedDocForPreview)}
+                className="px-3 py-1 bg-stone-800 hover:bg-stone-700 text-white rounded text-xs flex items-center gap-1 cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 Print
+              </button>
+              <button
+                type="button"
+                disabled={isGeneratingPdf}
+                onClick={() => handleQuickShare(selectedDocForPreview)}
+                className="px-3 py-1 bg-stone-800 hover:bg-stone-700 text-white font-bold rounded text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="Share Document with direct PDF attachment & summary"
+              >
+                <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                Share
               </button>
               <button
                 type="button"
@@ -490,7 +612,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                     }
                   }
                 }}
-                className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs flex items-center gap-1"
+                className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs flex items-center gap-1 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 {isGeneratingPdf ? 'Generating...' : 'Download PDF'}
@@ -498,7 +620,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
               <button
                 type="button"
                 onClick={() => setSelectedDocForPreview(null)}
-                className="px-3 py-1 bg-stone-700 hover:bg-stone-600 text-white rounded text-xs"
+                className="px-3 py-1 bg-stone-700 hover:bg-stone-600 text-white rounded text-xs cursor-pointer"
               >
                 Close
               </button>

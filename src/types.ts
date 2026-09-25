@@ -1,6 +1,6 @@
 export type DocumentType = 'QUOTATION' | 'PROFORMA' | 'INVOICE';
 
-export type DocumentStatus = 'Draft' | 'Sent' | 'Paid' | 'Overdue';
+export type DocumentStatus = 'Draft' | 'Sent' | 'Partial' | 'Paid' | 'Overdue';
 
 export interface LineItem {
   id: string;
@@ -70,6 +70,8 @@ export interface BillingDocument {
   amountPaid: number;
   balanceDue: number;
   status: DocumentStatus;
+  isManualStatusOverride?: boolean;
+  manualStatusNote?: string;
   notes: string;
   terms: string;
   relatedDocId?: string; // Reference to source quotation/proforma

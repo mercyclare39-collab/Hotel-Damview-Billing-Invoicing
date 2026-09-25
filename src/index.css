@@ -47,12 +47,12 @@
   scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
 }
 
-/* Subtle Hairline High-Contrast Table Grids & Document Dividing Rules */
+/* Subtle Hairline Executive Table Grids & Document Dividing Rules (Faded & Professional) */
 .document-table {
   border-collapse: separate;
   border-spacing: 0;
   width: 100%;
-  border: 1px solid #cbd5e1; /* Subtle slate-300 structural boundary */
+  border: 1px solid rgba(226, 232, 240, 0.85); /* Subtle faded slate structural boundary */
   border-radius: 2px;
   background-color: #ffffff;
 }
@@ -77,8 +77,8 @@
 }
 
 .document-table th {
-  border-bottom: 1px solid #cbd5e1;
-  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  border-right: 1px solid rgba(241, 245, 249, 0.9);
   background-color: #f8fafc;
   color: #0f172a;
   font-weight: 700;
@@ -105,8 +105,8 @@
 }
 
 .document-table td {
-  border-bottom: 1px solid #e2e8f0;
-  border-right: 1px solid #e2e8f0;
+  border-bottom: 1px solid rgba(241, 245, 249, 0.95);
+  border-right: 1px solid rgba(241, 245, 249, 0.95);
   padding: 5px 8px;
 }
 
@@ -120,7 +120,7 @@
 
 /* Hairline Card & Summary Containers */
 .document-card {
-  border: 1px solid #cbd5e1;
+  border: 1px solid rgba(226, 232, 240, 0.85);
   border-radius: 2px;
   background-color: #ffffff;
 }

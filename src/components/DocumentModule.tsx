@@ -31,10 +31,18 @@ import {
 } from 'lucide-react';
 import { BillingDocument, DocumentType, DocumentStatus, Client, HotelProfile } from '../types';
 import { formatKsh, formatDate, calculateDueDate } from '../utils/formatters';
-import { generatePdfFromElement, shareDocumentPdf, getWhatsAppShareUrl } from '../utils/pdfGenerator';
+import {
+  generatePdfFromElement,
+  universalSharePdfDocument,
+  getDocumentOperationalSummary,
+  printPdfBlob,
+  downloadPdfBlob,
+} from '../utils/pdfGenerator';
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { DocumentEditor } from './DocumentEditor';
 import { A4DocumentPreview } from './A4DocumentPreview';
+import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
+import { DocumentStatusDropdown } from './DocumentStatusDropdown';
 
 interface DocumentModuleProps {
   moduleType: DocumentType;
@@ -92,6 +100,24 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   const [selectedDocForPreview, setSelectedDocForPreview] = useState<BillingDocument | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
+  // Persistent multi-column table sorting hook
+  const { sortConfig, toggleSort, sortData } = usePersistentSort<BillingDocument>(
+    `document_module_${moduleType.toLowerCase()}`,
+    'issueDate',
+    'desc'
+  );
+
+  // Manual & dynamic status transition handler
+  const handleStatusChange = (doc: BillingDocument, newStatus: DocumentStatus, isManual: boolean) => {
+    const updatedDoc: BillingDocument = {
+      ...doc,
+      status: newStatus,
+      isManualStatusOverride: isManual,
+      updatedAt: new Date().toISOString(),
+    };
+    onSaveDocument(updatedDoc);
+  };
+
   // Filter documents by module type
   const moduleDocs = useMemo(() => {
     return documents.filter((d) => d.documentType === moduleType);
@@ -138,6 +164,20 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
       return true;
     });
   }, [activeSubTab, specialDocs, moduleDocs, statusFilter, searchQuery]);
+
+  // Sort filtered documents using persistent multi-column table sorting
+  const sortedJournalDocs = useMemo(() => {
+    return sortData(filteredJournalDocs, {
+      grandTotal: (d) => d.grandTotal,
+      amountPaid: (d) => d.amountPaid || 0,
+      balanceDue: (d) => d.balanceDue || 0,
+      issueDate: (d) => d.issueDate,
+      dueDate: (d) => d.dueDate || '',
+      status: (d) => d.status,
+      documentNumber: (d) => d.documentNumber,
+      clientName: (d) => d.clientName,
+    });
+  }, [filteredJournalDocs, sortData]);
 
   // Export Filtered Journal to Native Formatted Excel (.xlsx)
   const handleExportXlsx = async () => {
@@ -305,15 +345,29 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
     }, 250);
   };
 
-  // Quick print helper
-  const handleQuickPrint = (doc: BillingDocument) => {
+  // Quick print helper - Directly generates authentic PDF binary and prints
+  const handleQuickPrint = async (doc: BillingDocument) => {
     setSelectedDocForPreview(doc);
-    setTimeout(() => {
-      window.print();
+    setIsGeneratingPdf(true);
+    setTimeout(async () => {
+      const previewEl = document.getElementById(`doc-module-preview-a4`);
+      if (previewEl) {
+        try {
+          const res = await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
+            download: false,
+          });
+          await printPdfBlob(res.blob);
+        } catch {
+          window.print();
+        }
+      } else {
+        window.print();
+      }
+      setIsGeneratingPdf(false);
     }, 250);
   };
 
-  // Quick share helper
+  // Universal document share with direct vector PDF binary attachment and operational summary
   const handleQuickShare = async (doc: BillingDocument) => {
     setSelectedDocForPreview(doc);
     setIsGeneratingPdf(true);
@@ -328,28 +382,21 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             doc.issueDate,
             { download: false }
           );
-          const shared = await shareDocumentPdf(
-            res.blob,
-            res.fileName,
-            `${doc.documentType} ${doc.documentNumber} - ${profile.name}`,
-            `Please find attached ${doc.documentType} ${doc.documentNumber} for ${doc.clientName} amounting to ${formatKsh(doc.grandTotal)}.`
-          );
-          if (!shared) {
-            handleQuickWhatsApp(doc);
-          }
+          const summaryText = getDocumentOperationalSummary(doc, profile);
+          await universalSharePdfDocument({
+            blob: res.blob,
+            fileName: res.fileName,
+            title: `${doc.documentType} ${doc.documentNumber} - ${profile.name}`,
+            summaryText,
+            clientPhone: doc.clientPhone,
+            driveUrl: doc.driveFileUrl,
+          });
         } catch (err: any) {
-          console.error('Share error:', err);
+          console.error('Universal share error:', err);
         }
       }
       setIsGeneratingPdf(false);
     }, 250);
-  };
-
-  // Quick WhatsApp helper
-  const handleQuickWhatsApp = (doc: BillingDocument) => {
-    setSelectedDocForPreview(doc);
-    const waUrl = getWhatsAppShareUrl(doc, profile, doc.clientPhone, doc.driveFileUrl);
-    window.open(waUrl, '_blank', 'noopener,noreferrer');
   };
 
   const getStatusBadge = (status: DocumentStatus) => {
@@ -537,14 +584,14 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               <span className="text-stone-500 font-medium flex items-center gap-1">
                 <Filter className="w-3.5 h-3.5" /> Status:
               </span>
-              {(['ALL', 'Draft', 'Sent', 'Paid', 'Overdue'] as const).map((s) => (
+              {(['ALL', 'Draft', 'Sent', 'Partial', 'Paid', 'Overdue'] as const).map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => setStatusFilter(s)}
                   className={`px-2.5 py-1 rounded font-medium transition-colors cursor-pointer ${
                     statusFilter === s
-                      ? 'bg-stone-900 text-amber-400'
+                      ? 'bg-stone-900 text-amber-400 font-bold'
                       : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
                   }`}
                 >
@@ -573,24 +620,24 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-stone-100 border-b border-stone-200 text-stone-700 font-bold">
-                    <th className="py-2.5 px-3">Doc No</th>
-                    <th className="py-2.5 px-3">Client / Guest</th>
-                    <th className="py-2.5 px-3">Issue Date</th>
-                    <th className="py-2.5 px-3">{moduleType === 'QUOTATION' ? 'Valid Until' : 'Due Date'}</th>
-                    <th className="py-2.5 px-3 text-right">Grand Total</th>
+                    <SortableHeader column="documentNumber" label="Doc No" currentSort={sortConfig} onSort={toggleSort} />
+                    <SortableHeader column="clientName" label="Client / Guest" currentSort={sortConfig} onSort={toggleSort} />
+                    <SortableHeader column="issueDate" label="Issue Date" currentSort={sortConfig} onSort={toggleSort} defaultDirection="desc" />
+                    <SortableHeader column="dueDate" label={moduleType === 'QUOTATION' ? 'Valid Until' : 'Due Date'} currentSort={sortConfig} onSort={toggleSort} defaultDirection="desc" />
+                    <SortableHeader column="grandTotal" label="Grand Total" currentSort={sortConfig} onSort={toggleSort} align="right" defaultDirection="desc" />
                     {moduleType === 'INVOICE' && (
                       <>
-                        <th className="py-2.5 px-3 text-right">Paid</th>
-                        <th className="py-2.5 px-3 text-right">Balance Due</th>
+                        <SortableHeader column="amountPaid" label="Paid" currentSort={sortConfig} onSort={toggleSort} align="right" defaultDirection="desc" />
+                        <SortableHeader column="balanceDue" label="Balance Due" currentSort={sortConfig} onSort={toggleSort} align="right" defaultDirection="desc" />
                       </>
                     )}
-                    <th className="py-2.5 px-3 text-center">Status</th>
+                    <SortableHeader column="status" label="Status" currentSort={sortConfig} onSort={toggleSort} align="center" />
                     <th className="py-2.5 px-3 text-center">Drive PDF Link</th>
                     <th className="py-2.5 px-3 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-200">
-                  {filteredJournalDocs.length === 0 ? (
+                  {sortedJournalDocs.length === 0 ? (
                     <tr>
                       <td
                         colSpan={moduleType === 'INVOICE' ? 10 : 8}
@@ -606,7 +653,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    filteredJournalDocs.map((doc) => (
+                    sortedJournalDocs.map((doc) => (
                       <tr key={doc.id} className="hover:bg-amber-50/40 transition-colors">
                         <td className="py-2.5 px-3 font-mono font-bold text-stone-900 whitespace-nowrap">
                           {doc.documentNumber}
@@ -643,7 +690,10 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                           </>
                         )}
                         <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          {getStatusBadge(doc.status)}
+                          <DocumentStatusDropdown
+                            document={doc}
+                            onStatusChange={(newStatus, isManual) => handleStatusChange(doc, newStatus, isManual)}
+                          />
                         </td>
                         <td className="py-2.5 px-3 text-center whitespace-nowrap">
                           {doc.driveFileUrl ? (
@@ -692,16 +742,15 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                               <Edit className="w-4 h-4" />
                             </button>
 
-                            {/* WhatsApp Share Link */}
-                            <a
-                              href={getWhatsAppShareUrl(doc, profile)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-1 rounded text-emerald-700 hover:text-emerald-900 hover:bg-emerald-100 cursor-pointer"
-                              title="Share summary via WhatsApp"
+                            {/* Universal Share Action */}
+                            <button
+                              type="button"
+                              onClick={() => handleQuickShare(doc)}
+                              className="p-1 rounded text-stone-600 hover:text-stone-900 hover:bg-stone-200 cursor-pointer"
+                              title="Share Document (Vector PDF & Summary)"
                             >
-                              <MessageSquare className="w-4 h-4" />
-                            </a>
+                              <Share2 className="w-4 h-4" />
+                            </button>
 
                             {/* Download PDF */}
                             <button
@@ -772,17 +821,17 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               {selectedDocForPreview.documentType}: {selectedDocForPreview.documentNumber} - {selectedDocForPreview.clientName}
             </h3>
             <div className="flex items-center gap-2">
-              {/* WhatsApp Share Direct Button */}
-              <a
-                href={getWhatsAppShareUrl(selectedDocForPreview, profile)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-                title="Send invoice statement to client WhatsApp"
+              {/* Universal Share Direct Button */}
+              <button
+                type="button"
+                onClick={() => handleQuickShare(selectedDocForPreview)}
+                disabled={isGeneratingPdf}
+                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-white font-bold rounded text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                title="Share Document with direct PDF attachment & summary"
               >
-                <MessageSquare className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">WhatsApp</span>
-              </a>
+                <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                <span>{isGeneratingPdf ? 'Preparing...' : 'Share'}</span>
+              </button>
 
               <button
                 type="button"

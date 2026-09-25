@@ -18,7 +18,13 @@ import { formatKsh, formatDate } from '../utils/formatters';
 import { dbService } from '../services/db';
 import { A4ReceiptPreview } from './A4ReceiptPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
-import { generatePdfFromElement, shareDocumentPdf, validatePdfBlob } from '../utils/pdfGenerator';
+import {
+  generatePdfFromElement,
+  universalSharePdfDocument,
+  getReceiptOperationalSummary,
+  validatePdfBlob,
+  printPdfBlob,
+} from '../utils/pdfGenerator';
 import { localBackupService } from '../services/localBackupService';
 
 interface PaymentModalProps {
@@ -168,8 +174,26 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handlePrint = async () => {
+    if (!previewReceiptRef.current) {
+      window.print();
+      return;
+    }
+    setIsGeneratingPdf(true);
+    try {
+      const res = await generatePdfFromElement(
+        previewReceiptRef.current,
+        currentLivePayment.receiptNumber,
+        currentLivePayment.clientName,
+        currentLivePayment.date,
+        { download: false }
+      );
+      await printPdfBlob(res.blob);
+    } catch {
+      window.print();
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   const handleShare = async () => {
@@ -183,15 +207,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         currentLivePayment.date,
         { download: false }
       );
-      const shared = await shareDocumentPdf(
-        res.blob,
-        res.fileName,
-        `Payment Receipt: ${currentLivePayment.receiptNumber} - ${profile.name}`,
-        `Payment receipt ${currentLivePayment.receiptNumber} for ${currentLivePayment.clientName} of ${formatKsh(currentLivePayment.amount)}.`
-      );
-      if (!shared) {
-        handleDownloadPdf();
-      }
+      const summaryText = getReceiptOperationalSummary(currentLivePayment, profile);
+      const client = clients.find((c) => c.id === currentLivePayment.clientId);
+      await universalSharePdfDocument({
+        blob: res.blob,
+        fileName: res.fileName,
+        title: `Payment Receipt: ${currentLivePayment.receiptNumber} - ${profile.name}`,
+        summaryText,
+        clientPhone: client?.phone,
+      });
     } catch (err: any) {
       console.warn('Share error:', err);
     } finally {

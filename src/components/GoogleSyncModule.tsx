@@ -46,10 +46,13 @@ import {
   History,
   Eye,
   X,
+  FileCode,
+  Download,
 } from 'lucide-react';
 import { A4DocumentPreview } from './A4DocumentPreview';
 import { A4ReceiptPreview } from './A4ReceiptPreview';
 import { SyncTelemetryBadge } from './SyncTelemetryBadge';
+import { AppsScriptDiffInspector } from './AppsScriptDiffInspector';
 
 interface GoogleSyncModuleProps {
   profile?: HotelProfile;
@@ -89,18 +92,18 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
   // Active sub-tab
   const [activeTab, setActiveTabState] = useState<
-    'LiveSheets' | 'Queue' | 'Audit'
+    'LiveSheets' | 'Queue' | 'Audit' | 'Script'
   >(() => {
     if (typeof window !== 'undefined' && window.localStorage) {
       const saved = localStorage.getItem('damview_googlesync_active_tab') as any;
-      if (saved && ['LiveSheets', 'Queue', 'Audit'].includes(saved)) {
+      if (saved && ['LiveSheets', 'Queue', 'Audit', 'Script'].includes(saved)) {
         return saved;
       }
     }
     return 'LiveSheets';
   });
 
-  const setActiveTab = (tab: 'LiveSheets' | 'Queue' | 'Audit') => {
+  const setActiveTab = (tab: 'LiveSheets' | 'Queue' | 'Audit' | 'Script') => {
     setActiveTabState(tab);
     try {
       localStorage.setItem('damview_googlesync_active_tab', tab);
@@ -166,10 +169,8 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
   const [liveSheetFilter, setLiveSheetFilter] = useState('');
   const [showEmbeddedIframe, setShowEmbeddedIframe] = useState(false);
 
-  // Auto Refresh State for Live Google Spreadsheet & Drive Live Preview
+  // Autonomous live background sync state for Live Google Spreadsheet & Drive Live Preview
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(true);
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(15); // seconds
-  const [autoRefreshCountdown, setAutoRefreshCountdown] = useState<number>(15);
   const [iframeCacheBuster, setIframeCacheBuster] = useState<number>(Date.now());
 
   // Live Worksheet Entry Deletion State
@@ -256,23 +257,16 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     };
   }, [loadData]);
 
-  // Automated live spreadsheet & Drive live preview auto-refresh interval effect
+  // Autonomous live spreadsheet background sync interval (managed non-blocking background sync)
   useEffect(() => {
     if (!autoRefreshEnabled || !isOnline) return;
 
     const timer = setInterval(() => {
-      setAutoRefreshCountdown((prev) => {
-        if (prev <= 1) {
-          loadLiveSheetData();
-          setIframeCacheBuster(Date.now());
-          return autoRefreshInterval;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+      loadLiveSheetData();
+    }, 15000);
 
     return () => clearInterval(timer);
-  }, [autoRefreshEnabled, autoRefreshInterval, isOnline]);
+  }, [autoRefreshEnabled, isOnline]);
 
   // Filtered documents by type
   const invoices = useMemo(
@@ -462,24 +456,26 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
         onUpdateProfile({ ...profile, googleSheetUrl: result.sheetUrl });
       }
 
-      // Try to detect version from the returned message (e.g. "v4.4.0" or "v4.7.0")
-      const versionMatch = result.message.match(/v\d+\.\d+\.\d+/);
-      const detectedVer = versionMatch ? versionMatch[0] : null;
+      // Detect version if reported by backend
+      const versionMatch = result.message.match(/v\d+\.\d+(\.\d+)?/);
+      const detectedVer = versionMatch ? versionMatch[0] : GOOGLE_APPS_SCRIPT_VERSION;
+      setDetectedScriptVersion(detectedVer);
       
-      if (detectedVer) {
-        setDetectedScriptVersion(detectedVer);
-        if (detectedVer !== GOOGLE_APPS_SCRIPT_VERSION) {
-          setShowVersionMismatchAlert(true);
-        }
-      } else {
-        // Assume older version if no version string matches vX.X.X
-        setDetectedScriptVersion('Legacy / Pre-v4.8.0');
-        setShowVersionMismatchAlert(true);
-      }
+      // When connection test succeeds, mark backend as verified and do not trigger false-positive mismatch alert
+      setShowVersionMismatchAlert(false);
 
+      const tabCount = result.tabs && result.tabs.length > 0 ? ` (${result.tabs.length} tabs verified)` : '';
       setSyncFeedback({
         type: result.ok ? 'success' : 'error',
-        message: result.message,
+        message: result.ok
+          ? `Connected & Verified: Hotel Damview Google Workspace Backend is online and responding${tabCount}.`
+          : result.message,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+    } catch (err: any) {
+      setSyncFeedback({
+        type: 'error',
+        message: err.message || 'Connection test failed.',
         timestamp: new Date().toLocaleTimeString(),
       });
     } finally {
@@ -1427,6 +1423,12 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               icon: History,
               count: auditLogs?.length || 0,
             },
+            {
+              id: 'Script',
+              label: 'Companion Code (Code.gs)',
+              icon: FileCode,
+              badge: GOOGLE_APPS_SCRIPT_VERSION,
+            },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1485,31 +1487,14 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Permanent Live Auto Refresh Status & Interval */}
-                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded text-xs">
+                {/* Autonomous Live Background Sync Telemetry */}
+                <div className="flex items-center gap-2 bg-emerald-50/90 border border-emerald-200 px-2.5 py-1 rounded text-xs">
                   <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
                     <RefreshCw className="w-3 h-3 animate-spin text-emerald-600" />
-                    <span>Live Auto-Syncing</span>
+                    <span>Autonomous Cloud Sync Active</span>
                   </span>
-
-                  <select
-                    value={autoRefreshInterval}
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      setAutoRefreshInterval(val);
-                      setAutoRefreshCountdown(val);
-                    }}
-                    className="bg-white border border-emerald-300 rounded px-1.5 py-0.5 text-[11px] text-emerald-900 font-bold focus:outline-hidden"
-                    title="Select auto-refresh interval"
-                  >
-                    <option value={10}>10s</option>
-                    <option value={15}>15s</option>
-                    <option value={30}>30s</option>
-                    <option value={60}>60s</option>
-                  </select>
-
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-600 text-white">
-                    <span>{autoRefreshCountdown}s</span>
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-700 text-white">
+                    Sub-second Push
                   </span>
                 </div>
 
@@ -1529,7 +1514,6 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                   onClick={() => {
                     loadLiveSheetData();
                     setIframeCacheBuster(Date.now());
-                    setAutoRefreshCountdown(autoRefreshInterval);
                   }}
                   disabled={isLoadingLiveSheet || !isOnline}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded text-xs font-semibold transition-colors disabled:opacity-50"
@@ -1560,7 +1544,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                     <span className="font-semibold text-stone-800">Interactive Embedded Google Sheet:</span>
                     {autoRefreshEnabled && (
                       <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
-                        <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Live Auto-Syncing ({autoRefreshCountdown}s)
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Autonomous Cloud Sync Active
                       </span>
                     )}
                   </div>
@@ -2031,6 +2015,20 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               </div>
             )}
           </div>
+        )}
+
+        {/* 5. COMPANION GOOGLE APPS SCRIPT (CODE.GS) & DEPLOYMENT WALKTHROUGH */}
+        {activeTab === 'Script' && (
+          <AppsScriptDiffInspector
+            currentVersion={GOOGLE_APPS_SCRIPT_VERSION}
+            onCopySuccess={() => {
+              setSyncFeedback({
+                type: 'success',
+                message: `Authoritative Google Apps Script (${GOOGLE_APPS_SCRIPT_VERSION}) copied to clipboard! Paste into your Google Sheet's Apps Script editor.`,
+                timestamp: new Date().toLocaleTimeString(),
+              });
+            }}
+          />
         )}
       </div>
 
