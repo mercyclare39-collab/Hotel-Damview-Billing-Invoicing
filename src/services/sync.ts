@@ -470,7 +470,7 @@ export function sanitizeDocumentForSync(doc: BillingDocument): BillingDocument {
         const amount = item.amount !== undefined ? normalizeCurrency(item.amount) : Math.max(0, qty * days * rate - discount);
         const sanitizedItem = {
           id: item.id || `item-${idx + 1}`,
-          particulars: normalizeText(item.particulars || 'Accommodation / Service'),
+          particulars: item.particulars && String(item.particulars).trim().length > 0 ? normalizeText(item.particulars) : 'Accommodation / Service',
           quantity: qty,
           days,
           rate,

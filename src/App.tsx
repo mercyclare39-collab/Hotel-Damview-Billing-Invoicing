@@ -255,7 +255,7 @@ export default function App() {
 
   // Safe Auto-Refresh Guard: prevents refreshing state if user is actively typing or editing a document/modal
   const isUserInteracting = useCallback(() => {
-    if (editingDoc !== null || isPaymentModalOpen || isCommandPaletteOpen) {
+    if (editingDoc !== null || isPaymentModalOpen || isCommandPaletteOpen || isGlobalParityOpen) {
       return true;
     }
     if (typeof document !== 'undefined' && document.activeElement) {
@@ -265,7 +265,7 @@ export default function App() {
       }
     }
     return false;
-  }, [editingDoc, isPaymentModalOpen, isCommandPaletteOpen]);
+  }, [editingDoc, isPaymentModalOpen, isCommandPaletteOpen, isGlobalParityOpen]);
 
   const safeRefreshData = useCallback(() => {
     if (!isUserInteracting()) {
