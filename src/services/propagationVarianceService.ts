@@ -323,7 +323,7 @@ class PropagationVarianceService {
     appNotificationService.notify({
       category: 'SELF_HEALING',
       severity: 'SUCCESS',
-      title: `Parity Resolved: ${accurateDoc.documentNumber}`,
+      title: `Variance Resolved: ${accurateDoc.documentNumber}`,
       message: `Document ${accurateDoc.documentNumber} auto-changed and resolved to accurate data with ${accurateDoc.lineItems.length} line item(s) synchronized.`,
       documentNumber: accurateDoc.documentNumber,
       resolved: true,

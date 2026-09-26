@@ -27,7 +27,7 @@ export interface NotificationActionItem {
   id: string;
   label: string;
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
-  actionType?: 'OPEN_PARITY_VALIDATOR' | 'OPEN_APPS_SCRIPT_DIFF' | 'VIEW_SETTINGS' | 'CUSTOM';
+  actionType?: 'OPEN_APPS_SCRIPT_DIFF' | 'VIEW_SETTINGS' | 'CUSTOM';
   targetDocumentNumber?: string;
   onClick?: (notif: AppNotification) => Promise<void> | void;
 }
@@ -297,19 +297,13 @@ class AppNotificationService {
       category: 'PROPAGATION_VALIDATION',
       severity: isIdentical ? 'SUCCESS' : 'WARNING',
       title: isIdentical
-        ? `Parity Verified: ${documentNumber}`
+        ? `Data Verified: ${documentNumber}`
         : `Propagation Variance: ${documentNumber}`,
       message: varianceSummary,
       details: { ...details, documentNumber },
       documentNumber,
       resolved: isIdentical,
       autoDismissMs: isIdentical ? 4000 : 9000,
-      action: {
-        id: 'open-validator',
-        label: isIdentical ? 'View Parity' : 'Open Validator',
-        actionType: 'OPEN_PARITY_VALIDATOR',
-        targetDocumentNumber: documentNumber,
-      },
     });
   }
 

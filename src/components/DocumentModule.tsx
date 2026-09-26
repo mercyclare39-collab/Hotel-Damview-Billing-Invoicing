@@ -42,7 +42,6 @@ import {
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { DocumentEditor } from './DocumentEditor';
 import { A4DocumentPreview } from './A4DocumentPreview';
-import { DocumentPropagationParityModal } from './DocumentPropagationParityModal';
 import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
 import { DocumentStatusDropdown } from './DocumentStatusDropdown';
 import { usePropagationVariances } from '../hooks/usePropagationVariances';
@@ -101,8 +100,6 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | DocumentStatus | 'VARIANCE'>('ALL');
   const [selectedDocForPreview, setSelectedDocForPreview] = useState<BillingDocument | null>(null);
-  const [parityModalDoc, setParityModalDoc] = useState<BillingDocument | null>(null);
-  const [isParityModalOpen, setIsParityModalOpen] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isResolvingAll, setIsResolvingAll] = useState(false);
   const [isResolvingDocId, setIsResolvingDocId] = useState<string | null>(null);
@@ -472,18 +469,6 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setParityModalDoc(null);
-                  setIsParityModalOpen(true);
-                }}
-                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-amber-400 border border-stone-700 font-semibold rounded text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                title="Run Document Propagation Parity Validator across all documents and Google Sheets"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                <span>Parity Validator</span>
-              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -869,16 +854,6 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                                 <Eye className="w-4 h-4" />
                               </button>
 
-                              {/* Validate Google Sheets Propagation & Line Items Parity */}
-                              <button
-                                type="button"
-                                onClick={() => setParityModalDoc(doc)}
-                                className="p-1 rounded text-stone-600 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer"
-                                title="Validate Google Sheets Propagation & Line Items Parity"
-                              >
-                                <ShieldCheck className="w-4 h-4 text-emerald-700" />
-                              </button>
-
                               {/* Edit */}
                               <button
                                 type="button"
@@ -1030,21 +1005,6 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* Real-time Propagation Parity Validator Modal (audits all documents) */}
-      {(isParityModalOpen || !!parityModalDoc) && (
-        <DocumentPropagationParityModal
-          document={parityModalDoc}
-          isOpen={isParityModalOpen || !!parityModalDoc}
-          onClose={() => {
-            setIsParityModalOpen(false);
-            setParityModalDoc(null);
-          }}
-          onRefreshDocument={(updated) => {
-            onSaveDocument(updated);
-          }}
-        />
       )}
     </div>
   );

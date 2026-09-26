@@ -735,7 +735,7 @@ export async function runEndToEndSyncVerification(): Promise<SyncVerificationRes
     });
   }
 
-  // Check 7: Document JSON Schema & Google Sheets Parity Validation
+  // Check 7: Document JSON Schema & Google Sheets Alignment Verification
   try {
     const testDocPayload: BillingDocument = {
       id: 'schema-test-doc-' + Date.now(),
@@ -767,7 +767,7 @@ export async function runEndToEndSyncVerification(): Promise<SyncVerificationRes
       amountPaid: 0,
       balanceDue: 35000,
       status: 'Sent',
-      notes: 'Schema parity check',
+      notes: 'Schema verification check',
       terms: 'Net 30 days',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -784,12 +784,12 @@ export async function runEndToEndSyncVerification(): Promise<SyncVerificationRes
 
     if (schemaReport.isFullyCompliant && bidiPush.passed && bidiPull.passed && sheetHeadersReport.status === 'PERFECT') {
       checks.push({
-        id: 'schema_parity_verification',
-        title: 'Local JSON Schema & Google Sheets Bidirectional Parity',
+        id: 'schema_alignment_verification',
+        title: 'Local JSON Schema & Google Sheets Alignment',
         status: 'PASS',
-        details: '100% field mapping parity between local BillingDocument JSON and Google Sheets Invoices columns.',
+        details: '100% field mapping alignment between local BillingDocument JSON and Google Sheets Invoices columns.',
         diagnostic: {
-          parityScore: schemaReport.parityScore,
+          schemaScore: schemaReport.parityScore,
           matchedHeadersCount: sheetHeadersReport.matchedHeaders.length,
           outboundKeys: Object.keys(bidiPush.resolvedTargetKeys).length,
           inboundKeys: Object.keys(bidiPull.resolvedTargetKeys).length,
@@ -797,19 +797,19 @@ export async function runEndToEndSyncVerification(): Promise<SyncVerificationRes
       });
     } else {
       checks.push({
-        id: 'schema_parity_verification',
-        title: 'Local JSON Schema & Google Sheets Bidirectional Parity',
+        id: 'schema_alignment_verification',
+        title: 'Local JSON Schema & Google Sheets Alignment',
         status: 'FAIL',
-        details: 'Schema parity check identified mismatched keys or missing required fields.',
+        details: 'Schema alignment check identified mismatched keys or missing required fields.',
         diagnostic: { schemaReport, bidiPush, bidiPull, sheetHeadersReport },
       });
     }
   } catch (err: any) {
     checks.push({
-      id: 'schema_parity_verification',
-      title: 'Local JSON Schema & Google Sheets Bidirectional Parity',
+      id: 'schema_alignment_verification',
+      title: 'Local JSON Schema & Google Sheets Alignment',
       status: 'FAIL',
-      details: `Schema parity verification threw error: ${err.message}`,
+      details: `Schema alignment verification threw error: ${err.message}`,
     });
   }
 

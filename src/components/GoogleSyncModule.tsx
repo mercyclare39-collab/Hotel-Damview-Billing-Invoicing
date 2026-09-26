@@ -55,7 +55,6 @@ import { A4ReceiptPreview } from './A4ReceiptPreview';
 import { SyncTelemetryBadge } from './SyncTelemetryBadge';
 import { AppsScriptDiffInspector } from './AppsScriptDiffInspector';
 import { SchemaDiagnosticsInspector } from './SchemaDiagnosticsInspector';
-import { DocumentPropagationParityModal } from './DocumentPropagationParityModal';
 import { Cpu } from 'lucide-react';
 
 interface GoogleSyncModuleProps {
@@ -78,8 +77,6 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
   const [clients, setClients] = useState<Client[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>([]);
-  const [parityModalDoc, setParityModalDoc] = useState<BillingDocument | null>(null);
-  const [isParityModalOpen, setIsParityModalOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(
     propIsOnline !== undefined ? propIsOnline : typeof navigator !== 'undefined' ? navigator.onLine : true
   );
@@ -1550,7 +1547,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               id: 'Diagnostics',
               label: 'Schema & Field Diagnostics',
               icon: Cpu,
-              badge: 'Parity Engine',
+              badge: 'Schema Engine',
             },
             {
               id: 'Script',
@@ -1638,18 +1635,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                   <span>{isPullingData ? 'Pulling...' : 'Pull to Local DB'}</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setParityModalDoc(null);
-                    setIsParityModalOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs transition-colors cursor-pointer shadow-xs"
-                  title="Run Document Propagation Parity Validator across all ERP documents and Google Sheets"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-stone-950" />
-                  <span>Validate Document Parity (All Documents)</span>
-                </button>
+
 
                 <button
                   type="button"
@@ -2578,22 +2564,6 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
           </div>
         </div>
       )}
-
-      {/* Real-time Document Propagation Parity Validator Modal (audits all documents) */}
-      <DocumentPropagationParityModal
-        document={parityModalDoc}
-        isOpen={isParityModalOpen || !!parityModalDoc}
-        onClose={() => {
-          setIsParityModalOpen(false);
-          setParityModalDoc(null);
-        }}
-        onRefreshDocument={() => {
-          loadData();
-        }}
-        onRefreshAllDocuments={() => {
-          loadData();
-        }}
-      />
     </div>
   );
 };

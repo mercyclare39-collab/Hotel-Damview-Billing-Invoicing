@@ -64,13 +64,7 @@ const NotificationToastItem: React.FC<NotificationToastItemProps> = ({ notif, on
   const handleActionExecution = async (act: NotificationActionItem) => {
     setExecutingActionId(act.id);
     try {
-      if (act.actionType === 'OPEN_PARITY_VALIDATOR') {
-        window.dispatchEvent(
-          new CustomEvent('damview:open-parity-validator', {
-            detail: { documentNumber: act.targetDocumentNumber || notif.documentNumber },
-          })
-        );
-      } else if (act.actionType === 'OPEN_APPS_SCRIPT_DIFF') {
+      if (act.actionType === 'OPEN_APPS_SCRIPT_DIFF') {
         window.dispatchEvent(new CustomEvent('damview:open-apps-script-diff'));
       }
 
@@ -96,7 +90,7 @@ const NotificationToastItem: React.FC<NotificationToastItemProps> = ({ notif, on
       case 'APPS_SCRIPT':
         return { label: 'Apps Script', bg: 'bg-purple-900/80 text-purple-200 border-purple-700', icon: FileCode };
       case 'PROPAGATION_VALIDATION':
-        return { label: 'Propagation Parity', bg: 'bg-emerald-950/80 text-emerald-300 border-emerald-700', icon: ShieldCheck };
+        return { label: 'Variance Audit', bg: 'bg-emerald-950/80 text-emerald-300 border-emerald-700', icon: ShieldCheck };
       case 'SYNC_PROCESS':
         return { label: 'Sync Pipeline', bg: 'bg-blue-950/80 text-blue-300 border-blue-700', icon: RefreshCw };
       case 'APP_UPDATE':
@@ -197,11 +191,7 @@ const NotificationToastItem: React.FC<NotificationToastItemProps> = ({ notif, on
                           : 'bg-stone-800 hover:bg-stone-700 text-amber-300 border border-amber-600/40'
                       }`}
                     >
-                      {isBusy ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-inherit" />
-                      ) : act.actionType === 'OPEN_PARITY_VALIDATOR' ? (
-                        <ShieldCheck className="w-3 h-3 text-inherit" />
-                      ) : null}
+                      {isBusy && <Loader2 className="w-3 h-3 animate-spin text-inherit" />}
                       <span>{act.label}</span>
                       {!isBusy && isPrimary && <ArrowRight className="w-2.5 h-2.5 text-inherit" />}
                     </button>

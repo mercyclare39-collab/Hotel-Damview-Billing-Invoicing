@@ -28,7 +28,6 @@ import { HotelLogo } from './components/HotelLogo';
 import { OfflineBanner } from './components/OfflineBanner';
 import { PWAReloadPrompt } from './components/PWAReloadPrompt';
 import { AppNotificationToaster } from './components/AppNotificationToaster';
-import { DocumentPropagationParityModal } from './components/DocumentPropagationParityModal';
 import { logSystemIncident } from './services/selfHealingPatch';
 import { StatementRecord } from './types';
 import { GOOGLE_APPS_SCRIPT_VERSION } from './services/googleScriptCode';
@@ -203,11 +202,6 @@ export default function App() {
   const [paymentModalDoc, setPaymentModalDoc] = useState<BillingDocument | null>(null);
   const [paymentModalClientId, setPaymentModalClientId] = useState<string | undefined>(undefined);
 
-  // Global Parity Modal triggerable from notification actions across any module
-  const [globalParityDoc, setGlobalParityDoc] = useState<BillingDocument | null>(null);
-  const [isGlobalParityOpen, setIsGlobalParityOpen] = useState(false);
-  const [globalParityTargetDocNum, setGlobalParityTargetDocNum] = useState<string | null>(null);
-
   // Statement client filter state
   const [statementClientId, setStatementClientId] = useState<string | undefined>(undefined);
 
@@ -255,7 +249,7 @@ export default function App() {
 
   // Safe Auto-Refresh Guard: prevents refreshing state if user is actively typing or editing a document/modal
   const isUserInteracting = useCallback(() => {
-    if (editingDoc !== null || isPaymentModalOpen || isCommandPaletteOpen || isGlobalParityOpen) {
+    if (editingDoc !== null || isPaymentModalOpen || isCommandPaletteOpen) {
       return true;
     }
     if (typeof document !== 'undefined' && document.activeElement) {
@@ -265,7 +259,7 @@ export default function App() {
       }
     }
     return false;
-  }, [editingDoc, isPaymentModalOpen, isCommandPaletteOpen, isGlobalParityOpen]);
+  }, [editingDoc, isPaymentModalOpen, isCommandPaletteOpen]);
 
   const safeRefreshData = useCallback(() => {
     if (!isUserInteracting()) {
@@ -335,11 +329,19 @@ export default function App() {
       }
     };
 
+    const handleGasVersionMismatch = (e: any) => {
+      const detail = e?.detail;
+      if (detail && detail.message) {
+        setGasUpdateNotification(detail.message);
+      }
+    };
+
     window.addEventListener('damview:data-changed', handleRemoteDataChanged);
     window.addEventListener('damview-sync-completed', handleRemoteDataChanged);
     window.addEventListener('damview-renumbered', handleRemoteDataChanged);
     window.addEventListener('damview:sync-warning', handleSyncWarning);
     window.addEventListener('damview:navigate-module', handleNavigateModule);
+    window.addEventListener('damview:gas-version-mismatch', handleGasVersionMismatch);
 
     // Sync when tab receives focus to catch changes from other devices immediately
     const handleWindowFocus = () => {
@@ -358,30 +360,10 @@ export default function App() {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
 
-    // Global listener for opening Document Propagation Parity Validator from notifications or triggers
-    const handleOpenParityValidator = (e: Event) => {
-      const customEvent = e as CustomEvent<{ documentNumber?: string }>;
-      const targetDocNum = customEvent.detail?.documentNumber || null;
-      setGlobalParityTargetDocNum(targetDocNum);
-      if (targetDocNum) {
-        dbService.getDocuments().then((allDocs) => {
-          const found = allDocs.find(
-            (d) => (d.documentNumber || '').trim().toLowerCase() === targetDocNum.trim().toLowerCase()
-          );
-          setGlobalParityDoc(found || null);
-          setIsGlobalParityOpen(true);
-        });
-      } else {
-        setGlobalParityDoc(null);
-        setIsGlobalParityOpen(true);
-      }
-    };
-
     const handleOpenAppsScriptDiff = () => {
       setCurrentModule('settings');
     };
 
-    window.addEventListener('damview:open-parity-validator', handleOpenParityValidator);
     window.addEventListener('damview:open-apps-script-diff', handleOpenAppsScriptDiff);
 
     // Auto-detect and notify if Google Apps Script in-app code or schemas are updated
@@ -416,9 +398,10 @@ export default function App() {
       window.removeEventListener('damview-sync-completed', handleRemoteDataChanged);
       window.removeEventListener('damview-renumbered', handleRemoteDataChanged);
       window.removeEventListener('damview:sync-warning', handleSyncWarning);
+      window.removeEventListener('damview:navigate-module', handleNavigateModule);
+      window.removeEventListener('damview:gas-version-mismatch', handleGasVersionMismatch);
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('keydown', handleGlobalKeyDown);
-      window.removeEventListener('damview:open-parity-validator', handleOpenParityValidator);
       window.removeEventListener('damview:open-apps-script-diff', handleOpenAppsScriptDiff);
       syncManager.stopAutoSync();
       clearInterval(interval);
@@ -934,11 +917,6 @@ export default function App() {
               }}
               onNavigateToStatement={() => setCurrentModule('statements')}
               onRecordPayment={() => handleOpenPaymentModal()}
-              onOpenParityValidator={() => {
-                setGlobalParityDoc(null);
-                setGlobalParityTargetDocNum(null);
-                setIsGlobalParityOpen(true);
-              }}
               onEditDocument={handleEditDocument}
             />
           )}
@@ -1188,28 +1166,6 @@ export default function App() {
 
       {/* Centralized Process & Trigger Notification Toasts */}
       <AppNotificationToaster />
-
-      {/* Global Document Propagation Parity Validator Modal (triggerable via notification actions & triggers) */}
-      <DocumentPropagationParityModal
-        document={globalParityDoc}
-        targetDocumentNumber={globalParityTargetDocNum}
-        isOpen={isGlobalParityOpen || !!globalParityDoc}
-        onClose={() => {
-          setIsGlobalParityOpen(false);
-          setGlobalParityDoc(null);
-          setGlobalParityTargetDocNum(null);
-        }}
-        onRefreshDocument={(updated) => {
-          handleSaveDocument(updated);
-        }}
-        onRefreshAllDocuments={(updatedDocs) => {
-          setDocuments((prev) => {
-            const updatedMap = new Map(updatedDocs.map((d) => [d.id, d]));
-            return prev.map((doc) => updatedMap.get(doc.id) || doc);
-          });
-          refreshData();
-        }}
-      />
 
       {/* PWA Service Worker Registration & Cache Reload Prompt */}
       <PWAReloadPrompt />

@@ -10,14 +10,14 @@ import {
   runEndToEndSyncVerification,
   SyncVerificationResult,
 } from './selfHealingSync';
-import { validatePropagatedDocumentParity } from './schemaDiagnostics';
 import { appNotificationService } from './appNotificationService';
 import { apiRateLimiter } from './apiRateLimiter';
+import { GOOGLE_APPS_SCRIPT_VERSION } from './googleScriptCode';
 export * from './schemaDiagnostics';
 
 export interface FieldLogEntry {
   timestamp: string;
-  stage: 'SERIALIZE' | 'DESERIALIZE' | 'PARITY_CHECK' | 'DRIFT_RESOLVED';
+  stage: 'SERIALIZE' | 'DESERIALIZE' | 'SYNC_VERIFICATION' | 'DRIFT_RESOLVED';
   entityType: 'DOCUMENT' | 'CLIENT' | 'PAYMENT' | 'PROFILE' | 'LINE_ITEM' | 'RESERVATION' | 'POS_ORDER' | 'EXPENSE' | 'CATALOGUE' | 'STATEMENT';
   entityId: string;
   fieldName: string;
@@ -1145,6 +1145,26 @@ class GoogleSyncManager {
               success: false,
               error: `Could not parse response from Google Apps Script: ${parseErr.message || 'Malformed JSON response'}`,
             };
+          }
+
+          if (parsed && (parsed.message || parsed.version)) {
+            const respMsg = String(parsed.message || parsed.version);
+            const verMatch = respMsg.match(/v\d+\.\d+\.\d+/i);
+            if (verMatch) {
+              const deployedVer = verMatch[0].toLowerCase();
+              const appVer = GOOGLE_APPS_SCRIPT_VERSION.toLowerCase();
+              if (deployedVer !== appVer && typeof window !== 'undefined') {
+                window.dispatchEvent(
+                  new CustomEvent('damview:gas-version-mismatch', {
+                    detail: {
+                      deployedVersion: verMatch[0],
+                      appVersion: GOOGLE_APPS_SCRIPT_VERSION,
+                      message: `Google Apps Script Update Available: Deployed version (${verMatch[0]}) differs from canonical script (${GOOGLE_APPS_SCRIPT_VERSION}). Click to copy updated Code.gs script in Settings.`,
+                    },
+                  })
+                );
+              }
+            }
           }
 
           if (parsed && parsed.success === false) {
@@ -2571,7 +2591,7 @@ class GoogleSyncManager {
                 const remoteVal = (remoteClient as any)[f];
                 const resolvedVal = (updatedClient as any)[f];
                 syncFieldLogger.logField({
-                  stage: 'PARITY_CHECK',
+                  stage: 'SYNC_VERIFICATION',
                   entityType: 'CLIENT',
                   entityId: existing.id,
                   fieldName: f,
@@ -2726,18 +2746,6 @@ class GoogleSyncManager {
             const localUpdated = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
             const rawPaid = sanitizeCurrency(rDoc.amountPaid);
 
-            // Real-time validation check: confirm if propagated document differs from original (especially line items)
-            const incomingComparisonDoc: BillingDocument = {
-              ...existing,
-              ...rDoc,
-              lineItems: resolvedLineItems.length > 0 ? resolvedLineItems : existing.lineItems,
-            };
-            const parityCheck = validatePropagatedDocumentParity(existing, incomingComparisonDoc, false);
-            if (!parityCheck.isIdentical) {
-              // Emit notification when line items, rates, or financial particulars differ
-              validatePropagatedDocumentParity(existing, incomingComparisonDoc, true);
-            }
-
             // Strict LWW enforcement: Only update local document if remote is strictly newer
             if (remoteUpdated > localUpdated + 1500) {
               const merged = safelyMergeDocumentWithDefensiveShields(existing, {
@@ -2750,7 +2758,7 @@ class GoogleSyncManager {
                 const remoteVal = (rDoc as any)[f];
                 const resolvedVal = (merged as any)[f];
                 syncFieldLogger.logField({
-                  stage: 'PARITY_CHECK',
+                  stage: 'SYNC_VERIFICATION',
                   entityType: 'DOCUMENT',
                   entityId: existing.documentNumber,
                   fieldName: f,

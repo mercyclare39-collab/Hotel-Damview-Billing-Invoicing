@@ -28,6 +28,7 @@ import {
   Columns,
   Rows,
   MessageSquare,
+  ExternalLink,
 } from 'lucide-react';
 import { BillingDocument, DocumentType, LineItem, Client, HotelProfile, CatalogueItem } from '../types';
 import { ClientModal } from './ClientModal';
@@ -71,7 +72,6 @@ import { executeWithAutonomousRetry, logSystemIncident } from '../services/selfH
 import { A4DocumentPreview } from './A4DocumentPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
 import { usePWA } from '../hooks/usePWA';
-import { DocumentPropagationParityModal } from './DocumentPropagationParityModal';
 
 interface DocumentEditorProps {
   initialDocument?: BillingDocument | null;
@@ -387,7 +387,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [saveNotification, setSaveNotification] = useState<string | null>(null);
   const [showPresetsMenu, setShowPresetsMenu] = useState(false);
   const [showFullPreviewModal, setShowFullPreviewModal] = useState(false);
-  const [isParityModalOpen, setIsParityModalOpen] = useState(false);
 
   // Hidden DOM ref for offscreen rendering if preview pane is collapsed
   const a4PreviewRef = useRef<HTMLDivElement>(null);
@@ -1161,6 +1160,91 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
+  // Chained Trigger: Open Vector PDF in New Tab / Window (Bypasses popup blockers & falls back seamlessly in sandboxed static deployments)
+  const handleOpenNewTabPdfChained = async () => {
+    let popupWin: Window | null = null;
+    try {
+      popupWin = typeof window !== 'undefined' ? window.open('', '_blank') : null;
+    } catch {
+      popupWin = null;
+    }
+
+    if (popupWin) {
+      try {
+        popupWin.document.write(`
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Generating PDF: ${fullDocumentNumber} - ${profile.name}</title>
+              <style>
+                body { margin: 0; background-color: #0c0a09; color: #f5f5f4; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; text-align: center; }
+                .card { background: #1c1917; border: 1px solid #44403c; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 400px; }
+                .spinner { width: 36px; height: 36px; border: 4px solid #44403c; border-top-color: #f59e0b; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1.25rem; }
+                @keyframes spin { to { transform: rotate(360deg); } }
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <div class="spinner"></div>
+                <h3 style="margin:0 0 0.5rem; font-size:1.1rem; color:#fef08a;">Preparing Vector A4 PDF</h3>
+                <p style="margin:0; font-size:0.85rem; color:#a8a29e;">${fullDocumentNumber} &bull; ${clientName || 'Guest'}</p>
+              </div>
+            </body>
+          </html>
+        `);
+      } catch {}
+    }
+
+    const saved = await runSaveAndRecordPipeline(true);
+    if (!saved) {
+      if (popupWin) {
+        try { popupWin.close(); } catch {}
+      }
+      return;
+    }
+
+    // Fallback to displaying full-screen React preview modal if popup window was blocked
+    if (!popupWin) {
+      setSaveNotification('Pop-up window blocked. Displaying Full-Screen Live A4 Preview Modal.');
+      setShowFullPreviewModal(true);
+      return;
+    }
+
+    const targetElement = a4PreviewRef.current || modalA4PreviewRef.current;
+    if (!targetElement) {
+      if (popupWin) {
+        try { popupWin.close(); } catch {}
+      }
+      setShowFullPreviewModal(true);
+      return;
+    }
+
+    setIsGeneratingPdf(true);
+    try {
+      const { blob } = await generatePdfFromElement(
+        targetElement,
+        saved.documentNumber,
+        saved.clientName,
+        saved.issueDate,
+        { download: false }
+      );
+      const pdfUrl = URL.createObjectURL(blob);
+      if (popupWin && !popupWin.closed) {
+        popupWin.location.href = pdfUrl;
+      } else {
+        setShowFullPreviewModal(true);
+      }
+    } catch (err: any) {
+      if (popupWin) {
+        try { popupWin.close(); } catch {}
+      }
+      setShowFullPreviewModal(true);
+      console.warn('PDF generation for popup window caught error:', err);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   // Chained Trigger: Conversion Trigger (e.g. Quotation -> Proforma -> Invoice)
   const handleConvertChained = async (targetType: DocumentType) => {
     const saved = await runSaveAndRecordPipeline(true);
@@ -1350,19 +1434,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </span>
           )}
 
-          {/* Real-time Sheets Propagation Parity Validation Check */}
-          {initialDocument && (
-            <button
-              type="button"
-              onClick={() => setIsParityModalOpen(true)}
-              className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-emerald-300 text-emerald-800 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors shadow-2xs font-medium cursor-pointer"
-              title="Confirm if propagated data in Google Sheets differs from this original document (line items & totals)"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
-              <span className="hidden sm:inline">Sheets Parity Check</span>
-            </button>
-          )}
-
           {/* Streamlined Live Preview Modal Trigger */}
           <button
             type="button"
@@ -1409,6 +1480,18 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           >
             <Share2 className="w-3.5 h-3.5 text-stone-600" />
             <span>Share</span>
+          </button>
+
+          {/* Chained Trigger: Open in New Tab / Window */}
+          <button
+            type="button"
+            onClick={handleOpenNewTabPdfChained}
+            disabled={isSaving || isGeneratingPdf}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-stone-300 text-stone-700 rounded bg-white hover:bg-stone-50 transition-colors cursor-pointer"
+            title="Saves document & opens full vector A4 PDF in a new browser tab/window"
+          >
+            <ExternalLink className="w-3.5 h-3.5 text-amber-700" />
+            <span className="hidden md:inline">Open PDF in New Tab</span>
           </button>
 
           {/* Clear Form */}
@@ -2112,6 +2195,16 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={handleOpenNewTabPdfChained}
+                disabled={isGeneratingPdf}
+                className="px-3 py-1.5 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded flex items-center gap-1.5 border border-stone-300 shadow-2xs cursor-pointer"
+                title="Open PDF in a new browser tab/window"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-amber-700" />
+                <span>Open in New Tab</span>
+              </button>
+              <button
+                type="button"
                 onClick={handleShareChained}
                 disabled={isGeneratingPdf}
                 className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1.5 shadow-xs cursor-pointer"
@@ -2170,33 +2263,6 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         onClose={() => setIsClientModalOpen(false)}
         onSaveClient={handleSaveClientFromModal}
       />
-
-      {/* Real-time Document Propagation Parity Validator Modal */}
-      {initialDocument && (
-        <DocumentPropagationParityModal
-          document={initialDocument}
-          isOpen={isParityModalOpen}
-          onClose={() => setIsParityModalOpen(false)}
-          onRefreshDocument={(updatedDoc) => {
-            if (updatedDoc.lineItems && updatedDoc.lineItems.length > 0) {
-              setLineItems([...updatedDoc.lineItems]);
-            }
-            if (updatedDoc.discount !== undefined) {
-              setDiscount(updatedDoc.discount);
-            }
-            if (updatedDoc.status) {
-              setStatus(updatedDoc.status);
-            }
-            // Preserve exact terms and notes when propagating without creating additional data
-            if (updatedDoc.notes !== undefined) {
-              setNotes(updatedDoc.notes || '');
-            }
-            if (updatedDoc.terms !== undefined) {
-              setTerms(updatedDoc.terms || '');
-            }
-          }}
-        />
-      )}
     </div>
   );
 };

@@ -108,7 +108,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       setUpdateFeedback('Up to Date');
       appNotificationService.notifyAppUpdate(
         'Application is Up to Date',
-        'Hotel Damview ERP is synchronized with the latest deployment on GitHub with 100% cache parity.',
+        'Hotel Damview ERP is synchronized with the latest deployment on GitHub with 100% cache synchronization.',
         'INFO'
       );
       setTimeout(() => setUpdateFeedback(null), 3000);
@@ -134,13 +134,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const handleExecuteDrawerAction = async (notif: AppNotification, act: NotificationActionItem) => {
     setExecutingActionId(act.id);
     try {
-      if (act.actionType === 'OPEN_PARITY_VALIDATOR') {
-        window.dispatchEvent(
-          new CustomEvent('damview:open-parity-validator', {
-            detail: { documentNumber: act.targetDocumentNumber || notif.documentNumber },
-          })
-        );
-      } else if (act.actionType === 'OPEN_APPS_SCRIPT_DIFF') {
+      if (act.actionType === 'OPEN_APPS_SCRIPT_DIFF') {
         window.dispatchEvent(new CustomEvent('damview:open-apps-script-diff'));
       }
 
@@ -404,7 +398,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div className="flex items-center gap-1 overflow-x-auto pb-0.5 text-[10px]">
                     {[
                       { id: 'ALL', label: 'All' },
-                      { id: 'PROPAGATION_VALIDATION', label: 'Parity' },
                       { id: 'SYNC_PROCESS', label: 'Sync' },
                       { id: 'APPS_SCRIPT', label: 'Apps Script' },
                       { id: 'SYSTEM_PROMPT', label: 'Prompts' },
@@ -437,7 +430,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                           : 'All Systems Operating Optimally'}
                       </p>
                       <p className="text-[11px] text-stone-500">
-                        Apps Script updates, document parity checks, and sync events will stream here in real time.
+                        Apps Script updates, variance alerts, and sync events will stream here in real time.
                       </p>
                     </div>
                   ) : (
@@ -509,9 +502,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                                       : 'bg-amber-500 hover:bg-amber-400 text-stone-950'
                                   }`}
                                 >
-                                  {act.actionType === 'OPEN_PARITY_VALIDATOR' && (
-                                    <ShieldCheck className="w-3 h-3 text-inherit" />
-                                  )}
                                   <span>{act.label}</span>
                                 </button>
                               ))}

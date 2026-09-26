@@ -30,7 +30,6 @@ import {
   printPdfBlob,
 } from '../utils/pdfGenerator';
 import { A4DocumentPreview } from './A4DocumentPreview';
-import { DocumentPropagationParityModal } from './DocumentPropagationParityModal';
 import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
 import { DocumentStatusDropdown } from './DocumentStatusDropdown';
 import { dbService } from '../services/db';
@@ -61,8 +60,6 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
   const [typeFilter, setTypeFilter] = useState<'ALL' | DocumentType>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | DocumentStatus | 'VARIANCE'>('ALL');
   const [selectedDocForPreview, setSelectedDocForPreview] = useState<BillingDocument | null>(null);
-  const [parityModalDoc, setParityModalDoc] = useState<BillingDocument | null>(null);
-  const [isParityModalOpen, setIsParityModalOpen] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isResolvingAll, setIsResolvingAll] = useState(false);
@@ -283,18 +280,6 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              setParityModalDoc(null);
-              setIsParityModalOpen(true);
-            }}
-            className="px-3 py-2 bg-amber-50 border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-semibold rounded flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-            title="Run Document Propagation Parity Validator across all ERP documents and Google Sheets"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-amber-700" />
-            Parity Validator
-          </button>
           <button
             type="button"
             onClick={() => onNewDocument('QUOTATION')}
@@ -566,16 +551,6 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                             </button>
                           )}
 
-                          {/* Parity Validator Trigger */}
-                          <button
-                            type="button"
-                            onClick={() => setParityModalDoc(doc)}
-                            className="p-1 text-stone-500 hover:text-emerald-700 hover:bg-emerald-50 rounded"
-                            title="Validate Google Sheets Propagation & Line Items Parity"
-                          >
-                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
-                          </button>
-
                           {/* Preview */}
                           <button
                             type="button"
@@ -785,28 +760,6 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* PARITY VALIDATOR MODAL */}
-      {(isParityModalOpen || !!parityModalDoc) && (
-        <DocumentPropagationParityModal
-          isOpen={isParityModalOpen || !!parityModalDoc}
-          document={parityModalDoc}
-          onClose={() => {
-            setIsParityModalOpen(false);
-            setParityModalDoc(null);
-          }}
-          onRefreshDocument={(updatedDoc) => {
-            if (onSaveDocument) {
-              onSaveDocument(updatedDoc);
-            }
-          }}
-          onRefreshAllDocuments={(updatedDocs) => {
-            if (onSaveDocument) {
-              updatedDocs.forEach((d) => onSaveDocument(d));
-            }
-          }}
-        />
       )}
     </div>
   );

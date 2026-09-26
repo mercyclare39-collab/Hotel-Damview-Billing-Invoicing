@@ -196,18 +196,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         },
       },
       {
-        id: 'action-parity-validator',
-        title: 'Run Document Propagation Parity Validator',
-        subtitle: 'Audit bidirectional parity across all documents & line items in Google Sheets',
-        badge: 'PARITY',
-        badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-        category: 'Actions' as const,
-        action: () => {
-          window.dispatchEvent(new CustomEvent('damview:open-parity-validator'));
-          onClose();
-        },
-      },
-      {
         id: 'action-excel-workstation',
         title: 'Excel Workstation & Master Spreadsheets',
         subtitle: 'Edit offline XLSX journals, formulas & generate multi-tab workbooks',

@@ -233,9 +233,9 @@ assert(mergedDoc.terms === 'Strictly 30 days', 'Defensive shield preserved local
 console.log('');
 
 // -----------------------------------------------------------------------------
-// TEST SUITE 5: Schema Diagnostics & Bidirectional Key Parity
+// TEST SUITE 5: Schema Diagnostics & Bidirectional Key Alignment
 // -----------------------------------------------------------------------------
-console.log('Suite 5: Schema Diagnostics & Inbound Key Parity Verification');
+console.log('Suite 5: Schema Diagnostics & Inbound Key Alignment Verification');
 
 const inboundInvoiceKeysTest = verifyBidirectionalSyncKeys(
   {
