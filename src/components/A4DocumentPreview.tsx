@@ -59,9 +59,10 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
       );
     };
 
-    // Formatted phone & email line
-    const contactParts = [profile.phone?.trim(), profile.email?.trim()].filter(Boolean);
-    const phoneEmail = contactParts.join(' | ');
+    // Formatted phone & email line with explicit Phone and Email labels
+    const phonePart = profile.phone?.trim() ? `Phone: ${profile.phone.trim()}` : '';
+    const emailPart = profile.email?.trim() ? `Email: ${profile.email.trim()}` : '';
+    const phoneEmail = [phonePart, emailPart].filter(Boolean).join(' | ');
 
     // Credentials presence checks (Zero-placeholder discipline)
     const hasBankName = Boolean(profile.bankName && profile.bankName.trim());

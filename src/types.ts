@@ -86,6 +86,10 @@ export interface BillingDocument {
   driveFileId?: string;
   lastSyncStatus?: 'synced' | 'pending' | 'failed';
   isArchived?: boolean;
+  hasParityVariance?: boolean;
+  parityDifferencesCount?: number;
+  parityVarianceSummary?: string;
+  parityCheckedAt?: string;
 }
 
 export interface PaymentRecord {

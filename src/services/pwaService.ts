@@ -3,6 +3,8 @@
  * Hotel Damview Management Suite
  */
 
+import { appNotificationService } from './appNotificationService';
+
 export interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
@@ -25,7 +27,10 @@ declare const __APP_VERSION__: string | undefined;
 declare const __BUILD_TIME__: string | undefined;
 
 export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '5.0.0';
-export const CURRENT_BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '2026-09-26T10:40:00.000Z';
+export const CURRENT_BUILD_TIME =
+  typeof __BUILD_TIME__ !== 'undefined' && __BUILD_TIME__
+    ? __BUILD_TIME__
+    : '2026-09-26T11:03:06.454Z';
 
 type PWAEventListener = (state: PWAState) => void;
 
@@ -36,6 +41,8 @@ class PWAService {
   private refreshing = false;
   private updateCheckInterval: any = null;
   private versionCheckInterval: any = null;
+  private lastVersionCheckTime = 0;
+  private lastSwCheckTime = 0;
 
   private state: PWAState = {
     isInstallable: false,
@@ -220,8 +227,14 @@ class PWAService {
   /**
    * Fetches remote version.json bypassing all HTTP and ServiceWorker caches
    */
-  public async checkRemoteVersionJson(): Promise<boolean> {
+  public async checkRemoteVersionJson(force = false): Promise<boolean> {
     if (typeof window === 'undefined' || !navigator.onLine) return false;
+
+    const now = Date.now();
+    if (!force && now - this.lastVersionCheckTime < 15000) {
+      return this.state.needRefresh;
+    }
+    this.lastVersionCheckTime = now;
 
     try {
       // Determine base URL path
@@ -246,7 +259,31 @@ class PWAService {
         const remoteTime = new Date(data.buildTime).getTime();
         const localTime = new Date(CURRENT_BUILD_TIME).getTime();
 
-        if (remoteTime > localTime || (data.version && data.version !== CURRENT_APP_VERSION)) {
+        // Check if user recently applied this exact build time
+        let appliedBuildTime = 0;
+        try {
+          const stored = localStorage.getItem('damview_applied_build_time');
+          if (stored) appliedBuildTime = Number(stored);
+        } catch {}
+
+        // Ensure current running build is baseline if none recorded
+        if (!appliedBuildTime || isNaN(appliedBuildTime)) {
+          appliedBuildTime = localTime;
+          try {
+            localStorage.setItem('damview_applied_build_time', String(localTime));
+          } catch {}
+        }
+
+        // Genuine update requires:
+        // 1. Remote semantic version is strictly different from local version, OR
+        // 2. Remote build time is significantly newer (> 90 seconds) than both local build time AND appliedBuildTime
+        const isVersionDifferent = Boolean(data.version && data.version !== CURRENT_APP_VERSION);
+        const baselineTime = Math.max(localTime, appliedBuildTime);
+        const isNewerBuild = remoteTime > baselineTime && (remoteTime - baselineTime > 90 * 1000);
+
+        const isRealUpdateAvailable = isVersionDifferent || isNewerBuild;
+
+        if (isRealUpdateAvailable) {
           this.state.needRefresh = true;
           this.notify();
 
@@ -254,10 +291,21 @@ class PWAService {
           if (this.registration) {
             await this.registration.update();
             if (this.registration.waiting) {
-              this.onNewVersionAvailable(this.registration.waiting);
+              this.registration.waiting.postMessage({ type: 'SKIP_WAITING' });
             }
           }
           return true;
+        } else {
+          // App is confirmed already up to date - ALWAYS clear refresh flag!
+          if (this.state.needRefresh) {
+            this.state.needRefresh = false;
+            this.notify();
+          }
+
+          // If a service worker is waiting for the current or older build, auto-activate it silently
+          if (this.registration?.waiting) {
+            this.registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
         }
       }
       return false;
@@ -269,8 +317,14 @@ class PWAService {
   /**
    * Programmatically requests the browser to check for updated Service Worker manifests
    */
-  public async checkForUpdate(): Promise<boolean> {
+  public async checkForUpdate(force = false): Promise<boolean> {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return false;
+
+    const now = Date.now();
+    if (!force && now - this.lastSwCheckTime < 20000) {
+      return this.state.needRefresh;
+    }
+    this.lastSwCheckTime = now;
 
     try {
       this.state.isCheckingUpdate = true;
@@ -282,8 +336,13 @@ class PWAService {
         await reg.update();
         this.state.lastChecked = new Date();
 
-        if (reg.waiting) {
-          this.onNewVersionAvailable(reg.waiting);
+        // Check remote version.json to verify whether waiting worker is actually newer
+        const hasJsonUpdate = await this.checkRemoteVersionJson(force);
+        if (hasJsonUpdate) {
+          return true;
+        }
+
+        if (reg.waiting && this.state.needRefresh) {
           return true;
         }
       }
@@ -301,13 +360,18 @@ class PWAService {
    * Handles new service worker detection
    */
   private onNewVersionAvailable(worker: ServiceWorker) {
-    this.state.needRefresh = true;
-    this.notify();
-
-    // If user is NOT editing anything, auto-activate smoothly
-    if (!this.isUserActivelyEditing()) {
-      worker.postMessage({ type: 'SKIP_WAITING' });
-    }
+    // Only set needRefresh after checking remote version.json confirms a genuine new build
+    this.checkRemoteVersionJson().then((isNewer) => {
+      if (isNewer) {
+        this.state.needRefresh = true;
+        this.notify();
+      } else {
+        // Already on latest build: activate worker without prompting
+        this.state.needRefresh = false;
+        this.notify();
+        worker.postMessage({ type: 'SKIP_WAITING' });
+      }
+    });
   }
 
   /**
@@ -339,8 +403,20 @@ class PWAService {
     if (typeof window === 'undefined') return;
 
     try {
+      // Record applied build timestamp to permanently prevent re-prompting once reloaded
+      const targetTime = this.state.remoteBuildTime
+        ? new Date(this.state.remoteBuildTime).getTime()
+        : Date.now();
+      localStorage.setItem('damview_applied_build_time', String(targetTime));
+      this.state.needRefresh = false;
+      this.notify();
       // Notify all active forms/editors to flush unsaved draft state immediately
       window.dispatchEvent(new CustomEvent('damview-before-app-update'));
+      appNotificationService.notifyAppUpdate(
+        'Applying App Update',
+        'Reloading application smoothly with zero draft or data loss...',
+        'SUCCESS'
+      );
     } catch {}
 
     if (this.registration && this.registration.waiting) {

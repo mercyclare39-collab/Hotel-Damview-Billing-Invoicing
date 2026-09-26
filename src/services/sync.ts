@@ -10,6 +10,9 @@ import {
   runEndToEndSyncVerification,
   SyncVerificationResult,
 } from './selfHealingSync';
+import { validatePropagatedDocumentParity } from './schemaDiagnostics';
+import { appNotificationService } from './appNotificationService';
+import { apiRateLimiter } from './apiRateLimiter';
 export * from './schemaDiagnostics';
 
 export interface FieldLogEntry {
@@ -1027,144 +1030,167 @@ class GoogleSyncManager {
       }
     }
 
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    const action = String(payload?.action || payload?.type || '').toUpperCase();
+    const isReadOnly = action === 'GET_SHEET_DATA' || action === 'PING' || action === 'HEALTHCHECK';
+    const cacheTtlMs = isReadOnly ? 12000 : 0; // 12-second TTL for read queries
 
-    try {
-      // Strict client-side data normalization using Regex for KRA PINs, phone numbers, and currency strings before stringifying
-      const normalizedPayload = normalizePayloadBeforeJson(payload);
-      const jsonBody = JSON.stringify(normalizedPayload);
+    return apiRateLimiter.execute(
+      trimmedUrl,
+      payload,
+      async () => {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
-      // Primary Dispatch: text/plain
-      let res = await fetch(trimmedUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
-        },
-        body: jsonBody,
-        signal: controller?.signal,
-      });
-
-      if (res.status === 404) {
-        if (timeoutId) clearTimeout(timeoutId);
-        return {
-          success: false,
-          error: 'HTTP error 404: Google Apps Script Web App URL not found. Please verify the Web App deployment URL in Settings.',
-        };
-      }
-
-      let rawText = await res.text();
-      let trimmedText = rawText.trim();
-
-      // Fallback Dispatch: If text/plain produced HTML redirect, try url-encoded form post fallback
-      if (
-        trimmedText.startsWith('<') ||
-        trimmedText.toLowerCase().includes('<!doctype') ||
-        trimmedText.toLowerCase().includes('<html')
-      ) {
         try {
-          const formParams = new URLSearchParams();
-          formParams.append('payload', jsonBody);
+          // Strict client-side data normalization using Regex for KRA PINs, phone numbers, and currency strings before stringifying
+          const normalizedPayload = normalizePayloadBeforeJson(payload);
+          const jsonBody = JSON.stringify(normalizedPayload);
 
-          const fallbackRes = await fetch(trimmedUrl, {
+          // Primary Dispatch: text/plain
+          let res = await fetch(trimmedUrl, {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+              'Content-Type': 'text/plain;charset=utf-8',
             },
-            body: formParams.toString(),
+            body: jsonBody,
             signal: controller?.signal,
           });
 
-          const fallbackText = await fallbackRes.text();
-          const fallbackTrimmed = fallbackText.trim();
-
-          if (!fallbackTrimmed.startsWith('<') && !fallbackTrimmed.toLowerCase().includes('<!doctype')) {
-            rawText = fallbackText;
-            trimmedText = fallbackTrimmed;
+          if (res.status === 404) {
+            if (timeoutId) clearTimeout(timeoutId);
+            return {
+              success: false,
+              error: 'HTTP error 404: Google Apps Script Web App URL not found. Please verify the Web App deployment URL in Settings.',
+            };
           }
-        } catch {}
-      }
 
-      if (timeoutId) clearTimeout(timeoutId);
+          if (res.status === 429) {
+            if (timeoutId) clearTimeout(timeoutId);
+            return {
+              success: false,
+              error: 'HTTP error 429: Too Many Requests (Rate limit reached on Google Apps Script). Automatic exponential cooldown engaged.',
+            };
+          }
 
-      // Guard: Detect if Google returned an HTML page (login redirect or unhandled error)
-      if (
-        trimmedText.startsWith('<') ||
-        trimmedText.toLowerCase().includes('<!doctype') ||
-        trimmedText.toLowerCase().includes('<html')
-      ) {
-        if (
-          trimmedText.includes('ServiceLogin') ||
-          trimmedText.includes('accounts.google.com') ||
-          trimmedText.includes('Sign in')
-        ) {
+          let rawText = await res.text();
+          let trimmedText = rawText.trim();
+
+          // Fallback Dispatch: If text/plain produced HTML redirect, try url-encoded form post fallback
+          if (
+            trimmedText.startsWith('<') ||
+            trimmedText.toLowerCase().includes('<!doctype') ||
+            trimmedText.toLowerCase().includes('<html')
+          ) {
+            try {
+              const formParams = new URLSearchParams();
+              formParams.append('payload', jsonBody);
+
+              const fallbackRes = await fetch(trimmedUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+                },
+                body: formParams.toString(),
+                signal: controller?.signal,
+              });
+
+              const fallbackText = await fallbackRes.text();
+              const fallbackTrimmed = fallbackText.trim();
+
+              if (!fallbackTrimmed.startsWith('<') && !fallbackTrimmed.toLowerCase().includes('<!doctype')) {
+                rawText = fallbackText;
+                trimmedText = fallbackTrimmed;
+              }
+            } catch {}
+          }
+
+          if (timeoutId) clearTimeout(timeoutId);
+
+          // Guard: Detect if Google returned an HTML page (login redirect or unhandled error)
+          if (
+            trimmedText.startsWith('<') ||
+            trimmedText.toLowerCase().includes('<!doctype') ||
+            trimmedText.toLowerCase().includes('<html')
+          ) {
+            if (
+              trimmedText.includes('ServiceLogin') ||
+              trimmedText.includes('accounts.google.com') ||
+              trimmedText.includes('Sign in')
+            ) {
+              return {
+                success: false,
+                error:
+                  'Google Web App Authorization Required: Access is restricted. In Apps Script, click Deploy > Manage deployments > Edit (pencil icon) > set "Who has access" to "Anyone", select "New version", and click Deploy.',
+              };
+            }
+            if (trimmedText.includes('Script function not found') || trimmedText.includes('Exception:')) {
+              return {
+                success: false,
+                error:
+                  'Google Apps Script error: Please ensure you copied and deployed the latest Code.gs script in Apps Script.',
+              };
+            }
+            return {
+              success: false,
+              error:
+                'Google Apps Script returned an HTML page instead of JSON. Please ensure the Web App is deployed with "Execute as: Me" and "Who has access: Anyone".',
+            };
+          }
+
+          let parsed: any;
+          try {
+            parsed = JSON.parse(rawText);
+          } catch (parseErr: any) {
+            return {
+              success: false,
+              error: `Could not parse response from Google Apps Script: ${parseErr.message || 'Malformed JSON response'}`,
+            };
+          }
+
+          if (parsed && parsed.success === false) {
+            return {
+              ...parsed,
+              success: false,
+              error: parsed.error || parsed.message || 'Google Apps Script returned an error.',
+            };
+          }
+
+          return {
+            success: true,
+            ...parsed,
+          };
+        } catch (err: any) {
+          if (timeoutId) clearTimeout(timeoutId);
+
+          if (retryCount > 0 && (err.name === 'AbortError' || (err.message && (err.message.toLowerCase().includes('failed to fetch') || err.message.toLowerCase().includes('networkerror'))))) {
+            await new Promise((r) => setTimeout(r, 2000));
+            return this.postToScript(url, payload, timeoutMs, retryCount - 1);
+          }
+
+          if (err.name === 'AbortError') {
+            return {
+              success: false,
+              error: 'Request to Google Apps Script timed out. The operation might still be processing in Google Sheets.',
+            };
+          }
+          if (err.message && (err.message.toLowerCase().includes('failed to fetch') || err.message.toLowerCase().includes('networkerror') || err.message.toLowerCase().includes('net::err'))) {
+            return {
+              success: false,
+              error: 'Network connection failed (Failed to fetch). Please check your internet connection and verify your Google Apps Script Web App URL in Settings.',
+            };
+          }
           return {
             success: false,
-            error:
-              'Google Web App Authorization Required: Access is restricted. In Apps Script, click Deploy > Manage deployments > Edit (pencil icon) > set "Who has access" to "Anyone", select "New version", and click Deploy.',
+            error: err.message || 'Network error communicating with Google Apps Script Web App.',
           };
         }
-        if (trimmedText.includes('Script function not found') || trimmedText.includes('Exception:')) {
-          return {
-            success: false,
-            error:
-              'Google Apps Script error: Please ensure you copied and deployed the latest Code.gs script in Apps Script.',
-          };
-        }
-        return {
-          success: false,
-          error:
-            'Google Apps Script returned an HTML page instead of JSON. Please ensure the Web App is deployed with "Execute as: Me" and "Who has access: Anyone".',
-        };
+      },
+      {
+        priority: isReadOnly ? 2 : 5,
+        cacheTtlMs,
+        timeoutMs,
       }
-
-      let parsed: any;
-      try {
-        parsed = JSON.parse(rawText);
-      } catch (parseErr: any) {
-        return {
-          success: false,
-          error: `Could not parse response from Google Apps Script: ${parseErr.message || 'Malformed JSON response'}`,
-        };
-      }
-
-      if (parsed && parsed.success === false) {
-        return {
-          ...parsed,
-          success: false,
-          error: parsed.error || parsed.message || 'Google Apps Script returned an error.',
-        };
-      }
-
-      return {
-        success: true,
-        ...parsed,
-      };
-    } catch (err: any) {
-      if (timeoutId) clearTimeout(timeoutId);
-
-      if (retryCount > 0 && (err.name === 'AbortError' || (err.message && (err.message.toLowerCase().includes('failed to fetch') || err.message.toLowerCase().includes('networkerror'))))) {
-        await new Promise((r) => setTimeout(r, 2000));
-        return this.postToScript(url, payload, timeoutMs, retryCount - 1);
-      }
-
-      if (err.name === 'AbortError') {
-        return {
-          success: false,
-          error: 'Request to Google Apps Script timed out. The operation might still be processing in Google Sheets.',
-        };
-      }
-      if (err.message && (err.message.toLowerCase().includes('failed to fetch') || err.message.toLowerCase().includes('networkerror') || err.message.toLowerCase().includes('net::err'))) {
-        return {
-          success: false,
-          error: 'Network connection failed (Failed to fetch). Please check your internet connection and verify your Google Apps Script Web App URL in Settings.',
-        };
-      }
-      return {
-        success: false,
-        error: err.message || 'Network error communicating with Google Apps Script Web App.',
-      };
-    }
+    );
   }
 
   /**
@@ -2700,6 +2726,18 @@ class GoogleSyncManager {
             const localUpdated = existing.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
             const rawPaid = sanitizeCurrency(rDoc.amountPaid);
 
+            // Real-time validation check: confirm if propagated document differs from original (especially line items)
+            const incomingComparisonDoc: BillingDocument = {
+              ...existing,
+              ...rDoc,
+              lineItems: resolvedLineItems.length > 0 ? resolvedLineItems : existing.lineItems,
+            };
+            const parityCheck = validatePropagatedDocumentParity(existing, incomingComparisonDoc, false);
+            if (!parityCheck.isIdentical) {
+              // Emit notification when line items, rates, or financial particulars differ
+              validatePropagatedDocumentParity(existing, incomingComparisonDoc, true);
+            }
+
             // Strict LWW enforcement: Only update local document if remote is strictly newer
             if (remoteUpdated > localUpdated + 1500) {
               const merged = safelyMergeDocumentWithDefensiveShields(existing, {
@@ -2806,8 +2844,8 @@ class GoogleSyncManager {
               amountPaid: normalizeCurrency(rawPaid || 0),
               balanceDue: rawBal !== undefined ? normalizeCurrency(rawBal) : normalizeCurrency(rawGrand || 0),
               status: (rDoc.status as any) || (type === 'INVOICE' && rawBal === 0 ? 'Paid' : 'Sent'),
-              notes: 'Imported from centralized Google Workspace ERP ledger.',
-              terms: 'Strictly 30 days from date of invoice.',
+              notes: rDoc.notes ? normalizeText(rDoc.notes) : '',
+              terms: rDoc.terms ? normalizeText(rDoc.terms) : '',
               createdAt: normalizeDate(rDoc.issueDate),
               updatedAt: rDoc.updatedAt || new Date().toISOString().split('T')[0],
               syncedToGoogle: true,

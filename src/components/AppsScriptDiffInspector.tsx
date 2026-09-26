@@ -18,6 +18,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { GOOGLE_APPS_SCRIPT_CODE, GOOGLE_APPS_SCRIPT_VERSION } from '../services/googleScriptCode';
+import { appNotificationService } from '../services/appNotificationService';
 
 interface AppsScriptDiffInspectorProps {
   currentVersion?: string;
@@ -80,6 +81,11 @@ export const AppsScriptDiffInspector: React.FC<AppsScriptDiffInspectorProps> = (
   const handleCopyCode = () => {
     navigator.clipboard.writeText(codeString);
     setCopied(true);
+    appNotificationService.notifyAppsScript(
+      `Apps Script ${currentVersion} Copied`,
+      `Centralized Google Apps Script backend (${totalLines.toLocaleString()} lines, ${(characterCount / 1024).toFixed(1)} KB) copied to clipboard. Ready to deploy into Google Sheets editor.`,
+      { version: currentVersion, lines: totalLines, characters: characterCount }
+    );
     if (onCopySuccess) onCopySuccess();
     setTimeout(() => setCopied(false), 3000);
   };
@@ -92,6 +98,11 @@ export const AppsScriptDiffInspector: React.FC<AppsScriptDiffInspectorProps> = (
     a.download = `HotelDamview_Code_gs_${currentVersion}.gs`;
     document.body.appendChild(a);
     a.click();
+    appNotificationService.notifyAppsScript(
+      `Apps Script ${currentVersion} Downloaded`,
+      `Downloaded canonical script file HotelDamview_Code_gs_${currentVersion}.gs (${totalLines.toLocaleString()} lines).`,
+      { version: currentVersion, fileName: `HotelDamview_Code_gs_${currentVersion}.gs`, lines: totalLines }
+    );
     setTimeout(() => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);

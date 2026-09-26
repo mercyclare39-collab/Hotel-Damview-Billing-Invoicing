@@ -13,8 +13,10 @@ interface A4ReceiptPreviewProps {
 
 export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps>(
   ({ payment, profile, scale = 1, className = '', isPrintVersion = false }, ref) => {
-    const contactParts = [profile.phone?.trim(), profile.email?.trim()].filter(Boolean);
-    const phoneEmail = contactParts.join(' | ');
+    // Formatted phone & email line with explicit Phone and Email labels
+    const phonePart = profile.phone?.trim() ? `Phone: ${profile.phone.trim()}` : '';
+    const emailPart = profile.email?.trim() ? `Email: ${profile.email.trim()}` : '';
+    const phoneEmail = [phonePart, emailPart].filter(Boolean).join(' | ');
 
     // Adaptive column width allocation
     const paymentModeLen = (payment.paymentMode || 'Bank Transfer').length;

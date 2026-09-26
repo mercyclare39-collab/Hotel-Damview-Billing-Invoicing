@@ -6,12 +6,10 @@ import { defineConfig, Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // Plugin to automatically write dynamic version.json into dist and public at build time
-function generateVersionJsonPlugin(): Plugin {
+function generateVersionJsonPlugin(buildTime: string, version: string): Plugin {
   return {
     name: 'generate-version-json',
     writeBundle() {
-      const buildTime = new Date().toISOString();
-      const version = process.env.npm_package_version || '5.0.0';
       const versionData = {
         version,
         buildTime,
@@ -36,6 +34,36 @@ function generateVersionJsonPlugin(): Plugin {
   };
 }
 
+// Plugin to guarantee permanent synchronization of Code.gs across the entire codebase
+function syncAppsScriptPlugin(): Plugin {
+  return {
+    name: 'sync-apps-script',
+    buildStart() {
+      try {
+        const rootDir = path.resolve('.');
+        const codeGsPath = path.join(rootDir, 'Code.gs');
+        const codeGsSub = path.join(rootDir, 'google-apps-script', 'Code.gs');
+        const tsPath = path.join(rootDir, 'src', 'services', 'googleScriptCode.ts');
+        if (fs.existsSync(codeGsPath)) {
+          const content = fs.readFileSync(codeGsPath, 'utf8');
+          const lines = content.split('\n').length;
+          const versionMatch = content.match(/Code\.gs\s+(v\d+\.\d+\.\d+)/i) || content.match(/Version:\s*(v\d+\.\d+\.\d+)/i);
+          const version = versionMatch ? versionMatch[1] : 'v5.0.0';
+          const subDir = path.dirname(codeGsSub);
+          if (!fs.existsSync(subDir)) {
+            fs.mkdirSync(subDir, { recursive: true });
+          }
+          fs.writeFileSync(codeGsSub, content, 'utf8');
+          const tsContent = `/**\n * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND SCRIPT\n * Version: ${version}\n * Lines: ${lines}\n * Synchronized automatically from canonical Code.gs\n */\n\nexport const GOOGLE_APPS_SCRIPT_VERSION = "${version}";\n\nexport function getLatestAppsScriptVersion(): string {\n  return GOOGLE_APPS_SCRIPT_VERSION;\n}\n\nexport const GOOGLE_APPS_SCRIPT_CODE = ${JSON.stringify(content)};\n`;
+          fs.writeFileSync(tsPath, tsContent, 'utf8');
+        }
+      } catch (err) {
+        console.warn('[Vite Plugin] Warning syncing Code.gs:', err);
+      }
+    },
+  };
+}
+
 export default defineConfig(() => {
   const basePath = process.env.VITE_BASE_PATH || './';
   const pwaScope = process.env.VITE_BASE_PATH || '/';
@@ -49,9 +77,10 @@ export default defineConfig(() => {
       '__BUILD_TIME__': JSON.stringify(buildTime),
     },
     plugins: [
+      syncAppsScriptPlugin(),
       react(),
       tailwindcss(),
-      generateVersionJsonPlugin(),
+      generateVersionJsonPlugin(buildTime, version),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: [

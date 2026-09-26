@@ -29,6 +29,7 @@ interface DashboardProps {
   onNavigateToJournal: () => void;
   onNavigateToStatement: () => void;
   onRecordPayment: () => void;
+  onOpenParityValidator?: () => void;
   onEditDocument?: (doc: BillingDocument) => void;
 }
 
@@ -42,6 +43,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onNavigateToJournal,
   onNavigateToStatement,
   onRecordPayment,
+  onOpenParityValidator,
   onEditDocument,
 }) => {
   // Current month & year
@@ -187,6 +189,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
           >
             <BookOpen className="w-3.5 h-3.5 text-amber-400" />
             Statement of Account
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenParityValidator) {
+                onOpenParityValidator();
+              } else {
+                window.dispatchEvent(new CustomEvent('damview:open-parity-validator'));
+              }
+            }}
+            className="px-3 py-2 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/80 text-emerald-300 text-xs font-semibold rounded flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+            title="Run Document Propagation Parity Validator for all ERP documents"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            Parity Validator
           </button>
           <button
             type="button"

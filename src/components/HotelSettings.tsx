@@ -57,6 +57,7 @@ import { GOOGLE_APPS_SCRIPT_CODE, GOOGLE_APPS_SCRIPT_VERSION } from '../services
 import { HotelLogo } from './HotelLogo';
 import { usePWA } from '../hooks/usePWA';
 import { CURRENT_APP_VERSION, CURRENT_BUILD_TIME } from '../services/pwaService';
+import { appNotificationService } from '../services/appNotificationService';
 
 interface HotelSettingsProps {
   profile: HotelProfile;
@@ -238,18 +239,6 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   const [isChangingPasscode, setIsChangingPasscode] = useState(false);
   const [newPasscode, setNewPasscode] = useState('');
   const [passcodeChangeSuccess, setPasscodeChangeSuccess] = useState(false);
-
-  const handleDownloadCodeGs = () => {
-    const blob = new Blob([GOOGLE_APPS_SCRIPT_CODE], { type: 'text/javascript;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'Code.gs';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
 
   const handleUnlockAttempt = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -476,7 +465,33 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   const handleCopyScript = () => {
     navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
     setCopiedCode(true);
+    const lineCount = GOOGLE_APPS_SCRIPT_CODE.split('\n').length;
+    appNotificationService.notifyAppsScript(
+      `Apps Script Code Copied (${lineCount} lines)`,
+      `Google Apps Script backend (${GOOGLE_APPS_SCRIPT_VERSION}, ${lineCount} lines, ${(GOOGLE_APPS_SCRIPT_CODE.length / 1024).toFixed(1)} KB) copied to clipboard. Ready to deploy to Google Sheets.`,
+      { version: GOOGLE_APPS_SCRIPT_VERSION, lines: lineCount, characters: GOOGLE_APPS_SCRIPT_CODE.length }
+    );
     setTimeout(() => setCopiedCode(false), 3000);
+  };
+
+  const handleDownloadCodeGs = () => {
+    const blob = new Blob([GOOGLE_APPS_SCRIPT_CODE], { type: 'text/javascript' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `HotelDamview_Code_gs_${GOOGLE_APPS_SCRIPT_VERSION}.gs`;
+    document.body.appendChild(a);
+    a.click();
+    const lineCount = GOOGLE_APPS_SCRIPT_CODE.split('\n').length;
+    appNotificationService.notifyAppsScript(
+      `Apps Script File Downloaded (${GOOGLE_APPS_SCRIPT_VERSION})`,
+      `Downloaded canonical file HotelDamview_Code_gs_${GOOGLE_APPS_SCRIPT_VERSION}.gs (${lineCount} lines).`,
+      { version: GOOGLE_APPS_SCRIPT_VERSION, lines: lineCount, fileName: `HotelDamview_Code_gs_${GOOGLE_APPS_SCRIPT_VERSION}.gs` }
+    );
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1000);
   };
 
   const handleTestConnection = async () => {
@@ -497,11 +512,32 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     try {
       const res = await syncManager.testConnection(targetUrl);
       setTestResult(res);
+      if (res.ok) {
+        appNotificationService.notifyAppsScript(
+          'Google Apps Script Connected',
+          `Successfully verified endpoint connection (${GOOGLE_APPS_SCRIPT_VERSION}). Google Spreadsheet: ${res.sheetName || 'Hotel Damview ERP'}.`,
+          { version: GOOGLE_APPS_SCRIPT_VERSION, sheetName: res.sheetName, url: targetUrl }
+        );
+      } else {
+        appNotificationService.notify({
+          category: 'APPS_SCRIPT',
+          severity: 'WARNING',
+          title: 'Google Apps Script Connection Failed',
+          message: res.message || 'Unable to connect to Google Apps Script endpoint.',
+          details: { url: targetUrl, error: res.message },
+        });
+      }
       if (res.ok && res.sheetUrl && !formData.googleSheetUrl) {
         handleInputChange('googleSheetUrl', res.sheetUrl);
       }
     } catch (err: any) {
       setTestResult({ ok: false, message: err.message || 'Connection test failed.' });
+      appNotificationService.notify({
+        category: 'APPS_SCRIPT',
+        severity: 'ERROR',
+        title: 'Connection Test Error',
+        message: err.message || 'Error occurred while contacting Google Apps Script.',
+      });
     } finally {
       setIsTesting(false);
     }
@@ -529,11 +565,22 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
           byteLength: res.byteLength,
           folderName: res.folderName,
         });
+        appNotificationService.notifySync(
+          'Test PDF Uploaded to Drive',
+          `Archived test PDF to Google Drive (${res.byteLength} bytes). Deduplication and public view link verified.`,
+          'SUCCESS',
+          { driveUrl: res.driveUrl, fileName: res.fileName }
+        );
       } else {
         setTestPdfResult({
           ok: false,
           message: res.error || 'Failed to upload test PDF to Google Drive.',
         });
+        appNotificationService.notifySync(
+          'Test PDF Upload Failed',
+          res.error || 'Failed to upload test PDF to Google Drive.',
+          'ERROR'
+        );
       }
     } catch (err: any) {
       setTestPdfResult({

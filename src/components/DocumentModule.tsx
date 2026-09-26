@@ -28,6 +28,7 @@ import {
   FileSpreadsheet,
   MessageSquare,
   ExternalLink,
+  ShieldCheck,
 } from 'lucide-react';
 import { BillingDocument, DocumentType, DocumentStatus, Client, HotelProfile } from '../types';
 import { formatKsh, formatDate, calculateDueDate } from '../utils/formatters';
@@ -41,8 +42,10 @@ import {
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { DocumentEditor } from './DocumentEditor';
 import { A4DocumentPreview } from './A4DocumentPreview';
+import { DocumentPropagationParityModal } from './DocumentPropagationParityModal';
 import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
 import { DocumentStatusDropdown } from './DocumentStatusDropdown';
+import { usePropagationVariances } from '../hooks/usePropagationVariances';
 
 interface DocumentModuleProps {
   moduleType: DocumentType;
@@ -96,9 +99,20 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   }, [editingDocument]);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | DocumentStatus>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | DocumentStatus | 'VARIANCE'>('ALL');
   const [selectedDocForPreview, setSelectedDocForPreview] = useState<BillingDocument | null>(null);
+  const [parityModalDoc, setParityModalDoc] = useState<BillingDocument | null>(null);
+  const [isParityModalOpen, setIsParityModalOpen] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isResolvingAll, setIsResolvingAll] = useState(false);
+  const [isResolvingDocId, setIsResolvingDocId] = useState<string | null>(null);
+
+  const {
+    hasVariance,
+    getVariance,
+    autoResolveDocument,
+    autoResolveAll,
+  } = usePropagationVariances();
 
   // Persistent multi-column table sorting hook
   const { sortConfig, toggleSort, sortData } = usePersistentSort<BillingDocument>(
@@ -122,6 +136,10 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   const moduleDocs = useMemo(() => {
     return documents.filter((d) => d.documentType === moduleType);
   }, [documents, moduleType]);
+
+  const moduleVariancesCount = useMemo(() => {
+    return moduleDocs.filter((d) => hasVariance(d.documentNumber)).length;
+  }, [moduleDocs, hasVariance]);
 
   // Today string for expiry comparisons
   const todayStr = useMemo(() => formatDate(), []);
@@ -150,7 +168,11 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   const filteredJournalDocs = useMemo(() => {
     const list = activeSubTab === 'special' ? specialDocs : moduleDocs;
     return list.filter((doc) => {
-      if (statusFilter !== 'ALL' && doc.status !== statusFilter) return false;
+      if (statusFilter === 'VARIANCE') {
+        if (!hasVariance(doc.documentNumber)) return false;
+      } else if (statusFilter !== 'ALL' && doc.status !== statusFilter) {
+        return false;
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchNum = doc.documentNumber.toLowerCase().includes(q);
@@ -163,7 +185,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
       }
       return true;
     });
-  }, [activeSubTab, specialDocs, moduleDocs, statusFilter, searchQuery]);
+  }, [activeSubTab, specialDocs, moduleDocs, statusFilter, searchQuery, hasVariance]);
 
   // Sort filtered documents using persistent multi-column table sorting
   const sortedJournalDocs = useMemo(() => {
@@ -453,6 +475,18 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  setParityModalDoc(null);
+                  setIsParityModalOpen(true);
+                }}
+                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-amber-400 border border-stone-700 font-semibold rounded text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                title="Run Document Propagation Parity Validator across all documents and Google Sheets"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span>Parity Validator</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   onStartNewDocument(moduleType);
                   setActiveSubTab('new');
                 }}
@@ -599,6 +633,22 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                 </button>
               ))}
 
+              {moduleVariancesCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('VARIANCE')}
+                  className={`px-2.5 py-1 rounded font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                    statusFilter === 'VARIANCE'
+                      ? 'bg-amber-500 text-stone-950 shadow-xs'
+                      : 'bg-amber-100 text-amber-900 hover:bg-amber-200 border border-amber-300'
+                  }`}
+                  title="Show only documents with detected propagation variance between ERP and Google Sheets"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Variances ({moduleVariancesCount})</span>
+                </button>
+              )}
+
               <div className="h-4 w-px bg-stone-300 mx-1" />
 
               {/* Excel Ledger Export Button */}
@@ -613,6 +663,46 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Variance Alert Banner */}
+          {moduleVariancesCount > 0 && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-amber-100 border border-amber-300 text-amber-800 shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <div className="font-bold text-xs sm:text-sm text-amber-950 flex items-center gap-2">
+                    <span>{moduleVariancesCount} {config.title} Highlighted with Variance Detected</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-bold border border-amber-300">
+                      ERP vs Google Sheets
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-800 mt-0.5">
+                    Missing line items or data discrepancy detected. Highlighted in amber below with one-click auto-resolve.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-center">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsResolvingAll(true);
+                    try {
+                      await autoResolveAll(moduleDocs);
+                    } finally {
+                      setIsResolvingAll(false);
+                    }
+                  }}
+                  disabled={isResolvingAll}
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold text-xs rounded-lg shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${isResolvingAll ? 'animate-spin' : ''}`} />
+                  <span>{isResolvingAll ? 'Resolving...' : 'Auto-Resolve All to Accurate Data'}</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Documents Table */}
           <div className="bg-white border border-stone-200 rounded-lg shadow-xs overflow-hidden">
@@ -653,94 +743,154 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                       </td>
                     </tr>
                   ) : (
-                    sortedJournalDocs.map((doc) => (
-                      <tr key={doc.id} className="hover:bg-amber-50/40 transition-colors">
-                        <td className="py-2.5 px-3 font-mono font-bold text-stone-900 whitespace-nowrap">
-                          {doc.documentNumber}
-                        </td>
-                        <td className="py-2.5 px-3 font-medium text-stone-800">
-                          <div className="truncate max-w-[200px]" title={doc.clientName}>
-                            {doc.clientName}
-                          </div>
-                          {doc.clientAddress && (
-                            <div className="text-[10px] text-stone-500 truncate max-w-[200px]">
-                              {doc.clientAddress}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-stone-600 whitespace-nowrap">
-                          {formatDate(doc.issueDate)}
-                        </td>
-                        <td className="py-2.5 px-3 text-stone-600 whitespace-nowrap">
-                          {doc.dueDate ? formatDate(doc.dueDate) : '-'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-semibold text-stone-900 whitespace-nowrap tabular-decimals">
-                          {formatKsh(doc.grandTotal)}
-                        </td>
-                        {moduleType === 'INVOICE' && (
-                          <>
-                            <td className="py-2.5 px-3 text-right text-emerald-700 font-medium whitespace-nowrap tabular-decimals">
-                              {formatKsh(doc.amountPaid || 0)}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-bold whitespace-nowrap tabular-decimals">
-                              <span className={(doc.balanceDue || 0) > 0 ? 'text-rose-700' : 'text-stone-400'}>
-                                {formatKsh(doc.balanceDue || 0)}
-                              </span>
-                            </td>
-                          </>
-                        )}
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          <DocumentStatusDropdown
-                            document={doc}
-                            onStatusChange={(newStatus, isManual) => handleStatusChange(doc, newStatus, isManual)}
-                          />
-                        </td>
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          {doc.driveFileUrl ? (
-                            <a
-                              href={doc.driveFileUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors shadow-2xs group"
-                              title="Open official PDF archived in Google Drive"
-                            >
-                              <ExternalLink className="w-3 h-3 text-emerald-700 group-hover:text-emerald-900" />
-                              <span>View in Drive</span>
-                            </a>
-                          ) : (
-                            <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-stone-500 bg-stone-100 border border-stone-200"
-                              title={doc.syncedToGoogle ? 'Synced to Google Sheet; Drive PDF upload pending' : 'Saved in offline local database; pending Google sync'}
-                            >
-                              <Clock className="w-2.5 h-2.5 text-stone-400" />
-                              <span>{doc.syncedToGoogle ? 'Drive Pending' : 'Pending Sync'}</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1">
-                            {/* View / Print Preview */}
-                            <button
-                              type="button"
-                              onClick={() => setSelectedDocForPreview(doc)}
-                              className="p-1 rounded text-stone-600 hover:text-stone-900 hover:bg-stone-200 cursor-pointer"
-                              title="Preview Document"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
+                    sortedJournalDocs.map((doc) => {
+                      const isDocWithVariance = hasVariance(doc.documentNumber);
+                      const varianceInfo = getVariance(doc.documentNumber);
 
-                            {/* Edit */}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onStartEditDocument(doc);
-                                setActiveSubTab('new');
-                              }}
-                              className="p-1 rounded text-stone-600 hover:text-amber-800 hover:bg-amber-100 cursor-pointer"
-                              title="Edit Document"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
+                      return (
+                        <tr
+                          key={doc.id}
+                          className={
+                            isDocWithVariance
+                              ? 'bg-amber-50/90 hover:bg-amber-100/90 border-l-4 border-l-amber-500 transition-all font-medium'
+                              : 'hover:bg-amber-50/40 transition-colors'
+                          }
+                        >
+                          <td className="py-2.5 px-3 font-mono font-bold text-stone-900 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span>{doc.documentNumber}</span>
+                              {isDocWithVariance && (
+                                <span
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-950 border border-amber-400 shadow-2xs animate-pulse"
+                                  title="Variance(s) Detected Between ERP & Google Sheets for missing line items or data"
+                                >
+                                  <AlertTriangle className="w-2.5 h-2.5 text-amber-700 shrink-0" />
+                                  <span>Variance Detected</span>
+                                </span>
+                              )}
+                            </div>
+                            {isDocWithVariance && (
+                              <div className="text-[10px] text-amber-700 font-sans font-medium mt-0.5">
+                                {varianceInfo?.varianceType === 'MISSING_LINE_ITEMS'
+                                  ? 'Missing line items in Google Sheets'
+                                  : 'ERP vs Sheets Data Discrepancy'}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 font-medium text-stone-800">
+                            <div className="truncate max-w-[200px]" title={doc.clientName}>
+                              {doc.clientName}
+                            </div>
+                            {doc.clientAddress && (
+                              <div className="text-[10px] text-stone-500 truncate max-w-[200px]">
+                                {doc.clientAddress}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-stone-600 whitespace-nowrap">
+                            {formatDate(doc.issueDate)}
+                          </td>
+                          <td className="py-2.5 px-3 text-stone-600 whitespace-nowrap">
+                            {doc.dueDate ? formatDate(doc.dueDate) : '-'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-semibold text-stone-900 whitespace-nowrap tabular-decimals">
+                            {formatKsh(doc.grandTotal)}
+                          </td>
+                          {moduleType === 'INVOICE' && (
+                            <>
+                              <td className="py-2.5 px-3 text-right text-emerald-700 font-medium whitespace-nowrap tabular-decimals">
+                                {formatKsh(doc.amountPaid || 0)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-bold whitespace-nowrap tabular-decimals">
+                                <span className={(doc.balanceDue || 0) > 0 ? 'text-rose-700' : 'text-stone-400'}>
+                                  {formatKsh(doc.balanceDue || 0)}
+                                </span>
+                              </td>
+                            </>
+                          )}
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            <DocumentStatusDropdown
+                              document={doc}
+                              onStatusChange={(newStatus, isManual) => handleStatusChange(doc, newStatus, isManual)}
+                            />
+                          </td>
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {doc.driveFileUrl ? (
+                              <a
+                                href={doc.driveFileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors shadow-2xs group"
+                                title="Open official PDF archived in Google Drive"
+                              >
+                                <ExternalLink className="w-3 h-3 text-emerald-700 group-hover:text-emerald-900" />
+                                <span>View in Drive</span>
+                              </a>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-stone-500 bg-stone-100 border border-stone-200"
+                                title={doc.syncedToGoogle ? 'Synced to Google Sheet; Drive PDF upload pending' : 'Saved in offline local database; pending Google sync'}
+                              >
+                                <Clock className="w-2.5 h-2.5 text-stone-400" />
+                                <span>{doc.syncedToGoogle ? 'Drive Pending' : 'Pending Sync'}</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            <div className="flex items-center justify-center gap-1">
+                              {/* Auto-Resolve button if variance detected */}
+                              {isDocWithVariance && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setIsResolvingDocId(doc.id);
+                                    try {
+                                      await autoResolveDocument(doc);
+                                    } finally {
+                                      setIsResolvingDocId(null);
+                                    }
+                                  }}
+                                  disabled={isResolvingDocId === doc.id}
+                                  className="px-2 py-1 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold text-[10px] rounded flex items-center gap-1 shadow-2xs cursor-pointer mr-1"
+                                  title="Auto change and resolve document to accurate data"
+                                >
+                                  <Sparkles className={`w-3 h-3 ${isResolvingDocId === doc.id ? 'animate-spin' : ''}`} />
+                                  <span>{isResolvingDocId === doc.id ? 'Resolving...' : 'Auto-Resolve'}</span>
+                                </button>
+                              )}
+
+                              {/* View / Print Preview */}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedDocForPreview(doc)}
+                                className="p-1 rounded text-stone-600 hover:text-stone-900 hover:bg-stone-200 cursor-pointer"
+                                title="Preview Document"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+
+                              {/* Validate Google Sheets Propagation & Line Items Parity */}
+                              <button
+                                type="button"
+                                onClick={() => setParityModalDoc(doc)}
+                                className="p-1 rounded text-stone-600 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer"
+                                title="Validate Google Sheets Propagation & Line Items Parity"
+                              >
+                                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                              </button>
+
+                              {/* Edit */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onStartEditDocument(doc);
+                                  setActiveSubTab('new');
+                                }}
+                                className="p-1 rounded text-stone-600 hover:text-amber-800 hover:bg-amber-100 cursor-pointer"
+                                title="Edit Document"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
 
                             {/* Universal Share Action */}
                             <button
@@ -803,8 +953,9 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                           </div>
                         </td>
                       </tr>
-                    ))
-                  )}
+                    );
+                  })
+                )}
                 </tbody>
               </table>
             </div>
@@ -879,6 +1030,21 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Real-time Propagation Parity Validator Modal (audits all documents) */}
+      {(isParityModalOpen || !!parityModalDoc) && (
+        <DocumentPropagationParityModal
+          document={parityModalDoc}
+          isOpen={isParityModalOpen || !!parityModalDoc}
+          onClose={() => {
+            setIsParityModalOpen(false);
+            setParityModalDoc(null);
+          }}
+          onRefreshDocument={(updated) => {
+            onSaveDocument(updated);
+          }}
+        />
       )}
     </div>
   );

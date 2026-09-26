@@ -541,7 +541,7 @@ export async function generateMasterSuiteWorkbook(
       paid: doc.amountPaid || 0,
       balance: doc.balanceDue,
       status: doc.status,
-      terms: doc.terms || 'Net 30 Days',
+      terms: doc.terms || '',
       driveUrl: doc.driveFileUrl || '',
     });
     [6, 7, 8, 9, 10].forEach((idx) => {
@@ -790,7 +790,9 @@ function buildPrintableTemplateSheet(
   ws.mergeCells('A2:F2');
   const h2 = ws.getCell('A2');
   const taglineDisplay = profile.tagline?.trim() ? `${profile.tagline.trim()} • ` : '';
-  h2.value = `${taglineDisplay}${profile.physicalLocation || 'MARIAKANI'} | Tel: ${profile.phone || '+254 725 242 620'} | PIN: ${profile.kraPin || 'P051453023Q'}`;
+  const phoneDisplay = profile.phone?.trim() ? profile.phone.trim() : '+254 725 242 620';
+  const emailDisplay = profile.email?.trim() ? profile.email.trim() : 'hoteldamview@gmail.com';
+  h2.value = `${taglineDisplay}${profile.physicalLocation || 'MARIAKANI'} | Phone: ${phoneDisplay} | Email: ${emailDisplay} | PIN: ${profile.kraPin || 'P051453023Q'}`;
   h2.font = fontTimes9Italic;
   h2.alignment = { horizontal: 'center', vertical: 'middle' };
   ws.getRow(2).height = 16;
@@ -1125,6 +1127,7 @@ export interface ParsedWorkbookDoc {
   balanceDue?: number;
   status: DocumentStatus;
   terms?: string;
+  notes?: string;
   lineItems?: any[];
 }
 
@@ -1193,7 +1196,7 @@ export async function readMasterSuiteWorkbook(fileBuffer: ArrayBuffer): Promise<
         amountPaid: Number(row.getCell(9).value || 0),
         balanceDue: Number(row.getCell(10).value || 0),
         status: (String(row.getCell(11).value || 'Draft') as DocumentStatus),
-        terms: String(row.getCell(12).value || 'Net 30 Days'),
+        terms: row.getCell(12).value ? String(row.getCell(12).value) : '',
       });
     });
   }
@@ -1286,7 +1289,7 @@ export async function readMasterSuiteWorkbook(fileBuffer: ArrayBuffer): Promise<
           amountPaid: Number(wsEditor.getCell('F11').value || 0),
           balanceDue: grandTotal - Number(wsEditor.getCell('F11').value || 0),
           status: 'Draft',
-          terms: String(wsEditor.getCell('C6').value || 'Net 30 Days'),
+          terms: wsEditor.getCell('C6').value ? String(wsEditor.getCell('C6').value) : '',
         };
       }
     }
@@ -1382,8 +1385,8 @@ export async function syncExcelChangesToLedger(extractedData: ParsedWorkbookResu
       amountPaid: doc.amountPaid || 0,
       balanceDue: doc.balanceDue ?? (doc.grandTotal || 0),
       status: doc.status || 'Draft',
-      notes: existing?.notes || 'Imported via Excel Master Suite',
-      terms: doc.terms || existing?.terms || 'Net 30 Days',
+      notes: doc.notes ? String(doc.notes) : (existing?.notes || ''),
+      terms: doc.terms ? String(doc.terms) : (existing?.terms || ''),
       syncedToGoogle: false,
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),

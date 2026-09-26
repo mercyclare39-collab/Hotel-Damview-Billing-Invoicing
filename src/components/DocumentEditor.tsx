@@ -71,6 +71,7 @@ import { executeWithAutonomousRetry, logSystemIncident } from '../services/selfH
 import { A4DocumentPreview } from './A4DocumentPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
 import { usePWA } from '../hooks/usePWA';
+import { DocumentPropagationParityModal } from './DocumentPropagationParityModal';
 
 interface DocumentEditorProps {
   initialDocument?: BillingDocument | null;
@@ -386,6 +387,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [saveNotification, setSaveNotification] = useState<string | null>(null);
   const [showPresetsMenu, setShowPresetsMenu] = useState(false);
   const [showFullPreviewModal, setShowFullPreviewModal] = useState(false);
+  const [isParityModalOpen, setIsParityModalOpen] = useState(false);
 
   // Hidden DOM ref for offscreen rendering if preview pane is collapsed
   const a4PreviewRef = useRef<HTMLDivElement>(null);
@@ -1348,6 +1350,19 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </span>
           )}
 
+          {/* Real-time Sheets Propagation Parity Validation Check */}
+          {initialDocument && (
+            <button
+              type="button"
+              onClick={() => setIsParityModalOpen(true)}
+              className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 border border-emerald-300 text-emerald-800 rounded bg-emerald-50 hover:bg-emerald-100 transition-colors shadow-2xs font-medium cursor-pointer"
+              title="Confirm if propagated data in Google Sheets differs from this original document (line items & totals)"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="hidden sm:inline">Sheets Parity Check</span>
+            </button>
+          )}
+
           {/* Streamlined Live Preview Modal Trigger */}
           <button
             type="button"
@@ -2155,6 +2170,33 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         onClose={() => setIsClientModalOpen(false)}
         onSaveClient={handleSaveClientFromModal}
       />
+
+      {/* Real-time Document Propagation Parity Validator Modal */}
+      {initialDocument && (
+        <DocumentPropagationParityModal
+          document={initialDocument}
+          isOpen={isParityModalOpen}
+          onClose={() => setIsParityModalOpen(false)}
+          onRefreshDocument={(updatedDoc) => {
+            if (updatedDoc.lineItems && updatedDoc.lineItems.length > 0) {
+              setLineItems([...updatedDoc.lineItems]);
+            }
+            if (updatedDoc.discount !== undefined) {
+              setDiscount(updatedDoc.discount);
+            }
+            if (updatedDoc.status) {
+              setStatus(updatedDoc.status);
+            }
+            // Preserve exact terms and notes when propagating without creating additional data
+            if (updatedDoc.notes !== undefined) {
+              setNotes(updatedDoc.notes || '');
+            }
+            if (updatedDoc.terms !== undefined) {
+              setTerms(updatedDoc.terms || '');
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

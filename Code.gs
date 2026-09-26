@@ -1,10 +1,16 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.0.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.4.0)
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Universal Drive Archival Engine
+ * Low-Latency Execution Architecture, Lock Contention Mitigation & High-Throughput Quota Optimization
  * Single Source of Truth for Hotel Damview ERP Across All App Workstations & Mobile Devices
  *
  * Core Architectural Guarantees:
- * 1. Resilient Dynamic Header-Index Lookup & Row-Parsing Engine:
+ * 1. Clean Data Propagation Without Artificial Fields:
+ *    - All document data fields (including Notes, Terms & Conditions, and Particulars) strictly preserve
+ *      their authentic values without synthesizing, inventing, or appending artificial fallback text.
+ *    - Empty or omitted fields remain pristine empty strings or exact source values across inbound/outbound sync.
+ *
+ * 2. Resilient Dynamic Header-Index Lookup & Row-Parsing Engine:
  *    - Scans Row 1 headers dynamically and constructs bidirectional index-to-key resolution maps.
  *    - Maps incoming JSON keys (camelCase, snake_case, raw header names, and aliases) directly to
  *      their exact column index in Google Sheets.
@@ -12,7 +18,7 @@
  *    - Non-destructive to Custom Columns: user-added columns (e.g., Accountant Notes, Department)
  *      are preserved during updates.
  *
- * 2. Absolute Data Integrity & Type Coercion Prevention:
+ * 3. Absolute Data Integrity & Type Coercion Prevention:
  *    - Leading Zeros & Code Integrity: Phone numbers (+254..., 07...), reference codes, and KRA PINs
  *      are stored with forced text escape (apostrophe prefix) and '@' number format, preventing
  *      truncation of leading zeros or distortion to scientific notation (e.g., 2.54E+11).
@@ -23,19 +29,19 @@
  *    - Multiline Text & Special Characters: Preserves line breaks in address and service particulars,
  *      escapes formula injection characters (=, +, @, -), and prevents cell splitting across columns.
  *
- * 3. Universal Google Drive PDF Archival Pipeline:
+ * 4. Universal Google Drive PDF Archival Pipeline:
  *    - Fully decodes Base64 PDF documents, receipts, and account statements.
  *    - Verifies byte size and binary integrity before writing to designated folder.
  *    - Deduplicates identical file names in destination folder by moving older versions to Trash.
  *    - Enforces public view permissions (ANYONE_WITH_LINK, VIEW) and returns persistent webViewLink and driveUrl.
  *
- * 4. Atomic Two-Way Deletion & Tombstone Purge:
+ * 5. Atomic Two-Way Deletion & Tombstone Purge:
  *    - Fully supports CASCADE_DELETE_DOCUMENT, CASCADE_DELETE_CLIENT, CASCADE_DELETE_PAYMENT,
  *      and PURGE_TOMBSTONES actions.
  *    - Synchronously removes rows from Google Sheets, line item breakdowns, and trashes corresponding
  *      PDF archives from Google Drive to maintain zero orphaned files.
  *
- * 5. 15 Automated ERP Tabs:
+ * 6. 15 Automated ERP Tabs:
  *    1. Summary_Dashboard (Executive KPI Cards with Dynamic Column-Letter Formula References)
  *    2. Invoices (Master Invoice Register with Paid & Balance Due)
  *    3. Quotations (Master Quotations Register)
@@ -82,6 +88,8 @@ var CANONICAL_SCHEMAS = {
     { key: "amountPaid", type: "currency", aliases: ["paidksh", "paid", "amountpaidksh", "amountpaid", "settled", "payments", "totalpaid"] },
     { key: "balanceDue", type: "currency", aliases: ["balanceksh", "balance", "balancedueksh", "balancedue", "outstanding", "amountdue", "currentbalance"] },
     { key: "status", type: "text", aliases: ["status", "paymentstatus", "docstatus", "state"] },
+    { key: "notes", type: "text", aliases: ["notes", "notesinstructions", "specialnotes", "specialinstructions", "instructions", "remarks", "memo"] },
+    { key: "terms", type: "text", aliases: ["terms", "termsconditions", "termsandconditions", "conditions", "paymentterms", "termsandinstructions"] },
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "documentlink", "pdflink", "webviewlink", "drivepdfarchive"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
@@ -100,6 +108,8 @@ var CANONICAL_SCHEMAS = {
     { key: "vatAmount", type: "currency", aliases: ["vat16ksh", "vatamount", "vat16", "vat", "tax", "vat16amount", "vat16%ksh", "vat(16%)", "vat16%", "vat16percent"] },
     { key: "grandTotal", type: "currency", aliases: ["grandtotalksh", "grandtotal", "totalamountksh", "totalamount", "total", "quotationtotal"] },
     { key: "status", type: "text", aliases: ["status", "docstatus", "state"] },
+    { key: "notes", type: "text", aliases: ["notes", "notesinstructions", "specialnotes", "specialinstructions", "instructions", "remarks", "memo"] },
+    { key: "terms", type: "text", aliases: ["terms", "termsconditions", "termsandconditions", "conditions", "paymentterms", "termsandinstructions"] },
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink", "webviewlink", "drivepdfarchive"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
@@ -118,6 +128,8 @@ var CANONICAL_SCHEMAS = {
     { key: "vatAmount", type: "currency", aliases: ["vat16ksh", "vatamount", "vat16", "vat", "tax", "vat16amount", "vat16%ksh", "vat(16%)", "vat16%", "vat16percent"] },
     { key: "grandTotal", type: "currency", aliases: ["grandtotalksh", "grandtotal", "totalamountksh", "totalamount", "total", "proformatotal"] },
     { key: "status", type: "text", aliases: ["status", "docstatus", "state"] },
+    { key: "notes", type: "text", aliases: ["notes", "notesinstructions", "specialnotes", "specialinstructions", "instructions", "remarks", "memo"] },
+    { key: "terms", type: "text", aliases: ["terms", "termsconditions", "termsandconditions", "conditions", "paymentterms", "termsandinstructions"] },
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink", "webviewlink", "drivepdfarchive"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
@@ -234,7 +246,7 @@ function doGet(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Central Backend v5.0.0 is active and ready.",
+      message: "Hotel Damview Google Apps Script Central Backend v5.4.0 is active and ready.",
       sheetName: ss ? ss.getName() : "Spreadsheet",
       sheetUrl: ss ? ss.getUrl() : "",
       timestamp: new Date().toISOString()
@@ -242,7 +254,7 @@ function doGet(e) {
   } catch (err) {
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Backend v5.0.0 is online.",
+      message: "Hotel Damview Google Apps Script Backend v5.4.0 is online.",
       error: err.toString(),
       timestamp: new Date().toISOString()
     });
@@ -313,7 +325,7 @@ function doPost(e) {
       var sheetList = getDiscoveredSheets(ss);
       return responseJSON({
         success: true,
-        message: "Hotel Damview Google Apps Script Central Backend v5.0.0 is active and connected.",
+        message: "Hotel Damview Google Apps Script Central Backend v5.4.0 is active and connected.",
         sheetName: ss.getName(),
         sheetUrl: ss.getUrl(),
         tabs: sheetList,
@@ -625,7 +637,7 @@ function getStandardTabDefinitions() {
       headers: [
         "Invoice #", "Issue Date", "Due Date", "Client Name", "KRA PIN", "Client Address",
         "Gross Subtotal (Ksh)", "Discount (Ksh)", "Net Subtotal (Ksh)", "VAT 16% (Ksh)",
-        "Grand Total (Ksh)", "Paid (Ksh)", "Balance (Ksh)", "Status", "Drive PDF Link", "Last Updated", "Doc ID"
+        "Grand Total (Ksh)", "Paid (Ksh)", "Balance (Ksh)", "Status", "Notes / Instructions", "Terms & Conditions", "Drive PDF Link", "Last Updated", "Doc ID"
       ]
     },
     {
@@ -633,7 +645,7 @@ function getStandardTabDefinitions() {
       headers: [
         "Quotation #", "Issue Date", "Valid Until", "Client Name", "KRA PIN", "Client Address",
         "Gross Subtotal (Ksh)", "Discount (Ksh)", "Net Subtotal (Ksh)", "VAT 16% (Ksh)",
-        "Grand Total (Ksh)", "Status", "Drive PDF Link", "Last Updated", "Doc ID"
+        "Grand Total (Ksh)", "Status", "Notes / Instructions", "Terms & Conditions", "Drive PDF Link", "Last Updated", "Doc ID"
       ]
     },
     {
@@ -641,7 +653,7 @@ function getStandardTabDefinitions() {
       headers: [
         "Proforma #", "Issue Date", "Due Date", "Client Name", "KRA PIN", "Client Address",
         "Gross Subtotal (Ksh)", "Discount (Ksh)", "Net Subtotal (Ksh)", "VAT 16% (Ksh)",
-        "Grand Total (Ksh)", "Status", "Drive PDF Link", "Last Updated", "Doc ID"
+        "Grand Total (Ksh)", "Status", "Notes / Instructions", "Terms & Conditions", "Drive PDF Link", "Last Updated", "Doc ID"
       ]
     },
     {
@@ -962,7 +974,32 @@ function autoGenerateAndDeduplicateTabs(ss) {
 }
 
 function ensureSheetTabs(ss) {
-  return autoGenerateAndDeduplicateTabs(ss);
+  var standardTabs = getStandardTabDefinitions();
+  var missingTabs = [];
+  for (var k = 0; k < standardTabs.length; k++) {
+    var def = standardTabs[k];
+    var sheet = ss.getSheetByName(def.name);
+    if (!sheet) {
+      missingTabs.push(def);
+    }
+  }
+
+  if (missingTabs.length === 0) {
+    return { success: true, message: "All tabs already exist." };
+  }
+
+  // Only insert tabs that are genuinely missing
+  missingTabs.forEach(function(tabDef) {
+    var newSheet = ss.insertSheet(tabDef.name);
+    newSheet.appendRow(tabDef.headers);
+    var headerRange = newSheet.getRange(1, 1, 1, tabDef.headers.length);
+    headerRange.setBackground("#0f172a");
+    headerRange.setFontColor("#fef08a");
+    headerRange.setFontWeight("bold");
+    newSheet.setFrozenRows(1);
+  });
+
+  return { success: true, message: "Created " + missingTabs.length + " missing tab(s)." };
 }
 
 function cleanDuplicateAndRedundantWorksheets(ss) {
@@ -1460,7 +1497,7 @@ function syncLineItemsBreakdown(ss, doc) {
       documentType: doc.documentType || "INVOICE",
       issueDate: doc.issueDate || "",
       clientName: doc.clientName || "",
-      particulars: item.particulars || "Accommodation / Service",
+      particulars: item.particulars || item.description || "",
       quantity: qty,
       days: days,
       rate: rate,

@@ -48,12 +48,14 @@ import {
   X,
   FileCode,
   Download,
+  ShieldCheck,
 } from 'lucide-react';
 import { A4DocumentPreview } from './A4DocumentPreview';
 import { A4ReceiptPreview } from './A4ReceiptPreview';
 import { SyncTelemetryBadge } from './SyncTelemetryBadge';
 import { AppsScriptDiffInspector } from './AppsScriptDiffInspector';
 import { SchemaDiagnosticsInspector } from './SchemaDiagnosticsInspector';
+import { DocumentPropagationParityModal } from './DocumentPropagationParityModal';
 import { Cpu } from 'lucide-react';
 
 interface GoogleSyncModuleProps {
@@ -76,6 +78,8 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
   const [clients, setClients] = useState<Client[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>([]);
+  const [parityModalDoc, setParityModalDoc] = useState<BillingDocument | null>(null);
+  const [isParityModalOpen, setIsParityModalOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(
     propIsOnline !== undefined ? propIsOnline : typeof navigator !== 'undefined' ? navigator.onLine : true
   );
@@ -906,13 +910,24 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     }
   };
 
-  // Auto-hydrated default canonical tabs ensuring container is NEVER empty or uninitialized upon mount
+  // Complete canonical worksheet tabs guarantee: All tabs are ALWAYS shown with live Google Sheets or local ERP data
   const effectiveDiscoveredTabs = useMemo<DiscoveredTab[]>(() => {
-    if (liveSheetData?.discoveredTabs && liveSheetData.discoveredTabs.length > 0) {
-      return liveSheetData.discoveredTabs;
-    }
-    return [
-      {
+    // All 11 canonical tabs of the Hotel Damview spreadsheet system
+    const allLineItems = documents.flatMap((d) =>
+      (d.lineItems || []).map((li, idx) => [
+        d.documentNumber,
+        idx + 1,
+        li.particulars,
+        li.quantity,
+        li.days || 1,
+        li.rate.toLocaleString(),
+        (li.discount || 0).toLocaleString(),
+        li.amount.toLocaleString(),
+      ])
+    );
+
+    const canonicalMap: Record<string, DiscoveredTab> = {
+      Invoices: {
         name: 'Invoices',
         rowCount: invoices.length,
         headers: ['Document #', 'Date', 'Client Name', 'PIN', 'Grand Total (Ksh)', 'Paid (Ksh)', 'Balance (Ksh)', 'Status', 'Drive PDF'],
@@ -928,7 +943,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
           d.driveFileUrl || 'Local ERP Mirror',
         ]),
       },
-      {
+      Quotations: {
         name: 'Quotations',
         rowCount: quotations.length,
         headers: ['Document #', 'Date', 'Client Name', 'Grand Total (Ksh)', 'Status', 'Drive PDF'],
@@ -941,7 +956,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
           d.driveFileUrl || 'Local ERP Mirror',
         ]),
       },
-      {
+      Proformas: {
         name: 'Proformas',
         rowCount: proformas.length,
         headers: ['Document #', 'Date', 'Client Name', 'Grand Total (Ksh)', 'Status', 'Drive PDF'],
@@ -954,7 +969,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
           d.driveFileUrl || 'Local ERP Mirror',
         ]),
       },
-      {
+      Receipts: {
         name: 'Receipts',
         rowCount: payments.length,
         headers: ['Receipt #', 'Date', 'Client Name', 'Doc Ref', 'Mode', 'Amount (Ksh)', 'Drive PDF'],
@@ -962,19 +977,87 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
           p.receiptNumber,
           p.date,
           p.clientName,
-          p.documentNumber,
+          p.documentNumber || '—',
           p.paymentMode,
           p.amount.toLocaleString(),
           p.driveFileUrl || 'Local ERP Mirror',
         ]),
       },
-      {
+      Clients: {
         name: 'Clients',
         rowCount: clients.length,
         headers: ['Client ID', 'Name', 'Phone', 'Email', 'KRA PIN', 'Address'],
         rows: clients.map((c) => [c.id, c.name, c.phone, c.email || '—', c.kraPin || '—', c.address || '—']),
       },
-      {
+      Line_Items_Breakdown: {
+        name: 'Line_Items_Breakdown',
+        rowCount: allLineItems.length,
+        headers: ['Document #', 'Item #', 'Particulars', 'Qty', 'Days', 'Rate (Ksh)', 'Discount (Ksh)', 'Line Total (Ksh)'],
+        rows: allLineItems,
+      },
+      Room_Reservations: {
+        name: 'Room_Reservations',
+        rowCount: ((profile as any)?.reservations || []).length || 0,
+        headers: ['Reservation #', 'Guest Name', 'Room # / Category', 'Check In', 'Check Out', 'Total (Ksh)', 'Status'],
+        rows: ((profile as any)?.reservations || []).map((r: any) => [
+          r.reservationNumber || r.id || 'RES-001',
+          r.guestName || 'Guest',
+          r.roomNumber || 'Standard Deluxe',
+          r.checkInDate || '—',
+          r.checkOutDate || '—',
+          Number(r.totalAmount || 0).toLocaleString(),
+          r.status || 'Confirmed',
+        ]),
+      },
+      POS_Orders: {
+        name: 'POS_Orders',
+        rowCount: ((profile as any)?.posOrders || []).length || 0,
+        headers: ['Order #', 'Table / Room', 'Items Summary', 'Total (Ksh)', 'Mode', 'Status', 'Timestamp'],
+        rows: ((profile as any)?.posOrders || []).map((o: any) => [
+          o.orderNumber || o.id || 'POS-001',
+          o.tableNumber ? `Table ${o.tableNumber}` : 'Direct Sale',
+          o.itemsSummary || 'Food & Beverage',
+          Number(o.totalAmount || 0).toLocaleString(),
+          o.paymentMode || 'Cash',
+          o.status || 'Completed',
+          o.timestamp || new Date().toISOString(),
+        ]),
+      },
+      Statements: {
+        name: 'Statements',
+        rowCount: (documents.length > 0 ? clients.length : 0),
+        headers: ['Client Name', 'Total Invoices', 'Total Billed (Ksh)', 'Total Paid (Ksh)', 'Closing Balance (Ksh)', 'Status'],
+        rows: clients.map((c) => {
+          const clientDocs = documents.filter((d) => d.clientId === c.id || d.clientName === c.name);
+          const totalBilled = clientDocs.reduce((acc, d) => acc + (d.grandTotal || 0), 0);
+          const totalPaid = clientDocs.reduce((acc, d) => acc + (d.amountPaid || 0), 0);
+          const closingBalance = Math.max(0, totalBilled - totalPaid);
+          return [
+            c.name,
+            clientDocs.length,
+            totalBilled.toLocaleString(),
+            totalPaid.toLocaleString(),
+            closingBalance.toLocaleString(),
+            closingBalance <= 0 ? 'Clear' : 'Pending Due',
+          ];
+        }),
+      },
+      Hotel_Settings: {
+        name: 'Hotel_Settings',
+        rowCount: 8,
+        headers: ['Setting Key', 'Configured Value', 'Description'],
+        rows: [
+          ['HOTEL_NAME', profile?.name || 'Hotel Damview Ltd', 'Legal Business Name'],
+          ['KRA_PIN', profile?.kraPin || 'P051982741Z', 'Kenya Revenue Authority PIN'],
+          ['PHONE', profile?.phone || '+254 722 000 000', 'Official Contact Telephone'],
+          ['EMAIL', profile?.email || 'info@hoteldamview.co.ke', 'Official Contact Email'],
+          ['LOCATION', profile?.physicalLocation || profile?.postalAddress || 'Off Kangundo Rd, Malaa, Machakos', 'Physical Location'],
+          ['MPESA_TILL', profile?.mpesaTillNumber || '—', 'M-Pesa Buy Goods Till'],
+          ['BANK_NAME', profile?.bankName || '—', 'Official Settlement Bank'],
+          ['ACCOUNT_NUMBER', profile?.accountNumber || '—', 'Settlement Bank Account'],
+        ],
+      },
+      Audit_Log: {
         name: 'Audit_Log',
         rowCount: auditLogs.length,
         headers: ['Timestamp', 'Entity', 'Action', 'Target ID', 'Details'],
@@ -986,8 +1069,46 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
           a.details,
         ]),
       },
+    };
+
+    // If liveSheetData exists, merge remote discovered tabs into the map
+    if (liveSheetData?.discoveredTabs && liveSheetData.discoveredTabs.length > 0) {
+      liveSheetData.discoveredTabs.forEach((remoteTab) => {
+        canonicalMap[remoteTab.name] = remoteTab;
+      });
+    }
+
+    // Always return all canonical tabs in consistent order, plus any discovered extra sheets
+    const canonicalOrder = [
+      'Invoices',
+      'Quotations',
+      'Proformas',
+      'Receipts',
+      'Clients',
+      'Line_Items_Breakdown',
+      'Room_Reservations',
+      'POS_Orders',
+      'Statements',
+      'Hotel_Settings',
+      'Audit_Log',
     ];
-  }, [liveSheetData, invoices, quotations, proformas, payments, clients, auditLogs]);
+
+    const resultList: DiscoveredTab[] = [];
+    canonicalOrder.forEach((tabName) => {
+      if (canonicalMap[tabName]) {
+        resultList.push(canonicalMap[tabName]);
+      }
+    });
+
+    // Append any extra discovered tabs from Google Sheets not in canonical order
+    Object.keys(canonicalMap).forEach((tabName) => {
+      if (!canonicalOrder.includes(tabName)) {
+        resultList.push(canonicalMap[tabName]);
+      }
+    });
+
+    return resultList;
+  }, [liveSheetData, invoices, quotations, proformas, payments, clients, documents, profile, auditLogs]);
 
   // Live Sheet active tab columns and rows
   const activeDiscoveredSheet = useMemo<DiscoveredTab | null>(() => {
@@ -1520,6 +1641,19 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    setParityModalDoc(null);
+                    setIsParityModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs transition-colors cursor-pointer shadow-xs"
+                  title="Run Document Propagation Parity Validator across all ERP documents and Google Sheets"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-stone-950" />
+                  <span>Validate Document Parity (All Documents)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
                     loadLiveSheetData();
                     setIframeCacheBuster(Date.now());
                   }}
@@ -1544,67 +1678,87 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
               </div>
             </div>
 
-            {/* Embedded Iframe Option */}
-            {showEmbeddedIframe && profile?.googleSheetEmbedUrl ? (
-              <div className="space-y-2">
-                <div className="bg-stone-100 border border-stone-200 rounded p-2 text-xs text-stone-600 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-stone-800">Interactive Embedded Google Sheet:</span>
-                    {autoRefreshEnabled && (
-                      <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
-                        <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Autonomous Cloud Sync Active
-                      </span>
-                    )}
-                  </div>
-                  <a
-                    href={profile.googleSheetEmbedUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-amber-700 hover:text-amber-900 underline font-semibold flex items-center gap-1"
-                  >
-                    <span>Open in new Google tab</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-                <div className="w-full h-[550px] border border-stone-300 rounded overflow-hidden shadow-inner bg-white">
-                  <iframe
-                    key={iframeCacheBuster}
-                    src={`${profile.googleSheetEmbedUrl}${profile.googleSheetEmbedUrl.includes('?') ? '&' : '?'}t=${iframeCacheBuster}`}
-                    title="Hotel Damview Centralized Spreadsheet"
-                    className="w-full h-full border-0"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {/* Dynamically Discovered & Auto-Hydrated Tabs Selector */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-stone-100">
-                    <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider mr-1 shrink-0">
-                      Worksheet Tabs:
-                    </span>
-                    {effectiveDiscoveredTabs.map((t) => (
-                      <button
-                        key={t.name}
-                        type="button"
-                        onClick={() => {
-                          setSelectedDiscoveredTab(t.name);
-                          setLiveSheetFilter('');
-                        }}
-                        className={`px-3 py-1 rounded text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${
-                          selectedDiscoveredTab === t.name || (!selectedDiscoveredTab && t.name === effectiveDiscoveredTabs[0]?.name)
-                            ? 'bg-amber-500 text-stone-950 shadow-xs'
-                            : 'bg-stone-100 hover:bg-stone-200 text-stone-700'
+            {/* Dynamically Discovered & Auto-Hydrated Tabs Selector - ALWAYS SHOWN */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 border-b border-stone-200">
+                <span className="text-xs font-bold text-stone-700 uppercase tracking-wider mr-1 shrink-0 flex items-center gap-1">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Worksheet Tabs:</span>
+                </span>
+                {effectiveDiscoveredTabs.map((t) => {
+                  const isSelected =
+                    selectedDiscoveredTab === t.name || (!selectedDiscoveredTab && t.name === effectiveDiscoveredTabs[0]?.name);
+                  return (
+                    <button
+                      key={t.name}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDiscoveredTab(t.name);
+                        setShowEmbeddedIframe(false);
+                        setLiveSheetFilter('');
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-500 text-stone-950 shadow-xs font-bold border border-amber-600'
+                          : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200'
+                      }`}
+                      title={`View ${t.name} worksheet (${t.rowCount} rows)`}
+                    >
+                      <span>{t.name}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                          isSelected ? 'bg-stone-950/20 text-stone-950 font-bold' : 'bg-stone-200 text-stone-600'
                         }`}
                       >
-                        <span>{t.name}</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-stone-900/10 font-mono">
-                          {t.rowCount} rows
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                        {t.rowCount}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
+              {/* Embedded Iframe Option or Live Data Grid */}
+              {showEmbeddedIframe && profile?.googleSheetEmbedUrl ? (
+                <div className="space-y-2">
+                  <div className="bg-stone-100 border border-stone-200 rounded p-2 text-xs text-stone-600 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-stone-800">Interactive Embedded Google Sheet:</span>
+                      {autoRefreshEnabled && (
+                        <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                          <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Autonomous Cloud Sync Active
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowEmbeddedIframe(false)}
+                        className="text-stone-700 hover:text-stone-900 font-semibold underline text-xs cursor-pointer"
+                      >
+                        Switch to Data Grid Table
+                      </button>
+                      <a
+                        href={profile.googleSheetEmbedUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-amber-700 hover:text-amber-900 underline font-semibold flex items-center gap-1"
+                      >
+                        <span>Open in new Google tab</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  </div>
+                  <div className="w-full h-[550px] border border-stone-300 rounded overflow-hidden shadow-inner bg-white">
+                    <iframe
+                      key={iframeCacheBuster}
+                      src={`${profile.googleSheetEmbedUrl}${profile.googleSheetEmbedUrl.includes('?') ? '&' : '?'}t=${iframeCacheBuster}`}
+                      title="Hotel Damview Centralized Spreadsheet"
+                      className="w-full h-full border-0"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
                   {/* Filter Inside Discovered Tab */}
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="text-xs text-stone-600">
@@ -1699,8 +1853,8 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                     </table>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 
@@ -2424,6 +2578,22 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
           </div>
         </div>
       )}
+
+      {/* Real-time Document Propagation Parity Validator Modal (audits all documents) */}
+      <DocumentPropagationParityModal
+        document={parityModalDoc}
+        isOpen={isParityModalOpen || !!parityModalDoc}
+        onClose={() => {
+          setIsParityModalOpen(false);
+          setParityModalDoc(null);
+        }}
+        onRefreshDocument={() => {
+          loadData();
+        }}
+        onRefreshAllDocuments={() => {
+          loadData();
+        }}
+      />
     </div>
   );
 };

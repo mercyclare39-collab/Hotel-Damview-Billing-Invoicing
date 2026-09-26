@@ -25,6 +25,7 @@ import {
   normalizeText,
   prepareQueueItemPayloadForDispatch,
 } from './sync';
+import { apiRateLimiter } from './apiRateLimiter';
 
 type TelemetryListener = (telemetry: SyncTelemetry) => void;
 
@@ -258,11 +259,34 @@ class EnterpriseSyncManager {
             this.lastError = null;
           } else {
             const errorMsg = response?.error || 'Cloud sync rejected mutation';
-            await this.handleQueueItemFailure(item, errorMsg);
+            const wasHaltingConfigError = await this.handleQueueItemFailure(item, errorMsg);
+            if (wasHaltingConfigError) {
+              // Endpoint misconfigured or missing (HTTP 404 or HTML auth error) - halt remaining batch to prevent thrashing
+              break;
+            }
           }
         } catch (itemErr: any) {
           console.warn(`[SyncManager] Item ${itemId} sync attempt failed:`, itemErr);
-          await this.handleQueueItemFailure(item, itemErr?.message || 'Network dispatch error');
+          const errorMsg = itemErr?.message || 'Network dispatch error';
+          
+          // Detect network connection drop
+          if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError') || errorMsg.includes('net::ERR')) {
+            this.isOnline = false;
+            this.lastError = 'Network connection dropped. Queue held safely in local IndexedDB.';
+            // Reset item back to PENDING status without incrementing retry count excessively
+            const pendingItem: SyncQueueItem = {
+              ...item,
+              status: 'PENDING',
+              updatedAt: new Date().toISOString(),
+            };
+            await dbService.updateSyncQueueItem(pendingItem);
+            break; // Stop batch execution immediately until network recovers
+          }
+
+          const wasHaltingConfigError = await this.handleQueueItemFailure(item, errorMsg);
+          if (wasHaltingConfigError) {
+            break;
+          }
         }
       }
 
@@ -286,9 +310,10 @@ class EnterpriseSyncManager {
   }
 
   /**
-   * Handles individual item failure with exponential backoff and jitter
+   * Handles individual item failure with exponential backoff, jitter, and poison-pill quarantine
+   * Returns true if error is a structural configuration error requiring batch execution halt.
    */
-  private async handleQueueItemFailure(item: SyncQueueItem, errorMsg: string): Promise<void> {
+  private async handleQueueItemFailure(item: SyncQueueItem, errorMsg: string): Promise<boolean> {
     const currentRetries = (item.retryCount || 0) + 1;
     const isSystemBusy = errorMsg.includes('System busy') || errorMsg.includes('busy processing');
     const isTimeout = errorMsg.includes('timed out') || errorMsg.includes('Network timeout') || errorMsg.includes('AbortError');
@@ -296,17 +321,41 @@ class EnterpriseSyncManager {
     const is404 = errorMsg.includes('404') || errorMsg.includes('not found');
     const isTransient = isSystemBusy || isTimeout;
 
+    // Poison Pill / Dead-Letter Isolation Guard:
+    // If an item fails more than 10 times with a non-transient error, isolate it as QUARANTINED so it does not block the queue
+    if (currentRetries >= 10 && !isTransient && !is404 && !isHtmlError) {
+      const quarantinedItem: SyncQueueItem = {
+        ...item,
+        status: 'QUARANTINED' as any,
+        retryCount: currentRetries,
+        lastError: `Quarantined after ${currentRetries} retries: ${errorMsg}`,
+        errorMessage: errorMsg,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await dbService.updateSyncQueueItem(quarantinedItem);
+      this.lastError = `Item ${item.id} quarantined to prevent queue corruption`;
+      
+      try {
+        await dbService.recordAuditLog({
+          entityType: 'SYNC',
+          entityId: String(item.id || item.entityId || 'queue-item'),
+          action: 'WARNING',
+          details: `Sync item isolated to quarantine after ${currentRetries} failed attempts: ${errorMsg}`,
+        });
+      } catch {}
+
+      return false;
+    }
+
     // Intelligent backoff calculation
     let backoffMs: number;
     if (isSystemBusy) {
-      // Fast random backoff for lock contention (1.5s - 3s)
       backoffMs = 1500 + Math.floor(Math.random() * 1500);
     } else if (isTimeout) {
-      // 4s - 7s retry for network timeout
       backoffMs = 4000 + Math.floor(Math.random() * 3000);
     } else if (is404 || isHtmlError) {
-      // 30s backoff for misconfiguration / missing endpoint to prevent console log storm
-      backoffMs = 30000;
+      backoffMs = 60000; // 60s backoff for endpoint configuration errors
     } else {
       backoffMs = Math.min(300000, Math.pow(2, Math.min(currentRetries, 8)) * 1500 + Math.floor(Math.random() * 1500));
     }
@@ -326,22 +375,94 @@ class EnterpriseSyncManager {
     this.lastError = errorMsg;
     await dbService.updateSyncQueueItem(failedItem);
 
-    // Lock busy & timeout are transient self-healing conditions handled automatically in background.
-    // NEVER trigger alarming floating UI warning popups for lock busy or transient network timeouts.
-    if (typeof window !== 'undefined') {
-      if (!isTransient) {
-        window.dispatchEvent(
-          new CustomEvent('damview:sync-warning', {
-            detail: {
-              item,
-              errorMsg,
-              retries: currentRetries,
-              timestamp: Date.now(),
-            },
-          })
+    // Notify user with actionable button if configuration issue detected
+    if (is404) {
+      try {
+        const { appNotificationService } = await import('./appNotificationService');
+        appNotificationService.notifyConfigError(
+          'Google Web App Endpoint Not Found (404)',
+          'The configured Google Apps Script Web App URL returned HTTP 404. Please verify or update the Web App deployment URL in Settings.'
         );
+      } catch {}
+      return true; // Signal processQueue to halt remaining batch execution
+    }
+
+    if (isHtmlError) {
+      try {
+        const { appNotificationService } = await import('./appNotificationService');
+        appNotificationService.notifyConfigError(
+          'Google Web App Access Restricted',
+          'Google returned an HTML page instead of JSON. Ensure Web App deployment is set to "Execute as: Me" and "Who has access: Anyone".'
+        );
+      } catch {}
+      return true; // Signal processQueue to halt remaining batch execution
+    }
+
+    // Transient system busy and timeout notices are handled silently in background
+    if (typeof window !== 'undefined' && !isTransient) {
+      window.dispatchEvent(
+        new CustomEvent('damview:sync-warning', {
+          detail: {
+            item,
+            errorMsg,
+            retries: currentRetries,
+            timestamp: Date.now(),
+          },
+        })
+      );
+    }
+
+    return false;
+  }
+
+  /**
+   * Resets all quarantined sync queue items back to PENDING state for re-evaluation
+   */
+  public async retryQuarantinedItems(): Promise<number> {
+    const queue = await dbService.getSyncQueue();
+    let resetCount = 0;
+    const nowIso = new Date().toISOString();
+
+    for (const item of queue) {
+      const status = String(item.status || '').toUpperCase();
+      if (status === 'QUARANTINED') {
+        const resetItem: SyncQueueItem = {
+          ...item,
+          status: 'PENDING',
+          retryCount: 0,
+          nextRetryAt: 0,
+          lastError: null,
+          errorMessage: undefined,
+          updatedAt: nowIso,
+        };
+        await dbService.updateSyncQueueItem(resetItem);
+        resetCount++;
       }
     }
+
+    if (resetCount > 0) {
+      this.triggerBackgroundSync();
+    }
+    return resetCount;
+  }
+
+  /**
+   * Clears all quarantined sync queue items from IndexedDB storage
+   */
+  public async clearQuarantinedItems(): Promise<number> {
+    const queue = await dbService.getSyncQueue();
+    let clearedCount = 0;
+
+    for (const item of queue) {
+      const status = String(item.status || '').toUpperCase();
+      if (status === 'QUARANTINED' && item.id) {
+        await dbService.removeSyncQueueItem(String(item.id));
+        clearedCount++;
+      }
+    }
+
+    this.notifyTelemetry();
+    return clearedCount;
   }
 
   /**
@@ -380,7 +501,7 @@ class EnterpriseSyncManager {
   }
 
   /**
-   * Resilient HTTP POST to Google Apps Script Web App
+   * Resilient HTTP POST to Google Apps Script Web App (Rate-Limited, De-duplicated & Circuit-Protected)
    */
   public async postToScript(url: string, payload: any, customTimeoutMs = 90000): Promise<any> {
     // Sanitize & Auto-Heal Web App URL
@@ -390,51 +511,70 @@ class EnterpriseSyncManager {
     }
     cleanUrl = cleanUrl.replace(/[\s\r\n'"]/g, '');
 
-    const serialized = JSON.stringify(payload);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), customTimeoutMs);
+    const action = String(payload?.action || payload?.type || '').toUpperCase();
+    const isReadOnly = action === 'GET_SHEET_DATA' || action === 'PING' || action === 'HEALTHCHECK';
+    const cacheTtlMs = isReadOnly ? 12000 : 0; // 12-second TTL for read queries
 
-    try {
-      const res = await fetch(cleanUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: serialized,
-        signal: controller.signal,
-      });
+    return apiRateLimiter.execute(
+      cleanUrl,
+      payload,
+      async () => {
+        const serialized = JSON.stringify(payload);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), customTimeoutMs);
 
-      clearTimeout(timeoutId);
+        try {
+          const res = await fetch(cleanUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: serialized,
+            signal: controller.signal,
+          });
 
-      if (res.status === 404) {
-        throw new Error(`HTTP error 404: Google Apps Script Web App URL not found. Please verify the Web App deployment URL in Settings.`);
+          clearTimeout(timeoutId);
+
+          if (res.status === 404) {
+            throw new Error(`HTTP error 404: Google Apps Script Web App URL not found. Please verify the Web App deployment URL in Settings.`);
+          }
+
+          if (res.status === 429) {
+            throw new Error(`HTTP error 429: Too Many Requests (Rate limit reached on Google Apps Script). Pausing before retry.`);
+          }
+
+          if (!res.ok) {
+            throw new Error(`HTTP error ${res.status}: ${res.statusText}`);
+          }
+
+          const text = await res.text();
+          const trimmedText = text.trim();
+
+          if (
+            trimmedText.startsWith('<') ||
+            trimmedText.toLowerCase().includes('<!doctype') ||
+            trimmedText.toLowerCase().includes('<html')
+          ) {
+            throw new Error('Google Apps Script returned an HTML page instead of JSON. Please ensure the Web App is deployed with "Execute as: Me" and "Who has access: Anyone".');
+          }
+
+          try {
+            return JSON.parse(text);
+          } catch {
+            return { success: true, raw: text };
+          }
+        } catch (err: any) {
+          clearTimeout(timeoutId);
+          if (err.name === 'AbortError') {
+            throw new Error(`Request to Google Apps Script timed out. The operation might still be processing in Google Sheets.`);
+          }
+          throw err;
+        }
+      },
+      {
+        priority: isReadOnly ? 2 : 5,
+        cacheTtlMs,
+        timeoutMs: customTimeoutMs,
       }
-
-      if (!res.ok) {
-        throw new Error(`HTTP error ${res.status}: ${res.statusText}`);
-      }
-
-      const text = await res.text();
-      const trimmedText = text.trim();
-
-      if (
-        trimmedText.startsWith('<') ||
-        trimmedText.toLowerCase().includes('<!doctype') ||
-        trimmedText.toLowerCase().includes('<html')
-      ) {
-        throw new Error('Google Apps Script returned an HTML page instead of JSON. Please ensure the Web App is deployed with "Execute as: Me" and "Who has access: Anyone".');
-      }
-
-      try {
-        return JSON.parse(text);
-      } catch {
-        return { success: true, raw: text };
-      }
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (err.name === 'AbortError') {
-        throw new Error(`Request to Google Apps Script timed out. The operation might still be processing in Google Sheets.`);
-      }
-      throw err;
-    }
+    );
   }
 
   /**

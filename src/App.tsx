@@ -27,6 +27,8 @@ import { Menu, Wifi, WifiOff, Plus, RefreshCw, Search, Sparkles, X, AlertCircle,
 import { HotelLogo } from './components/HotelLogo';
 import { OfflineBanner } from './components/OfflineBanner';
 import { PWAReloadPrompt } from './components/PWAReloadPrompt';
+import { AppNotificationToaster } from './components/AppNotificationToaster';
+import { DocumentPropagationParityModal } from './components/DocumentPropagationParityModal';
 import { logSystemIncident } from './services/selfHealingPatch';
 import { StatementRecord } from './types';
 import { GOOGLE_APPS_SCRIPT_VERSION } from './services/googleScriptCode';
@@ -201,6 +203,11 @@ export default function App() {
   const [paymentModalDoc, setPaymentModalDoc] = useState<BillingDocument | null>(null);
   const [paymentModalClientId, setPaymentModalClientId] = useState<string | undefined>(undefined);
 
+  // Global Parity Modal triggerable from notification actions across any module
+  const [globalParityDoc, setGlobalParityDoc] = useState<BillingDocument | null>(null);
+  const [isGlobalParityOpen, setIsGlobalParityOpen] = useState(false);
+  const [globalParityTargetDocNum, setGlobalParityTargetDocNum] = useState<string | null>(null);
+
   // Statement client filter state
   const [statementClientId, setStatementClientId] = useState<string | undefined>(undefined);
 
@@ -278,6 +285,8 @@ export default function App() {
     // Listen for remote real-time data changes, sync completions, and renumbering notices
     const handleRemoteDataChanged = () => {
       safeRefreshData();
+      // Auto-clear resolved sync warning banners upon successful sync completion
+      setSyncWarningNotification(null);
     };
 
     // Listen for sync queue item failure warnings globally across ALL modules
@@ -303,13 +312,26 @@ export default function App() {
           userFriendly = 'Google Web App URL returned HTTP 404 (Not Found). Verify Web App URL in Hotel Settings > Google Workspace Sync.';
         }
 
+        const warnId = 'warn-' + Date.now();
         setSyncWarningNotification({
-          id: 'warn-' + Date.now(),
+          id: warnId,
           title: 'Sync Notice',
           message: userFriendly,
           type: detail.errorMsg.includes('HTML page') || detail.errorMsg.includes('404') ? 'error' : 'warning',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         });
+
+        // Auto-close warning banner after viewing
+        setTimeout(() => {
+          setSyncWarningNotification((curr) => (curr?.id === warnId ? null : curr));
+        }, 12000);
+      }
+    };
+
+    const handleNavigateModule = (e: any) => {
+      const targetMod = e?.detail;
+      if (targetMod) {
+        setCurrentModule(targetMod);
       }
     };
 
@@ -317,6 +339,7 @@ export default function App() {
     window.addEventListener('damview-sync-completed', handleRemoteDataChanged);
     window.addEventListener('damview-renumbered', handleRemoteDataChanged);
     window.addEventListener('damview:sync-warning', handleSyncWarning);
+    window.addEventListener('damview:navigate-module', handleNavigateModule);
 
     // Sync when tab receives focus to catch changes from other devices immediately
     const handleWindowFocus = () => {
@@ -335,6 +358,32 @@ export default function App() {
 
     window.addEventListener('keydown', handleGlobalKeyDown);
 
+    // Global listener for opening Document Propagation Parity Validator from notifications or triggers
+    const handleOpenParityValidator = (e: Event) => {
+      const customEvent = e as CustomEvent<{ documentNumber?: string }>;
+      const targetDocNum = customEvent.detail?.documentNumber || null;
+      setGlobalParityTargetDocNum(targetDocNum);
+      if (targetDocNum) {
+        dbService.getDocuments().then((allDocs) => {
+          const found = allDocs.find(
+            (d) => (d.documentNumber || '').trim().toLowerCase() === targetDocNum.trim().toLowerCase()
+          );
+          setGlobalParityDoc(found || null);
+          setIsGlobalParityOpen(true);
+        });
+      } else {
+        setGlobalParityDoc(null);
+        setIsGlobalParityOpen(true);
+      }
+    };
+
+    const handleOpenAppsScriptDiff = () => {
+      setCurrentModule('settings');
+    };
+
+    window.addEventListener('damview:open-parity-validator', handleOpenParityValidator);
+    window.addEventListener('damview:open-apps-script-diff', handleOpenAppsScriptDiff);
+
     // Auto-detect and notify if Google Apps Script in-app code or schemas are updated
     const CURRENT_GAS_VERSION = GOOGLE_APPS_SCRIPT_VERSION;
     try {
@@ -344,6 +393,11 @@ export default function App() {
           `Google Apps Script backend engine updated to ${CURRENT_GAS_VERSION} with dynamic header mapping across all 15 operational ERP sheets.`
         );
         localStorage.setItem('damview_last_gas_version', CURRENT_GAS_VERSION);
+
+        // Auto-close banner after viewing (9 seconds)
+        setTimeout(() => {
+          setGasUpdateNotification(null);
+        }, 9000);
       }
     } catch {}
 
@@ -364,6 +418,8 @@ export default function App() {
       window.removeEventListener('damview:sync-warning', handleSyncWarning);
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('keydown', handleGlobalKeyDown);
+      window.removeEventListener('damview:open-parity-validator', handleOpenParityValidator);
+      window.removeEventListener('damview:open-apps-script-diff', handleOpenAppsScriptDiff);
       syncManager.stopAutoSync();
       clearInterval(interval);
     };
@@ -466,7 +522,7 @@ export default function App() {
       balanceDue: docData.balanceDue || 0,
       status: (docData.status as any) || 'Draft',
       notes: docData.notes || '',
-      terms: docData.terms || 'Settlement due upon invoice presentation.',
+      terms: docData.terms || '',
       createdAt: new Date().toISOString().split('T')[0],
       updatedAt: new Date().toISOString().split('T')[0],
     };
@@ -625,7 +681,7 @@ export default function App() {
         amountPaid: 0,
         balanceDue: 0,
         notes: '',
-        terms: 'Payment due within 14 days of invoice issue.',
+        terms: '',
         createdAt: new Date().toISOString().split('T')[0],
         updatedAt: new Date().toISOString().split('T')[0],
       };
@@ -878,6 +934,11 @@ export default function App() {
               }}
               onNavigateToStatement={() => setCurrentModule('statements')}
               onRecordPayment={() => handleOpenPaymentModal()}
+              onOpenParityValidator={() => {
+                setGlobalParityDoc(null);
+                setGlobalParityTargetDocNum(null);
+                setIsGlobalParityOpen(true);
+              }}
               onEditDocument={handleEditDocument}
             />
           )}
@@ -1123,6 +1184,31 @@ export default function App() {
         initialClientId={paymentModalClientId}
         onClose={() => setIsPaymentModalOpen(false)}
         onSavePayment={handleSavePayment}
+      />
+
+      {/* Centralized Process & Trigger Notification Toasts */}
+      <AppNotificationToaster />
+
+      {/* Global Document Propagation Parity Validator Modal (triggerable via notification actions & triggers) */}
+      <DocumentPropagationParityModal
+        document={globalParityDoc}
+        targetDocumentNumber={globalParityTargetDocNum}
+        isOpen={isGlobalParityOpen || !!globalParityDoc}
+        onClose={() => {
+          setIsGlobalParityOpen(false);
+          setGlobalParityDoc(null);
+          setGlobalParityTargetDocNum(null);
+        }}
+        onRefreshDocument={(updated) => {
+          handleSaveDocument(updated);
+        }}
+        onRefreshAllDocuments={(updatedDocs) => {
+          setDocuments((prev) => {
+            const updatedMap = new Map(updatedDocs.map((d) => [d.id, d]));
+            return prev.map((doc) => updatedMap.get(doc.id) || doc);
+          });
+          refreshData();
+        }}
       />
 
       {/* PWA Service Worker Registration & Cache Reload Prompt */}

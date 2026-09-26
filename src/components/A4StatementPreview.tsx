@@ -71,8 +71,10 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
       return `${formatDate(startDate)} to ${formatDate(endDate)}`;
     }, [entries, startDate, endDate]);
 
-    const contactParts = [profile.phone?.trim(), profile.email?.trim()].filter(Boolean);
-    const phoneEmail = contactParts.join(' | ');
+    // Formatted phone & email line with explicit Phone and Email labels
+    const phonePart = profile.phone?.trim() ? `Phone: ${profile.phone.trim()}` : '';
+    const emailPart = profile.email?.trim() ? `Email: ${profile.email.trim()}` : '';
+    const phoneEmail = [phonePart, emailPart].filter(Boolean).join(' | ');
 
     return (
       <div
