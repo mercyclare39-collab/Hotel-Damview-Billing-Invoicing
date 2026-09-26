@@ -38,6 +38,7 @@ import {
   X,
   Eye,
   EyeOff,
+  Sparkles,
 } from 'lucide-react';
 import { HotelProfile, SyncQueueItem, CatalogueItem } from '../types';
 import {
@@ -54,6 +55,8 @@ import {
 } from '../services/localBackupService';
 import { GOOGLE_APPS_SCRIPT_CODE, GOOGLE_APPS_SCRIPT_VERSION } from '../services/googleScriptCode';
 import { HotelLogo } from './HotelLogo';
+import { usePWA } from '../hooks/usePWA';
+import { CURRENT_APP_VERSION, CURRENT_BUILD_TIME } from '../services/pwaService';
 
 interface HotelSettingsProps {
   profile: HotelProfile;
@@ -85,7 +88,33 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
       localStorage.setItem('damview_settings_active_tab', tab);
     } catch {}
   };
+  const {
+    isCheckingUpdate,
+    needRefresh,
+    offlineReady,
+    isInstalled,
+    checkForUpdate,
+    checkRemoteVersionJson,
+    applyUpdate,
+    forceClearCacheAndReload,
+    lastChecked,
+    remoteBuildTime,
+  } = usePWA();
+  const [isForceReloading, setIsForceReloading] = useState(false);
+  const [updateCheckMsg, setUpdateCheckMsg] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+
+  const handleManualUpdateCheck = async () => {
+    setUpdateCheckMsg('Checking GitHub deployment & Service Worker...');
+    const hasSwUpdate = await checkForUpdate();
+    const hasRemoteUpdate = await checkRemoteVersionJson();
+    if (hasSwUpdate || hasRemoteUpdate) {
+      setUpdateCheckMsg('New version detected! Click Reload to apply latest changes.');
+    } else {
+      setUpdateCheckMsg('You are running the latest version of Hotel Damview.');
+      setTimeout(() => setUpdateCheckMsg(null), 4000);
+    }
+  };
 
   // Particulars Catalogue State
   const [catalogueItems, setCatalogueItems] = useState<CatalogueItem[]>([]);
@@ -1891,15 +1920,99 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
       {/* TAB 4: OFFLINE CAPABILITIES & STORAGE */}
       {activeTab === 'pwa' && (
         <div className="bg-white border border-stone-200 rounded p-6 shadow-xs space-y-6 text-xs">
-          <div className="bg-stone-900 text-white p-5 rounded-lg border border-stone-800">
+          <div className="bg-stone-900 text-white p-5 rounded-lg border border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <Smartphone className="w-5 h-5 text-amber-400" />
-                <h3 className="text-base font-bold text-white">Offline Capabilities & Local Storage</h3>
+                <h3 className="text-base font-bold text-white">App Version &amp; Automatic Update Center</h3>
               </div>
               <p className="text-stone-300 text-xs">
-                Hotel Damview ERP runs with permanent local offline persistence and automatic background sync.
+                Hotel Damview ERP runs with permanent local offline persistence and autonomous GitHub deployment updates.
               </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded font-mono font-bold text-xs">
+                v{CURRENT_APP_VERSION}
+              </span>
+            </div>
+          </div>
+
+          {/* GitHub Auto-Update Card */}
+          <div className="p-4 bg-gradient-to-br from-stone-900 to-stone-950 text-white rounded-lg border border-stone-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-sm text-amber-400 flex items-center gap-2">
+                <RefreshCw className={`w-4 h-4 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                <span>Live GitHub Deployment Synchronizer</span>
+              </h4>
+              <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${needRefresh ? 'bg-amber-500 text-stone-950 animate-pulse' : 'bg-emerald-800 text-emerald-100'}`}>
+                {needRefresh ? 'Update Pending' : 'Up to Date'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-stone-800/80 rounded border border-stone-700 text-[11px] font-mono">
+              <div>
+                <span className="text-stone-400 font-sans block">Running Build Timestamp:</span>
+                <span className="text-amber-200 font-bold">{new Date(CURRENT_BUILD_TIME).toLocaleString()}</span>
+              </div>
+              <div>
+                <span className="text-stone-400 font-sans block">Remote Deployment Timestamp:</span>
+                <span className="text-emerald-300 font-bold">
+                  {remoteBuildTime ? new Date(remoteBuildTime).toLocaleString() : 'Synchronized with Live Server'}
+                </span>
+              </div>
+              <div>
+                <span className="text-stone-400 font-sans block">Service Worker Status:</span>
+                <span className="text-stone-200 font-sans">{offlineReady ? 'Active (updateViaCache: none)' : 'Initializing...'}</span>
+              </div>
+              <div>
+                <span className="text-stone-400 font-sans block">Last Checked:</span>
+                <span className="text-stone-200">{lastChecked ? lastChecked.toLocaleTimeString() : 'Continuous (every 2m)'}</span>
+              </div>
+            </div>
+
+            {updateCheckMsg && (
+              <div className="p-2.5 bg-amber-950/80 border border-amber-600/60 rounded text-amber-200 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{updateCheckMsg}</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
+              <button
+                type="button"
+                onClick={handleManualUpdateCheck}
+                disabled={isCheckingUpdate}
+                className="px-3.5 py-2 bg-stone-800 hover:bg-stone-700 text-amber-300 font-bold rounded flex items-center gap-1.5 transition-colors cursor-pointer text-xs border border-stone-600"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                <span>{isCheckingUpdate ? 'Checking GitHub...' : 'Check for Updates Now'}</span>
+              </button>
+
+              {needRefresh && (
+                <button
+                  type="button"
+                  onClick={() => applyUpdate()}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold rounded flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer text-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Reload to Apply Latest Changes</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                disabled={isForceReloading}
+                onClick={async () => {
+                  setIsForceReloading(true);
+                  await forceClearCacheAndReload();
+                }}
+                className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80 font-semibold rounded flex items-center gap-1.5 transition-colors cursor-pointer text-xs ml-auto"
+                title="Permanently clears browser service worker cache storage and hard reloads"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <span>{isForceReloading ? 'Wiping Cache...' : 'Permanent Force Clear Cache & Reload'}</span>
+              </button>
             </div>
           </div>
 
@@ -1927,10 +2040,10 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             <div className="p-4 bg-stone-50 border border-stone-200 rounded-lg space-y-2">
               <div className="flex items-center gap-2 text-stone-900 font-bold">
                 <Wifi className="w-4 h-4 text-sky-600" />
-                <span>Service Worker Precaching</span>
+                <span>Autonomous Cache Invalidation</span>
               </div>
               <p className="text-stone-600 leading-relaxed text-[11px]">
-                All stylesheets, fonts, JavaScript bundles, and assets are precached by the service worker for instant offline booting.
+                The app checks <code>version.json</code> on focus, visibility change, and every 2 minutes to automatically activate new deployments without manual hard refresh.
               </p>
             </div>
           </div>

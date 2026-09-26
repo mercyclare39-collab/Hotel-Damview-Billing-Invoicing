@@ -10,6 +10,8 @@ import {
 import { HotelLogo } from './HotelLogo';
 import { HotelProfile } from '../types';
 import { SyncTelemetryBadge } from './SyncTelemetryBadge';
+import { usePWA } from '../hooks/usePWA';
+import { Sparkles, RefreshCw } from 'lucide-react';
 
 export type NavTab =
   | 'dashboard'
@@ -41,6 +43,17 @@ export const Navbar: React.FC<NavbarProps> = ({
   onTriggerSync,
   onQuickNewDoc,
 }) => {
+  const { needRefresh, applyUpdate, isCheckingUpdate, checkForUpdate, checkRemoteVersionJson } = usePWA();
+  const [updateFeedback, setUpdateFeedback] = React.useState<string | null>(null);
+
+  const handleManualCheckUpdates = async () => {
+    const hasSw = await checkForUpdate();
+    const hasRemote = await checkRemoteVersionJson();
+    if (!hasSw && !hasRemote) {
+      setUpdateFeedback('Up to Date');
+      setTimeout(() => setUpdateFeedback(null), 3000);
+    }
+  };
   return (
     <header className="no-print bg-stone-900 border-b border-stone-800 text-stone-100 sticky top-0 z-40 shadow-sm select-none">
       <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-16">
@@ -130,6 +143,36 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right Section: Status Pills & Action Button */}
         <div className="flex items-center gap-2 text-xs">
+          {/* App Latest Updates Trigger Icon / Button */}
+          {needRefresh ? (
+            <button
+              type="button"
+              onClick={() => applyUpdate()}
+              className="px-2.5 py-1.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-stone-950 font-bold rounded-lg flex items-center gap-1.5 shadow-xs transition-all cursor-pointer animate-pulse text-[11px]"
+              title="New version available! Click to update safely without losing drafts"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-stone-950 stroke-[2.5]" />
+              <span>Update Ready</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleManualCheckUpdates}
+              disabled={isCheckingUpdate}
+              className="p-1.5 sm:px-2.5 sm:py-1.5 bg-stone-800/90 hover:bg-stone-700 text-stone-300 hover:text-amber-400 border border-stone-700/80 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer text-xs"
+              title="Click to check for latest app updates from GitHub"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? 'animate-spin text-amber-400' : 'text-stone-400'}`} />
+              {updateFeedback ? (
+                <span className="text-[11px] text-emerald-400 font-semibold">{updateFeedback}</span>
+              ) : (
+                <span className="hidden sm:inline text-[11px] text-stone-300 font-medium">
+                  {isCheckingUpdate ? 'Checking...' : 'Check Updates'}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Reactive Sync Telemetry Badge */}
           <SyncTelemetryBadge compact={true} showForceSyncButton={true} />
 

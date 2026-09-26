@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, CheckCircle2, X, Sparkles } from 'lucide-react';
+import { RefreshCw, CheckCircle2, X, Sparkles, Trash2 } from 'lucide-react';
 import { usePWA } from '../hooks/usePWA';
 
 export const PWAReloadPrompt: React.FC = () => {
-  const { needRefresh, offlineReady, isCheckingUpdate, applyUpdate } = usePWA();
+  const { needRefresh, offlineReady, isCheckingUpdate, applyUpdate, forceClearCacheAndReload } = usePWA();
   const [dismissed, setDismissed] = useState(false);
   const [showOfflineToast, setShowOfflineToast] = useState(false);
+  const [isForceReloading, setIsForceReloading] = useState(false);
 
   // Auto-show offline ready toast once for 5 seconds when first cached
   useEffect(() => {
@@ -54,7 +55,7 @@ export const PWAReloadPrompt: React.FC = () => {
               : 'Hotel Damview is precached and fully operational offline on this device.'}
           </p>
 
-          <div className="flex items-center gap-2 pt-2">
+          <div className="flex items-center gap-2 pt-2 flex-wrap">
             {needRefresh ? (
               <button
                 type="button"
@@ -65,6 +66,22 @@ export const PWAReloadPrompt: React.FC = () => {
                 <span>Reload to Apply</span>
               </button>
             ) : null}
+
+            {needRefresh && (
+              <button
+                type="button"
+                disabled={isForceReloading}
+                onClick={async () => {
+                  setIsForceReloading(true);
+                  await forceClearCacheAndReload();
+                }}
+                className="px-2.5 py-1.5 text-[11px] text-stone-400 hover:text-amber-300 rounded-lg border border-stone-700/80 hover:bg-stone-800 transition-colors cursor-pointer flex items-center gap-1"
+                title="Wipes browser service worker caches and hard-reloads"
+              >
+                <Trash2 className="w-3 h-3 text-stone-400" />
+                <span>{isForceReloading ? 'Wiping...' : 'Clear Cache & Update'}</span>
+              </button>
+            )}
 
             <button
               type="button"

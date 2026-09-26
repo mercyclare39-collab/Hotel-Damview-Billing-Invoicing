@@ -70,6 +70,7 @@ import {
 import { executeWithAutonomousRetry, logSystemIncident } from '../services/selfHealingPatch';
 import { A4DocumentPreview } from './A4DocumentPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
+import { usePWA } from '../hooks/usePWA';
 
 interface DocumentEditorProps {
   initialDocument?: BillingDocument | null;
@@ -135,15 +136,27 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     return fullNumber.replace(/^(QT-|Q-|PI-|INV-)/, '');
   };
 
-  // Recover uncommitted draft from localStorage if creating a new document
+  // PWA Auto-Update Hooks
+  const { needRefresh, applyUpdate } = usePWA();
+
+  // Recover uncommitted draft from localStorage:
+  // If editing an existing document (initialDocument), recover from damview_edit_draft_[id]
+  // If creating a new document, recover from damview_draft_document_editor
   const savedDraft = useMemo(() => {
-    if (initialDocument || typeof window === 'undefined' || !window.localStorage) return null;
+    if (typeof window === 'undefined' || !window.localStorage) return null;
     try {
-      const raw = localStorage.getItem('damview_draft_document_editor');
-      if (raw) return JSON.parse(raw);
+      if (initialDocument?.id) {
+        const raw = localStorage.getItem(`damview_edit_draft_${initialDocument.id}`);
+        if (raw) return JSON.parse(raw);
+      } else if (!initialDocument) {
+        const raw = localStorage.getItem('damview_draft_document_editor');
+        if (raw) return JSON.parse(raw);
+      }
     } catch {}
     return null;
   }, [initialDocument]);
+
+  const [hasRestoredDraftNotice, setHasRestoredDraftNotice] = useState(!!savedDraft && !!initialDocument);
 
   const [numberSuffix, setNumberSuffix] = useState<string>(
     savedDraft?.numberSuffix || parseInitialSuffix(initialDocument?.documentNumber, initialDocument?.documentType || defaultType)
@@ -192,7 +205,9 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   // Spreadsheet Line Items: restore draft or blank slate
   const [lineItems, setLineItems] = useState<LineItem[]>(
-    initialDocument?.lineItems && initialDocument.lineItems.length > 0
+    savedDraft?.lineItems && savedDraft.lineItems.length > 0
+      ? savedDraft.lineItems
+      : initialDocument?.lineItems && initialDocument.lineItems.length > 0
       ? [
           ...initialDocument.lineItems,
           ...(initialDocument.lineItems[initialDocument.lineItems.length - 1].particulars?.trim()
@@ -209,57 +224,143 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
               ]
             : []),
         ]
-      : (savedDraft?.lineItems && savedDraft.lineItems.length > 0
-          ? savedDraft.lineItems
-          : [
-              {
-                id: 'li-1',
-                particulars: '',
-                quantity: 1,
-                days: 1,
-                rate: 0,
-                discount: 0,
-                amount: 0,
-              },
-            ])
+      : [
+          {
+            id: 'li-1',
+            particulars: '',
+            quantity: 1,
+            days: 1,
+            rate: 0,
+            discount: 0,
+            amount: 0,
+          },
+        ]
   );
 
-  // Auto-sync draft document state to prevent data loss across refreshes
-  useEffect(() => {
-    if (!initialDocument && typeof window !== 'undefined' && window.localStorage) {
+  // Revert in-progress draft to the exact untouched database record
+  const handleRevertToOriginal = () => {
+    if (!initialDocument) return;
+    if (confirm('Discard uncommitted in-progress edits and revert to the saved original document from the database?')) {
       try {
-        const hasContent =
-          clientName.trim() ||
-          clientPhone.trim() ||
-          notes.trim() ||
-          lineItems.some((li) => li.particulars?.trim() || li.rate > 0);
-        if (hasContent) {
-          localStorage.setItem(
-            'damview_draft_document_editor',
-            JSON.stringify({
-              docType,
-              numberSuffix,
-              selectedClientId,
-              clientName,
-              clientKraPin,
-              clientAddress,
-              clientPhone,
-              clientEmail,
-              issueDate,
-              validityDays,
-              dueDate,
-              status,
-              notes,
-              terms,
-              discount,
-              lineItems,
-            })
-          );
-        } else {
-          localStorage.removeItem('damview_draft_document_editor');
-        }
+        localStorage.removeItem(`damview_edit_draft_${initialDocument.id}`);
       } catch {}
+      setDocType(initialDocument.documentType);
+      setNumberSuffix(parseInitialSuffix(initialDocument.documentNumber, initialDocument.documentType));
+      setSelectedClientId(initialDocument.clientId || '');
+      setClientName(initialDocument.clientName || '');
+      setClientKraPin(initialDocument.clientKraPin || '');
+      setClientAddress(initialDocument.clientAddress || '');
+      setClientPhone(initialDocument.clientPhone || '');
+      setClientEmail(initialDocument.clientEmail || '');
+      setIssueDate(initialDocument.issueDate || formatDate());
+      setValidityDays(initialDocument.validityDays || 14);
+      setDueDate(initialDocument.dueDate || calculateDueDate(initialDocument.issueDate || formatDate(), 14));
+      setStatus(initialDocument.status || 'Draft');
+      setNotes(initialDocument.notes || '');
+      setTerms(initialDocument.terms || '');
+      setDiscount(initialDocument.discount || 0);
+      setLineItems(
+        initialDocument.lineItems && initialDocument.lineItems.length > 0
+          ? [...initialDocument.lineItems]
+          : [{ id: 'li-1', particulars: '', quantity: 1, days: 1, rate: 0, discount: 0, amount: 0 }]
+      );
+      setHasRestoredDraftNotice(false);
     }
+  };
+
+  // Auto-sync draft document state to prevent data loss across refreshes and app updates
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    try {
+      const storageKey = initialDocument?.id
+        ? `damview_edit_draft_${initialDocument.id}`
+        : 'damview_draft_document_editor';
+
+      const hasContent =
+        clientName.trim() ||
+        clientPhone.trim() ||
+        notes.trim() ||
+        lineItems.some((li) => li.particulars?.trim() || li.rate > 0);
+
+      if (hasContent) {
+        const payload = {
+          docType,
+          numberSuffix,
+          selectedClientId,
+          clientName,
+          clientKraPin,
+          clientAddress,
+          clientPhone,
+          clientEmail,
+          issueDate,
+          validityDays,
+          dueDate,
+          status,
+          notes,
+          terms,
+          discount,
+          lineItems,
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(storageKey, JSON.stringify(payload));
+        if (initialDocument?.id) {
+          localStorage.setItem('damview_last_editing_doc_id', initialDocument.id);
+        }
+      } else if (!initialDocument) {
+        localStorage.removeItem('damview_draft_document_editor');
+      }
+    } catch {}
+  }, [
+    initialDocument,
+    docType,
+    numberSuffix,
+    selectedClientId,
+    clientName,
+    clientKraPin,
+    clientAddress,
+    clientPhone,
+    clientEmail,
+    issueDate,
+    validityDays,
+    dueDate,
+    status,
+    notes,
+    terms,
+    discount,
+    lineItems,
+  ]);
+
+  // Safe flush on app update event
+  useEffect(() => {
+    const handleBeforeUpdate = () => {
+      try {
+        const storageKey = initialDocument?.id
+          ? `damview_edit_draft_${initialDocument.id}`
+          : 'damview_draft_document_editor';
+        const payload = {
+          docType,
+          numberSuffix,
+          selectedClientId,
+          clientName,
+          clientKraPin,
+          clientAddress,
+          clientPhone,
+          clientEmail,
+          issueDate,
+          validityDays,
+          dueDate,
+          status,
+          notes,
+          terms,
+          discount,
+          lineItems,
+          savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(storageKey, JSON.stringify(payload));
+      } catch {}
+    };
+    window.addEventListener('damview-before-app-update', handleBeforeUpdate);
+    return () => window.removeEventListener('damview-before-app-update', handleBeforeUpdate);
   }, [
     initialDocument,
     docType,
@@ -841,6 +942,16 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       // 2. Instant Local Journal Record (L1 Cache & IndexedDB in < 1ms)
       await dbService.saveDocument(docToPersist);
 
+      // Clear draft in localStorage upon successful commit
+      try {
+        if (initialDocument?.id) {
+          localStorage.removeItem(`damview_edit_draft_${initialDocument.id}`);
+          localStorage.removeItem('damview_last_editing_doc_id');
+        }
+        localStorage.removeItem('damview_draft_document_editor');
+        setHasRestoredDraftNotice(false);
+      } catch {}
+
       // Dynamically learn new line item particulars and standard rates into catalog
       try {
         const existingCat = await dbService.getCatalogueItems();
@@ -1069,6 +1180,14 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   // Clear Form Handler
   const handleClearForm = () => {
     if (confirm('Clear all input fields and start with a blank slate?')) {
+      try {
+        if (initialDocument?.id) {
+          localStorage.removeItem(`damview_edit_draft_${initialDocument.id}`);
+          localStorage.removeItem('damview_last_editing_doc_id');
+        } else {
+          localStorage.removeItem('damview_draft_document_editor');
+        }
+      } catch {}
       setLineItems([
         {
           id: 'li-' + Date.now(),
@@ -1089,11 +1208,53 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       setDiscount(0);
       setNotes('');
       setTerms('');
+      setHasRestoredDraftNotice(false);
     }
+  };
+
+  const handleCancelWithCleanup = () => {
+    try {
+      if (initialDocument?.id) {
+        localStorage.removeItem(`damview_edit_draft_${initialDocument.id}`);
+        localStorage.removeItem('damview_last_editing_doc_id');
+      } else {
+        localStorage.removeItem('damview_draft_document_editor');
+      }
+    } catch {}
+    onCancel();
   };
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-stone-100">
+      {/* RESTORED DRAFT NOTICE BANNER */}
+      {hasRestoredDraftNotice && (
+        <div className="bg-amber-50 border-b border-amber-300 px-4 py-2 flex items-center justify-between gap-3 text-xs text-amber-950 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>
+              <strong>Draft Edits Restored:</strong> In-progress unsaved edits for <strong>{fullDocumentNumber}</strong> were preserved across app updates. The original database record remains completely untouched until you click <em>Save & Record Document</em>.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleRevertToOriginal}
+              className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded font-semibold text-[11px] transition-colors cursor-pointer"
+            >
+              Revert to Saved Original
+            </button>
+            <button
+              type="button"
+              onClick={() => setHasRestoredDraftNotice(false)}
+              className="text-amber-700 hover:text-amber-900 p-1 rounded hover:bg-amber-100 cursor-pointer"
+              title="Dismiss notice"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* TOP WORKSPACE ACTION TOOLBAR */}
       <div className="no-print bg-white border-b border-stone-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 shadow-xs shrink-0">
         <div className="flex items-center space-x-2.5">
@@ -1147,6 +1308,19 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
         {/* Primary Action Triggers (Event-Chained Architecture) */}
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Safe In-Editor App Update Trigger */}
+          {needRefresh && (
+            <button
+              type="button"
+              onClick={() => applyUpdate()}
+              className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-stone-950 font-bold rounded shadow-xs animate-pulse transition-all cursor-pointer"
+              title="App update ready. Click to safely reload on the newest version (in-progress draft is automatically preserved with zero data loss)."
+            >
+              <Sparkles className="w-3.5 h-3.5 text-stone-950" />
+              <span>Update Ready (Safe Auto-Save)</span>
+            </button>
+          )}
+
           {/* Reactive Lifecycle Status Indicator */}
           <span
             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold border transition-all ${
@@ -1236,7 +1410,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
           {/* Cancel / Back trigger alongside Save & Record */}
           <button
             type="button"
-            onClick={onCancel}
+            onClick={handleCancelWithCleanup}
             className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-stone-300 text-stone-700 rounded bg-stone-100 hover:bg-stone-200 transition-colors cursor-pointer ml-1"
             title="Discard unsaved changes and return"
           >

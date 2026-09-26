@@ -23,10 +23,20 @@ export function usePWA() {
     pwaService.applyUpdate();
   }, []);
 
+  const checkRemoteVersionJson = useCallback(async () => {
+    return await pwaService.checkRemoteVersionJson();
+  }, []);
+
+  const forceClearCacheAndReload = useCallback(async () => {
+    await pwaService.forceClearCacheAndReload();
+  }, []);
+
   return {
     ...state,
     install,
     checkForUpdate,
+    checkRemoteVersionJson,
     applyUpdate,
+    forceClearCacheAndReload,
   };
 }

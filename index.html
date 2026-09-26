@@ -10,6 +10,11 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     
+    <!-- Anti-Cache Directives for Instant GitHub Deployment Propagation -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
     <!-- PWA Primary & iOS Safari Meta Tags -->
     <meta name="theme-color" content="#1c1917" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -29,6 +34,16 @@
           window.history.replaceState(null, null,
               l.pathname.slice(0, -1) + decoded + l.hash
           );
+        } else if (l.search.indexOf('?p=/') === 0 || l.search.indexOf('&p=/') !== -1 || l.search.indexOf('p=/') !== -1) {
+          var params = new URLSearchParams(l.search);
+          var p = params.get('p') || '';
+          var q = params.get('q') || '';
+          if (p) {
+            var newSearch = q ? '?' + q.replace(/~and~/g, '&') : '';
+            window.history.replaceState(null, null,
+              l.pathname.replace(/\/+$/, '') + p + newSearch + l.hash
+            );
+          }
         }
       }(window.location));
     </script>

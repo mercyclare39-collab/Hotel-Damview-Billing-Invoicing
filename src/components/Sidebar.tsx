@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { HotelLogo } from './HotelLogo';
 import { HotelProfile } from '../types';
+import { usePWA } from '../hooks/usePWA';
 
 export type MainNavModule =
   | 'dashboard'
@@ -109,6 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen,
   onToggleMobile,
 }) => {
+  const { needRefresh } = usePWA();
   const [isHovered, setIsHovered] = React.useState(false);
   const hoverTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
@@ -265,8 +267,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'settings',
           label: 'Hotel Settings',
           icon: Settings,
-          badge: null,
-          badgeColor: '',
+          badge: needRefresh ? 'Update' : null,
+          badgeColor: 'bg-amber-500 text-stone-950 font-bold animate-pulse',
         },
       ],
     },

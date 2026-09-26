@@ -17,7 +17,15 @@ export interface PWAState {
   offlineReady: boolean;
   isCheckingUpdate: boolean;
   lastChecked: Date | null;
+  remoteBuildTime?: string;
+  localBuildTime?: string;
 }
+
+declare const __APP_VERSION__: string | undefined;
+declare const __BUILD_TIME__: string | undefined;
+
+export const CURRENT_APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '5.0.0';
+export const CURRENT_BUILD_TIME = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '2026-09-26T10:40:00.000Z';
 
 type PWAEventListener = (state: PWAState) => void;
 
@@ -27,6 +35,7 @@ class PWAService {
   private listeners: Set<PWAEventListener> = new Set();
   private refreshing = false;
   private updateCheckInterval: any = null;
+  private versionCheckInterval: any = null;
 
   private state: PWAState = {
     isInstallable: false,
@@ -37,6 +46,7 @@ class PWAService {
     offlineReady: false,
     isCheckingUpdate: false,
     lastChecked: null,
+    localBuildTime: CURRENT_BUILD_TIME,
   };
 
   constructor() {
@@ -53,6 +63,12 @@ class PWAService {
     this.setupInstallPromptListener();
     this.setupServiceWorkerLifecycle();
     this.setupBackgroundUpdateChecks();
+    
+    // Initial check 3 seconds after boot
+    setTimeout(() => {
+      this.checkForUpdate();
+      this.checkRemoteVersionJson();
+    }, 3000);
   }
 
   /**
@@ -119,11 +135,17 @@ class PWAService {
   private setupServiceWorkerLifecycle() {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
+    // Register service worker with updateViaCache: 'none' so browser never uses HTTP cache for sw.js
     navigator.serviceWorker.ready
       .then((registration) => {
         this.registration = registration;
         this.state.offlineReady = true;
         this.notify();
+
+        // If a worker is already waiting in background, notify or activate
+        if (registration.waiting) {
+          this.onNewVersionAvailable(registration.waiting);
+        }
 
         // Listen for new service worker installation
         registration.addEventListener('updatefound', () => {
@@ -167,28 +189,81 @@ class PWAService {
    * Sets up background periodic update checks on focus, online reconnection, and intervals
    */
   private setupBackgroundUpdateChecks() {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    if (typeof window === 'undefined') return;
 
-    // 1. Periodic check every 30 minutes
+    // 1. Periodic ServiceWorker check every 60 seconds
     this.updateCheckInterval = setInterval(() => {
       this.checkForUpdate();
-    }, 30 * 60 * 1000);
+      this.checkRemoteVersionJson();
+    }, 60 * 1000);
 
     // 2. Check immediately when network reconnects
     window.addEventListener('online', () => {
       this.checkForUpdate();
+      this.checkRemoteVersionJson();
     });
 
     // 3. Check when the tab gains focus or returns to visibility
     window.addEventListener('focus', () => {
       this.checkForUpdate();
+      this.checkRemoteVersionJson();
     });
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         this.checkForUpdate();
+        this.checkRemoteVersionJson();
       }
     });
+  }
+
+  /**
+   * Fetches remote version.json bypassing all HTTP and ServiceWorker caches
+   */
+  public async checkRemoteVersionJson(): Promise<boolean> {
+    if (typeof window === 'undefined' || !navigator.onLine) return false;
+
+    try {
+      // Determine base URL path
+      const baseUrl = window.location.pathname.endsWith('/')
+        ? window.location.pathname
+        : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
+
+      const versionUrl = `${baseUrl}version.json?t=${Date.now()}`;
+      const res = await fetch(versionUrl, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
+      });
+
+      if (!res.ok) return false;
+
+      const data = await res.json();
+      if (data && data.buildTime) {
+        this.state.remoteBuildTime = data.buildTime;
+        const remoteTime = new Date(data.buildTime).getTime();
+        const localTime = new Date(CURRENT_BUILD_TIME).getTime();
+
+        if (remoteTime > localTime || (data.version && data.version !== CURRENT_APP_VERSION)) {
+          this.state.needRefresh = true;
+          this.notify();
+
+          // Auto-trigger service worker update
+          if (this.registration) {
+            await this.registration.update();
+            if (this.registration.waiting) {
+              this.onNewVersionAvailable(this.registration.waiting);
+            }
+          }
+          return true;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -258,17 +333,58 @@ class PWAService {
   }
 
   /**
-   * Applies the waiting update and safely reloads the application
+   * Applies the waiting update and safely reloads the application with zero data loss
    */
   public applyUpdate() {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+    if (typeof window === 'undefined') return;
+
+    try {
+      // Notify all active forms/editors to flush unsaved draft state immediately
+      window.dispatchEvent(new CustomEvent('damview-before-app-update'));
+    } catch {}
 
     if (this.registration && this.registration.waiting) {
       this.registration.waiting.postMessage({ type: 'SKIP_WAITING' });
     }
 
     this.refreshing = true;
-    window.location.reload();
+    setTimeout(() => {
+      window.location.reload();
+    }, 80);
+  }
+
+  /**
+   * Permanent Nuclear Cache Wipe & Force Update:
+   * Clears CacheStorage, unregisters stale Service Workers, and forces hard reload
+   */
+  public async forceClearCacheAndReload(): Promise<void> {
+    if (typeof window === 'undefined') return;
+
+    try {
+      // 1. Delete all CacheStorage caches
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+
+      // 2. Unregister all service workers
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((reg) => reg.unregister()));
+      }
+
+      // 3. Clear session storage flags
+      try {
+        sessionStorage.clear();
+      } catch {}
+
+      // 4. Force hard reload with cache buster query
+      const url = new URL(window.location.href);
+      url.searchParams.set('force_update', Date.now().toString());
+      window.location.href = url.toString();
+    } catch {
+      window.location.reload();
+    }
   }
 
   /**
