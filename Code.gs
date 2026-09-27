@@ -1,5 +1,5 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.8.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.9.0)
  * High-Concurrency Multi-Tier Lock Isolation, Decoupled Instant Drive Archival & Universal ERP Sync Engine
  * Single Source of Truth Binary Archival & 100% Visual and Structural Parity Pipeline
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Fail-Safe Architecture
@@ -263,7 +263,7 @@ var CANONICAL_SCHEMAS = {
 // ============================================================================
 
 function doOptions(e) {
-  return responseJSON({ success: true, status: "OK", version: "v5.8.0" });
+  return responseJSON({ success: true, status: "OK", version: "v5.9.0" });
 }
 
 function doGet(e) {
@@ -274,9 +274,9 @@ function doGet(e) {
     if (action === "PING" || action === "HEALTHCHECK" || action === "VERSION" || action === "GET_VERSION") {
       return responseJSON({
         success: true,
-        version: "v5.8.0",
+        version: "v5.9.0",
         action: action || "PING",
-        message: "Hotel Damview Google Apps Script Central Backend v5.8.0 is active and ready.",
+        message: "Hotel Damview Google Apps Script Central Backend v5.9.0 is active and ready.",
         sheetName: ss ? ss.getName() : "Spreadsheet",
         sheetUrl: ss ? ss.getUrl() : "",
         tabs: ss ? getDiscoveredSheets(ss) : [],
@@ -288,7 +288,7 @@ function doGet(e) {
       var fullData = getFullSpreadsheetData(ss);
       return responseJSON({
         success: true,
-        version: "v5.8.0",
+        version: "v5.9.0",
         action: "GET_SHEET_DATA",
         data: fullData,
         timestamp: new Date().toISOString()
@@ -297,8 +297,8 @@ function doGet(e) {
 
     return responseJSON({
       success: true,
-      version: "v5.8.0",
-      message: "Hotel Damview Google Apps Script Central Backend v5.8.0 is active and ready.",
+      version: "v5.9.0",
+      message: "Hotel Damview Google Apps Script Central Backend v5.9.0 is active and ready.",
       sheetName: ss ? ss.getName() : "Spreadsheet",
       sheetUrl: ss ? ss.getUrl() : "",
       timestamp: new Date().toISOString()
@@ -306,8 +306,8 @@ function doGet(e) {
   } catch (err) {
     return responseJSON({
       success: true,
-      version: "v5.8.0",
-      message: "Hotel Damview Google Apps Script Backend v5.8.0 is online.",
+      version: "v5.9.0",
+      message: "Hotel Damview Google Apps Script Backend v5.9.0 is online.",
       error: err.toString(),
       timestamp: new Date().toISOString()
     });
@@ -367,8 +367,8 @@ function doPost(e) {
     return responseJSON({
       success: true,
       action: "PING",
-      version: "v5.8.0",
-      message: "Hotel Damview Google Apps Script Central Backend v5.8.0 is active and connected.",
+      version: "v5.9.0",
+      message: "Hotel Damview Google Apps Script Central Backend v5.9.0 is active and connected.",
       sheetName: ss.getName(),
       sheetUrl: ss.getUrl(),
       tabs: sheetList,
@@ -381,7 +381,7 @@ function doPost(e) {
     return responseJSON({
       success: true,
       action: "GET_SHEET_DATA",
-      version: "v5.8.0",
+      version: "v5.9.0",
       data: fullData,
       timestamp: new Date().toISOString()
     });
@@ -2691,19 +2691,65 @@ function purgeTombstoneList(ss, tombstones, folderName) {
 // 12. GOOGLE DRIVE ARCHIVING UTILITIES
 // ============================================================================
 
+function getOrCreateDriveFolder(folderNameOrId) {
+  var target = (folderNameOrId || "").trim();
+  if (!target || target === "Hotel Damview Archives") {
+    var defaultFolders = DriveApp.getFoldersByName("Hotel Damview Archives");
+    return defaultFolders.hasNext() ? defaultFolders.next() : DriveApp.createFolder("Hotel Damview Archives");
+  }
+
+  // 1. Check if target is a Google Drive folder URL (e.g., https://drive.google.com/drive/folders/1abc123...)
+  var urlMatch = target.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (urlMatch && urlMatch[1]) {
+    try {
+      return DriveApp.getFolderById(urlMatch[1]);
+    } catch (e) {
+      Logger.log("Could not open folder by URL ID: " + e.toString());
+    }
+  }
+
+  // 2. Check if target is a raw Folder ID (20+ alphanumeric characters without spaces/slashes)
+  if (/^[a-zA-Z0-9_-]{20,60}$/.test(target) && target.indexOf(" ") === -1 && target.indexOf("/") === -1) {
+    try {
+      return DriveApp.getFolderById(target);
+    } catch (e) {
+      Logger.log("Could not open folder by raw ID: " + e.toString());
+    }
+  }
+
+  // 3. Match folder by Name
+  var folders = DriveApp.getFoldersByName(target);
+  if (folders.hasNext()) {
+    return folders.next();
+  }
+
+  // 4. Create new folder with the name
+  return DriveApp.createFolder(target);
+}
+
+function sanitizeBase64Pdf(rawBase64) {
+  if (!rawBase64) return "";
+  var clean = String(rawBase64).trim();
+  var commaIdx = clean.indexOf(",");
+  if (clean.indexOf("data:") === 0 && commaIdx >= 0) {
+    clean = clean.substring(commaIdx + 1).trim();
+  }
+  // Remove all whitespace, line breaks, or URL encoded artifacts
+  clean = clean.replace(/\s+/g, "").replace(/[\r\n]/g, "");
+  if (clean.indexOf("%") >= 0) {
+    try {
+      clean = decodeURIComponent(clean);
+    } catch (e) {}
+  }
+  return clean;
+}
+
 function archivePdfToDrive(doc, pdfBase64, folderName, customFileName) {
   try {
     if (!pdfBase64) return { error: "No PDF base64 provided", status: "VALIDATION_FAILED" };
 
-    var targetFolderName = folderName || "Hotel Damview Archives";
-    var folders = DriveApp.getFoldersByName(targetFolderName);
-    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(targetFolderName);
-
-    var cleanBase64 = String(pdfBase64).trim();
-    var commaIdx = cleanBase64.indexOf(",");
-    if (cleanBase64.indexOf("data:") === 0 && commaIdx >= 0) {
-      cleanBase64 = cleanBase64.substring(commaIdx + 1).trim();
-    }
+    var folder = getOrCreateDriveFolder(folderName);
+    var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
     if (cleanBase64.length < 500) {
       return { error: "Corrupt or truncated base64 PDF stream (length < 500)", status: "VALIDATION_FAILED" };
@@ -2741,13 +2787,16 @@ function archivePdfToDrive(doc, pdfBase64, folderName, customFileName) {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (shareErr) {}
 
+    var fileUrl = file.getUrl();
+    var fileId = file.getId();
+
     return {
       success: true,
-      fileId: file.getId(),
-      url: file.getUrl(),
-      webViewLink: file.getUrl(),
-      driveUrl: file.getUrl(),
-      driveFileId: file.getId(),
+      fileId: fileId,
+      url: fileUrl,
+      webViewLink: fileUrl,
+      driveUrl: fileUrl,
+      driveFileId: fileId,
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,
@@ -2763,15 +2812,8 @@ function archiveReceiptPdfToDrive(payment, pdfBase64, folderName, customFileName
   try {
     if (!pdfBase64) return { error: "No PDF base64 provided", status: "VALIDATION_FAILED" };
 
-    var targetFolderName = folderName || "Hotel Damview Archives";
-    var folders = DriveApp.getFoldersByName(targetFolderName);
-    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(targetFolderName);
-
-    var cleanBase64 = String(pdfBase64).trim();
-    var commaIdx = cleanBase64.indexOf(",");
-    if (cleanBase64.indexOf("data:") === 0 && commaIdx >= 0) {
-      cleanBase64 = cleanBase64.substring(commaIdx + 1).trim();
-    }
+    var folder = getOrCreateDriveFolder(folderName);
+    var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
     if (cleanBase64.length < 500) {
       return { error: "Corrupt or truncated base64 Receipt PDF stream", status: "VALIDATION_FAILED" };
@@ -2809,13 +2851,16 @@ function archiveReceiptPdfToDrive(payment, pdfBase64, folderName, customFileName
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (shareErr) {}
 
+    var fileUrl = file.getUrl();
+    var fileId = file.getId();
+
     return {
       success: true,
-      fileId: file.getId(),
-      url: file.getUrl(),
-      webViewLink: file.getUrl(),
-      driveUrl: file.getUrl(),
-      driveFileId: file.getId(),
+      fileId: fileId,
+      url: fileUrl,
+      webViewLink: fileUrl,
+      driveUrl: fileUrl,
+      driveFileId: fileId,
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,
@@ -2831,15 +2876,8 @@ function archiveStatementPdfToDrive(statement, pdfBase64, folderName, customFile
   try {
     if (!pdfBase64) return { error: "No PDF base64 provided", status: "VALIDATION_FAILED" };
 
-    var targetFolderName = folderName || "Hotel Damview Archives";
-    var folders = DriveApp.getFoldersByName(targetFolderName);
-    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(targetFolderName);
-
-    var cleanBase64 = String(pdfBase64).trim();
-    var commaIdx = cleanBase64.indexOf(",");
-    if (cleanBase64.indexOf("data:") === 0 && commaIdx >= 0) {
-      cleanBase64 = cleanBase64.substring(commaIdx + 1).trim();
-    }
+    var folder = getOrCreateDriveFolder(folderName);
+    var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
     if (cleanBase64.length < 500) {
       return { error: "Corrupt or truncated base64 Statement PDF stream", status: "VALIDATION_FAILED" };
@@ -2877,13 +2915,16 @@ function archiveStatementPdfToDrive(statement, pdfBase64, folderName, customFile
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (shareErr) {}
 
+    var fileUrl = file.getUrl();
+    var fileId = file.getId();
+
     return {
       success: true,
-      fileId: file.getId(),
-      url: file.getUrl(),
-      webViewLink: file.getUrl(),
-      driveUrl: file.getUrl(),
-      driveFileId: file.getId(),
+      fileId: fileId,
+      url: fileUrl,
+      webViewLink: fileUrl,
+      driveUrl: fileUrl,
+      driveFileId: fileId,
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,
@@ -2899,15 +2940,8 @@ function archiveGenericPdfToDrive(pdfBase64, folderName, customFileName) {
   try {
     if (!pdfBase64) return { error: "No PDF base64 provided", status: "VALIDATION_FAILED" };
 
-    var targetFolderName = folderName || "Hotel Damview Archives";
-    var folders = DriveApp.getFoldersByName(targetFolderName);
-    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(targetFolderName);
-
-    var cleanBase64 = String(pdfBase64).trim();
-    var commaIdx = cleanBase64.indexOf(",");
-    if (cleanBase64.indexOf("data:") === 0 && commaIdx >= 0) {
-      cleanBase64 = cleanBase64.substring(commaIdx + 1).trim();
-    }
+    var folder = getOrCreateDriveFolder(folderName);
+    var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
     if (cleanBase64.length < 500) {
       return { error: "Corrupt or truncated base64 PDF stream (length < 500)", status: "VALIDATION_FAILED" };
@@ -2939,11 +2973,16 @@ function archiveGenericPdfToDrive(pdfBase64, folderName, customFileName) {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (shareErr) {}
 
+    var fileUrl = file.getUrl();
+    var fileId = file.getId();
+
     return {
       success: true,
-      fileId: file.getId(),
-      url: file.getUrl(),
-      webViewLink: file.getUrl(),
+      fileId: fileId,
+      url: fileUrl,
+      webViewLink: fileUrl,
+      driveUrl: fileUrl,
+      driveFileId: fileId,
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,

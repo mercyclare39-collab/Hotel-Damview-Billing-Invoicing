@@ -440,6 +440,15 @@ export function normalizePayloadBeforeJson<T = any>(data: T): T {
       ) {
         normalized[key] = normalizeCodeString(value);
       }
+      // Base64 PDF stream sanitization
+      else if (lowerKey === 'pdfbase64' || lowerKey === 'base64') {
+        let str = String(value || '').trim();
+        const commaIdx = str.indexOf(',');
+        if (str.startsWith('data:') && commaIdx >= 0) {
+          str = str.substring(commaIdx + 1).trim();
+        }
+        normalized[key] = str.replace(/\s+/g, '');
+      }
       // Date fields
       else if (
         lowerKey === 'date' ||
@@ -2334,6 +2343,56 @@ class GoogleSyncManager {
 
             if (!res.success) {
               throw new Error(res.error || 'Sync rejected by Google backend');
+            }
+
+            // Persist returned Google Drive file URL/ID to local IndexedDB records
+            const returnedDriveUrl = res.driveUrl || res.webViewLink || (res.pdfArchived && res.pdfArchived.url);
+            const returnedDriveId = res.driveFileId || (res.pdfArchived && res.pdfArchived.fileId);
+
+            if (returnedDriveUrl) {
+              try {
+                if (item.action === 'UPSERT_DOCUMENT' && item.payload?.document) {
+                  const docId = item.payload.document.id;
+                  const docNum = item.payload.document.documentNumber;
+                  const localDoc = (docId ? await dbService.getDocumentById(docId) : null) || (docNum ? await dbService.getDocumentByNumber(docNum) : null);
+                  if (localDoc) {
+                    await dbService.saveDocument({
+                      ...localDoc,
+                      driveFileUrl: returnedDriveUrl,
+                      driveFileId: returnedDriveId || localDoc.driveFileId,
+                      syncedToGoogle: true,
+                      lastSyncStatus: 'synced',
+                    });
+                  }
+                } else if (item.action === 'RECORD_PAYMENT' && item.payload?.payment) {
+                  const payId = item.payload.payment.id;
+                  const localPay = payId ? await dbService.getPaymentById(payId) : null;
+                  if (localPay) {
+                    await dbService.savePayment({
+                      ...localPay,
+                      driveFileUrl: returnedDriveUrl,
+                      driveFileId: returnedDriveId || localPay.driveFileId,
+                      syncedToGoogle: true,
+                      lastSyncStatus: 'synced',
+                    });
+                  }
+                } else if (item.action === 'ARCHIVE_STATEMENT_PDF' || item.action === 'UPSERT_STATEMENT') {
+                  const stmtNum = item.payload?.statementNumber || item.payload?.statement?.statementNumber;
+                  if (stmtNum) {
+                    const stmts = await dbService.getStatements();
+                    const localStmt = stmts.find((s) => s.statementNumber === stmtNum);
+                    if (localStmt) {
+                      await dbService.saveStatement({
+                        ...localStmt,
+                        driveFileUrl: returnedDriveUrl,
+                        driveFileId: returnedDriveId || localStmt.driveFileId,
+                      });
+                    }
+                  }
+                }
+              } catch (persistErr) {
+                console.warn('[SyncQueue] Drive URL local persistence warning:', persistErr);
+              }
             }
 
             if (item.id !== undefined) {
