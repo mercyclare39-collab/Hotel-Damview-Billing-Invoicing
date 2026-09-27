@@ -901,6 +901,72 @@ class EnterpriseSyncManager {
   }
 
   /**
+   * Archives a Statement of Account PDF document to Google Drive with retries
+   */
+  public async archiveStatementPdf(
+    statement: StatementRecord,
+    pdfBase64?: string,
+    customFileName?: string,
+    pdfBlob?: Blob
+  ): Promise<MultipartPdfUploadResult> {
+    const fileName =
+      customFileName ||
+      `${statement.statementNumber}_${(statement.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_')}_${statement.issueDate}.pdf`;
+
+    return this.uploadPdfWithMultipartFormData({
+      statement,
+      statementNumber: statement.statementNumber,
+      pdfBlob,
+      pdfBase64,
+      fileName,
+    });
+  }
+
+  /**
+   * Archives a Billing Document PDF (Invoice, Quotation, Proforma) to Google Drive with retries
+   */
+  public async archiveDocumentPdf(
+    doc: BillingDocument,
+    pdfBase64?: string,
+    customFileName?: string,
+    pdfBlob?: Blob
+  ): Promise<MultipartPdfUploadResult> {
+    const fileName =
+      customFileName ||
+      `${doc.documentNumber}_${(doc.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_')}_${doc.issueDate}.pdf`;
+
+    return this.uploadPdfWithMultipartFormData({
+      document: doc,
+      documentNumber: doc.documentNumber,
+      pdfBlob,
+      pdfBase64,
+      fileName,
+    });
+  }
+
+  /**
+   * Archives a Payment Receipt PDF to Google Drive with retries
+   */
+  public async archiveReceiptPdf(
+    payment: PaymentRecord,
+    pdfBase64?: string,
+    customFileName?: string,
+    pdfBlob?: Blob
+  ): Promise<MultipartPdfUploadResult> {
+    const fileName =
+      customFileName ||
+      `REC_${payment.receiptNumber}_${(payment.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_')}_${payment.date}.pdf`;
+
+    return this.uploadPdfWithMultipartFormData({
+      payment,
+      receiptNumber: payment.receiptNumber,
+      pdfBlob,
+      pdfBase64,
+      fileName,
+    });
+  }
+
+  /**
    * Subscribes to reactive sync telemetry updates
    */
   public subscribeTelemetry(listener: TelemetryListener): () => void {

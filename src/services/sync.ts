@@ -1855,104 +1855,10 @@ class GoogleSyncManager {
   async archiveStatementPdf(
     statement: StatementRecord,
     pdfBase64?: string,
-    fileName?: string
+    fileName?: string,
+    pdfBlob?: Blob
   ): Promise<{ success: boolean; driveUrl?: string; driveFileId?: string; uploadVerified?: boolean; error?: string }> {
-    const profile = await dbService.getHotelProfile();
-    const url = profile.googleWebAppUrl;
-
-    const canonicalFileName =
-      fileName ||
-      `${statement.statementNumber}_${(statement.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_')}_${statement.issueDate}.pdf`;
-
-    let validPdfBase64 = pdfBase64;
-    if (!validPdfBase64 || validPdfBase64.length < 50) {
-      try {
-        const client = statement.clientId ? await dbService.getClientById(statement.clientId) : undefined;
-        const compiled = await generateStatementPdf(statement, profile, client || undefined);
-        validPdfBase64 = compiled.base64;
-      } catch (genErr) {
-        console.warn('Could not auto-compile statement PDF before Drive archival:', genErr);
-      }
-    }
-
-    // 1. WRITE-AHEAD COMMIT: Save statement locally FIRST
-    const initialStmt: StatementRecord = {
-      ...statement,
-      pdfGenerated: true,
-      updatedAt: new Date().toISOString(),
-    };
-    await dbService.saveStatement(initialStmt);
-
-    const payload = {
-      action: 'ARCHIVE_STATEMENT_PDF',
-      statementNumber: statement.statementNumber,
-      clientName: statement.clientName,
-      pdfBase64: validPdfBase64,
-      fileName: canonicalFileName,
-      folderName: profile.googleDriveFolder || 'Hotel Damview Archives',
-      timestamp: new Date().toISOString(),
-    };
-
-    if (!url || !navigator.onLine) {
-      const reason = !navigator.onLine
-        ? 'Offline mode active. Statement archived locally; queued for cloud sync.'
-        : 'Web App URL missing. Archived locally.';
-      await dbService.addToSyncQueue({
-        action: 'ARCHIVE_STATEMENT_PDF',
-        payload,
-      });
-      const queue = await dbService.getSyncQueue();
-      this.notifyListeners({ pendingCount: queue.length });
-      return { success: true, error: reason };
-    }
-
-    try {
-      this.notifyListeners({ isSyncing: true, statusText: 'Archiving Statement PDF to Google Drive...' });
-      const res = await this.postToScript(url, payload);
-
-      if (!res.success) {
-        throw new Error(res.error || 'Statement archive rejected by Google backend');
-      }
-
-      const driveUrl =
-        res?.pdfArchived?.webViewLink ||
-        res?.pdfArchived?.url ||
-        res?.webViewLink ||
-        res?.driveUrl ||
-        statement.driveFileUrl;
-      const driveFileId = res?.pdfArchived?.fileId || res?.driveFileId || statement.driveFileId;
-      const uploadVerified = Boolean(
-        res?.pdfArchived?.status === 'ARCHIVED' ||
-        (driveUrl && typeof driveUrl === 'string' && driveUrl.startsWith('http'))
-      );
-
-      const updatedStmt: StatementRecord = {
-        ...initialStmt,
-        driveFileUrl: driveUrl,
-        driveFileId,
-      };
-      await dbService.saveStatement(updatedStmt);
-
-      this.notifyListeners({
-        isSyncing: false,
-        lastSyncTimestamp: new Date().toISOString(),
-        statusText: uploadVerified ? 'Statement PDF Live Synced & Verified' : 'Statement PDF Live Synced',
-      });
-
-      return { success: true, driveUrl, driveFileId, uploadVerified };
-    } catch (err: any) {
-      await dbService.addToSyncQueue({
-        action: 'ARCHIVE_STATEMENT_PDF',
-        payload,
-      });
-      const queue = await dbService.getSyncQueue();
-      this.notifyListeners({
-        isSyncing: false,
-        pendingCount: queue.length,
-        statusText: 'Statement queued for cloud sync',
-      });
-      return { success: true, error: `Saved to local storage. Remote sync queued: ${err?.message || 'Statement sync network error'}` };
-    }
+    return enterpriseSyncManager.archiveStatementPdf(statement, pdfBase64, fileName, pdfBlob);
   }
 
   /**

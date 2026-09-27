@@ -134,6 +134,8 @@
    ========================================================================== */
 .financial-summary-table {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border-collapse: collapse;
   border-spacing: 0;
   font-family: 'Times New Roman', Times, 'Nimbus Roman No9 L', serif;

@@ -179,71 +179,51 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE (Strict Symmetrical Row Baseline Alignment) */}
+            {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE */}
             <div className="mb-3.5 w-full">
-              <table className="w-full text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: '12px 0' }}>
-                <thead>
-                  <tr>
-                    <th className="w-1/2 p-0 text-left border border-stone-300 rounded-t bg-stone-100/80">
-                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[11pt] tracking-wider text-stone-900">
-                        {clientBoxTitle}
-                      </div>
-                    </th>
-                    <th className="w-1/2 p-0 text-left border border-stone-300 rounded-t bg-stone-100/80">
-                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[11pt] tracking-wider text-stone-900">
-                        DOCUMENT DETAILS
-                      </div>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* Row 1: Client Name & Document Number (Strict Baseline Parallelism) */}
-                  <tr>
-                    <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
-                      <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Client Name:</span>
-                        <span className="font-bold text-stone-950 text-right break-words text-[11pt] pl-2 max-w-[70%]">{doc.clientName || 'Cash / Walk-In Customer'}</span>
-                      </div>
-                    </td>
-                    <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
-                      <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">{isQuotation ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:'}</span>
-                        <span className="font-bold font-mono text-stone-950 text-right text-[11pt] pl-2 max-w-[70%]">{doc.documentNumber || 'DRAFT'}</span>
-                      </div>
-                    </td>
-                  </tr>
-                  {/* Row 2: KRA PIN & Issue Date (Strict Baseline Parallelism) */}
-                  <tr>
-                    <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
-                      <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">KRA PIN:</span>
-                        <span className="font-mono text-stone-900 text-right text-[11pt] tracking-wider pl-2 max-w-[70%]">{doc.clientKraPin || 'N/A'}</span>
-                      </div>
-                    </td>
-                    <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
-                      <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Issue Date:</span>
-                        <span className="text-stone-900 text-right text-[11pt] pl-2 max-w-[70%]">{formatDate(doc.issueDate)}</span>
-                      </div>
-                    </td>
-                  </tr>
-                  {/* Row 3: Physical Address & Due Date (Equalized Row Heights & Parallel Baselines) */}
-                  <tr>
-                    <td className="w-1/2 p-0 border-x border-b border-stone-300 rounded-b bg-white" style={{ verticalAlign: 'middle' }}>
-                      <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Physical Address:</span>
-                        <span className="text-stone-800 text-right break-words text-[11pt] pl-2 max-w-[75%]">{doc.clientAddress || 'N/A'}</span>
-                      </div>
-                    </td>
-                    <td className="w-1/2 p-0 border-x border-b border-stone-300 rounded-b bg-white" style={{ verticalAlign: 'middle' }}>
-                      <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">{isQuotation ? 'Valid Until:' : 'Due Date:'}</span>
-                        <span className="font-medium text-stone-900 text-right text-[11pt] pl-2 max-w-[70%]">{doc.dueDate ? formatDate(doc.dueDate) : '-'}</span>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <div className="grid grid-cols-2 gap-3 text-[11pt]">
+                {/* Left Column: CLIENT DETAILS */}
+                <div className="border border-stone-300 rounded bg-white overflow-hidden">
+                  <div className="px-2.5 py-1 uppercase font-bold text-[11pt] tracking-wider text-stone-900 bg-stone-100/80 border-b border-stone-300">
+                    {clientBoxTitle}
+                  </div>
+                  <div className="p-2 space-y-1">
+                    <div className="flex justify-between items-center gap-2 leading-tight">
+                      <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Client Name:</span>
+                      <span className="font-bold text-stone-950 text-right break-words text-[11pt] pl-2 max-w-[70%]">{doc.clientName || 'Cash / Walk-In Customer'}</span>
+                    </div>
+                    <div className="flex justify-between items-center gap-2 leading-tight border-t border-stone-200/80 pt-1">
+                      <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">KRA PIN:</span>
+                      <span className="font-mono text-stone-900 text-right text-[11pt] tracking-wider pl-2 max-w-[70%]">{doc.clientKraPin || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between items-center gap-2 leading-tight border-t border-stone-200/80 pt-1">
+                      <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Physical Address:</span>
+                      <span className="text-stone-800 text-right break-words text-[11pt] pl-2 max-w-[75%]">{doc.clientAddress || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: DOCUMENT DETAILS */}
+                <div className="border border-stone-300 rounded bg-white overflow-hidden">
+                  <div className="px-2.5 py-1 uppercase font-bold text-[11pt] tracking-wider text-stone-900 bg-stone-100/80 border-b border-stone-300">
+                    DOCUMENT DETAILS
+                  </div>
+                  <div className="p-2 space-y-1">
+                    <div className="flex justify-between items-center gap-2 leading-tight">
+                      <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">{isQuotation ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:'}</span>
+                      <span className="font-bold font-mono text-stone-950 text-right text-[11pt] pl-2 max-w-[70%]">{doc.documentNumber || 'DRAFT'}</span>
+                    </div>
+                    <div className="flex justify-between items-center gap-2 leading-tight border-t border-stone-200/80 pt-1">
+                      <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Issue Date:</span>
+                      <span className="text-stone-900 text-right text-[11pt] pl-2 max-w-[70%]">{formatDate(doc.issueDate)}</span>
+                    </div>
+                    <div className="flex justify-between items-center gap-2 leading-tight border-t border-stone-200/80 pt-1">
+                      <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">{isQuotation ? 'Valid Until:' : 'Due Date:'}</span>
+                      <span className="font-medium text-stone-900 text-right text-[11pt] pl-2 max-w-[70%]">{doc.dueDate ? formatDate(doc.dueDate) : '-'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* 4. TRANSACTION LINE-ITEM GRID: Adaptive Dynamic Column Widths */}
@@ -398,8 +378,8 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                   </div>
 
                   {/* Right: Headerless Financial Summary */}
-                  <div className="w-[48%] min-w-[310px] max-w-[380px]">
-                    <table className="financial-summary-table border border-stone-300 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
+                  <div className="w-[48%] max-w-[350px]">
+                    <table className="financial-summary-table border border-stone-300 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%', boxSizing: 'border-box' }}>
                       <tbody>
                         {docDiscount > 0 && (
                           <>

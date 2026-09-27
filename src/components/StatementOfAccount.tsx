@@ -27,6 +27,7 @@ import {
   TrendingUp,
   MessageSquare,
   ShieldCheck,
+  Cloud,
 } from "lucide-react";
 import {
   Client,
@@ -195,6 +196,8 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
 
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isPdfPreviewModalOpen, setIsPdfPreviewModalOpen] = useState(false);
+  const [isUploadingDrive, setIsUploadingDrive] = useState(false);
+  const [driveUploadFeedback, setDriveUploadFeedback] = useState<string | null>(null);
 
   // Preview Modal state for individual Journal records
   const [previewItem, setPreviewItem] = useState<{
@@ -781,6 +784,67 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
     }
   };
 
+  const handleUploadStatementToDrive = async () => {
+    const targetElement =
+      modalPreviewRef.current || statementPreviewRef.current;
+    if (!targetElement || !selectedClient) return;
+    setIsUploadingDrive(true);
+    setDriveUploadFeedback("Compiling and uploading PDF to Google Drive...");
+    try {
+      const pdfRes = await generatePdfFromElement(
+        targetElement,
+        statementNumber,
+        selectedClient.name,
+        issueDate || endDate,
+        { download: false },
+      );
+
+      const stmtRecord: StatementRecord = {
+        id: `soa-${Date.now()}`,
+        statementNumber,
+        clientId: selectedClient.id,
+        clientName: selectedClient.name,
+        clientKraPin: selectedClient.kraPin,
+        issueDate: issueDate || endDate,
+        startDate,
+        endDate,
+        totalDebit,
+        totalCredit,
+        closingBalance,
+        entriesCount: ledgerEntries.length,
+        pdfGenerated: true,
+        createdAt: new Date().toISOString(),
+      };
+
+      const res = await syncManager.archiveStatementPdf(
+        stmtRecord,
+        pdfRes.base64,
+        pdfRes.fileName,
+        pdfRes.blob
+      );
+
+      if (res.success && res.driveUrl) {
+        await dbService.saveStatement({
+          ...stmtRecord,
+          driveFileUrl: res.driveUrl,
+          driveFileId: res.driveFileId,
+        });
+        setDriveUploadFeedback("Statement PDF uploaded to Google Drive successfully!");
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("damview:data-changed"));
+        }
+      } else {
+        setDriveUploadFeedback(res.error || "Failed to upload Statement PDF to Drive.");
+      }
+    } catch (err: any) {
+      console.error("Statement Drive upload error:", err);
+      setDriveUploadFeedback(err?.message || "Google Drive upload failed.");
+    } finally {
+      setIsUploadingDrive(false);
+      setTimeout(() => setDriveUploadFeedback(null), 5000);
+    }
+  };
+
   const handlePrint = () => {
     setIsPdfPreviewModalOpen(true);
     setTimeout(async () => {
@@ -1149,10 +1213,45 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                   {isGeneratingPdf ? "Generating..." : "Download Statement PDF"}
                 </span>
               </button>
+
+              <button
+                type="button"
+                onClick={handleUploadStatementToDrive}
+                disabled={isGeneratingPdf || isUploadingDrive}
+                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded font-bold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                title="Upload Statement of Account PDF directly to Google Drive"
+              >
+                <Cloud className={`w-3.5 h-3.5 ${isUploadingDrive ? "animate-bounce" : ""}`} />
+                <span>
+                  {isUploadingDrive ? "Uploading to Drive..." : "Upload PDF to Drive"}
+                </span>
+              </button>
             </>
           )}
         </div>
       </div>
+
+      {driveUploadFeedback && (
+        <div className={`no-print px-4 py-2 text-xs flex items-center justify-between border-b ${
+          driveUploadFeedback.includes("successfully")
+            ? "bg-emerald-50 text-emerald-900 border-emerald-200"
+            : driveUploadFeedback.includes("Uploading") || driveUploadFeedback.includes("Compiling")
+            ? "bg-sky-50 text-sky-900 border-sky-200 animate-pulse"
+            : "bg-amber-50 text-amber-900 border-amber-200"
+        }`}>
+          <div className="flex items-center gap-2">
+            <Cloud className="w-4 h-4 shrink-0 text-sky-600" />
+            <span>{driveUploadFeedback}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDriveUploadFeedback(null)}
+            className="text-stone-400 hover:text-stone-700"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* 2. MAIN WORKSPACE CONTENT */}
       <div className="flex-1 overflow-y-auto bg-stone-100/60 p-4 md:p-6 space-y-6">
