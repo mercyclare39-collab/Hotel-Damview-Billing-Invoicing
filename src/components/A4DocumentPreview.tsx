@@ -185,12 +185,12 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                 <thead>
                   <tr>
                     <th className="w-1/2 p-0 text-left">
-                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-200/90">
+                      <div className="bg-stone-100/80 border border-stone-300 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-300">
                         {clientBoxTitle}
                       </div>
                     </th>
                     <th className="w-1/2 p-0 text-left">
-                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-200/90">
+                      <div className="bg-stone-100/80 border border-stone-300 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-300">
                         DOCUMENT DETAILS
                       </div>
                     </th>
@@ -200,13 +200,13 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                   {/* Row 1: Client Name & Document Number (Strict Baseline Parallelism) */}
                   <tr>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Client Name:</span>
                         <span className="font-bold text-stone-950 text-right break-words text-[9.5pt] pl-2 max-w-[70%]">{doc.clientName || 'Cash / Walk-In Customer'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">{isQuotation ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:'}</span>
                         <span className="font-bold font-mono text-stone-950 text-right text-[10pt] pl-2 max-w-[70%]">{doc.documentNumber || 'DRAFT'}</span>
                       </div>
@@ -215,13 +215,13 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                   {/* Row 2: KRA PIN & Issue Date (Strict Baseline Parallelism) */}
                   <tr>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">KRA PIN:</span>
                         <span className="font-mono text-stone-900 text-right text-[9.5pt] tracking-wider pl-2 max-w-[70%]">{doc.clientKraPin || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Issue Date:</span>
                         <span className="text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{formatDate(doc.issueDate)}</span>
                       </div>
@@ -230,13 +230,13 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                   {/* Row 3: Physical Address & Due Date (Multi-line Parallel Expansion Engine) */}
                   <tr>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Physical Address:</span>
                         <span className="text-stone-800 text-right break-words text-[9.5pt] pl-2 max-w-[75%]">{doc.clientAddress || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">{isQuotation ? 'Valid Until:' : 'Due Date:'}</span>
                         <span className="font-medium text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{doc.dueDate ? formatDate(doc.dueDate) : '-'}</span>
                       </div>
@@ -357,10 +357,10 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
               {hasPaymentSettlement ? (
                 <div className="flex items-stretch justify-between gap-4 w-full">
                   {/* Left: Clean, headerless Settlement Instructions card */}
-                  <div className="flex-1 border border-stone-200/90 rounded p-2.5 bg-stone-50/40 text-[10pt] leading-tight space-y-1">
+                  <div className="flex-1 border border-stone-300 rounded p-2.5 bg-stone-50/60 text-[10pt] leading-tight space-y-1">
                     {hasBankRemittance && (
                       <>
-                        <div className="font-bold text-stone-900 border-b border-stone-200/80 pb-0.5 uppercase tracking-wider text-[9pt]">
+                        <div className="font-bold text-stone-900 border-b border-stone-200 pb-0.5 uppercase tracking-wider text-[9pt]">
                           Bank Remittance Instructions
                         </div>
                         {hasBankName && (
@@ -390,7 +390,7 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                       </>
                     )}
                     {hasMpesa && (
-                      <div className={`grid grid-cols-2 gap-x-1 ${hasBankRemittance ? 'pt-1 border-t border-stone-200/80' : ''}`}>
+                      <div className={`grid grid-cols-2 gap-x-1 ${hasBankRemittance ? 'pt-1 border-t border-stone-200' : ''}`}>
                         <span className="font-semibold text-emerald-800">M-Pesa Buy Goods Till:</span>
                         <span className="font-mono font-bold text-emerald-900">{profile.mpesaTillNumber.trim()}</span>
                       </div>
@@ -399,7 +399,7 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
 
                   {/* Right: Headerless Financial Summary */}
                   <div className="w-[48%] min-w-[310px] max-w-[380px]">
-                    <table className="financial-summary-table border border-stone-200/90 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
+                    <table className="financial-summary-table border border-stone-300 rounded text-[11pt]" style={{ borderCollapse: 'collapse', width: '100%' }}>
                       <tbody>
                         {docDiscount > 0 && (
                           <>

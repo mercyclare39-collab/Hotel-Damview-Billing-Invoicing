@@ -152,12 +152,12 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                 <thead>
                   <tr>
                     <th className="w-1/2 p-0 text-left">
-                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-200/90">
+                      <div className="bg-stone-100/80 border border-stone-300 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-300">
                         STATEMENT TO
                       </div>
                     </th>
                     <th className="w-1/2 p-0 text-left">
-                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-200/90">
+                      <div className="bg-stone-100/80 border border-stone-300 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-300">
                         DOCUMENT DETAILS
                       </div>
                     </th>
@@ -167,13 +167,13 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                   {/* Row 1: Client Name & Statement Number (Strict Baseline Parallelism) */}
                   <tr>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Client Name:</span>
                         <span className="font-bold text-stone-950 text-right break-words text-[9.5pt] pl-2 max-w-[70%]">{client?.name || 'Selected Client'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Statement No:</span>
                         <span className="font-bold font-mono text-stone-950 text-right text-[10pt] pl-2 max-w-[70%]">{statementNumber}</span>
                       </div>
@@ -182,13 +182,13 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                   {/* Row 2: KRA PIN & Issue Date (Strict Baseline Parallelism) */}
                   <tr>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">KRA PIN:</span>
                         <span className="font-mono text-stone-900 text-right text-[9.5pt] tracking-wider pl-2 max-w-[70%]">{client?.kraPin || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Issue Date:</span>
                         <span className="text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{issueDate ? formatDate(issueDate) : formatDate()}</span>
                       </div>
@@ -197,13 +197,13 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                   {/* Row 3: Physical Address & Period Covered (Multi-line Parallel Expansion Engine) */}
                   <tr>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Physical Address:</span>
                         <span className="text-stone-800 text-right break-words text-[9.5pt] pl-2 max-w-[75%]">{client?.address || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
-                      <div className="border-x border-b border-stone-200/85 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                      <div className="border-x border-b border-stone-300 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
                         <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Period Covered:</span>
                         <span className="font-medium text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{dynamicPeriodCovered}</span>
                       </div>
