@@ -369,7 +369,11 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       } catch {}
     };
     window.addEventListener('damview-before-app-update', handleBeforeUpdate);
-    return () => window.removeEventListener('damview-before-app-update', handleBeforeUpdate);
+    window.addEventListener('beforeunload', handleBeforeUpdate);
+    return () => {
+      window.removeEventListener('damview-before-app-update', handleBeforeUpdate);
+      window.removeEventListener('beforeunload', handleBeforeUpdate);
+    };
   }, [
     initialDocument,
     docType,

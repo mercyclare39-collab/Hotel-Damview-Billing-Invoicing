@@ -77,6 +77,23 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       dbService.getNextReceiptNumber().then(setReceiptNumber);
+
+      // Check for saved draft in session
+      try {
+        const savedDraftRaw = sessionStorage.getItem('damview_payment_modal_draft');
+        if (savedDraftRaw) {
+          const draft = JSON.parse(savedDraftRaw);
+          if (draft && (draft.docId === doc?.id || draft.clientId === (doc?.clientId || initialClientId))) {
+            setClientId(draft.clientId || doc?.clientId || initialClientId || (clients[0]?.id ?? ''));
+            setDate(draft.date || formatDate());
+            setAmount(Number(draft.amount) || (doc && doc.balanceDue > 0 ? doc.balanceDue : doc?.grandTotal || 0));
+            setPaymentMode(draft.paymentMode || 'M-Pesa');
+            setReferenceNote(draft.referenceNote || '');
+            return;
+          }
+        }
+      } catch {}
+
       if (doc) {
         setClientId(doc.clientId);
         setAmount(doc.balanceDue > 0 ? doc.balanceDue : doc.grandTotal);
@@ -90,7 +107,27 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         setReferenceNote('');
       }
     }
-  }, [isOpen, doc, initialClientId]);
+  }, [isOpen, doc, initialClientId, clients]);
+
+  // Persist in-progress modal edits in session
+  useEffect(() => {
+    if (!isOpen) return;
+    try {
+      if (amount > 0 || referenceNote.trim()) {
+        sessionStorage.setItem(
+          'damview_payment_modal_draft',
+          JSON.stringify({
+            docId: doc?.id,
+            clientId,
+            date,
+            amount,
+            paymentMode,
+            referenceNote,
+          })
+        );
+      }
+    } catch {}
+  }, [isOpen, doc?.id, clientId, date, amount, paymentMode, referenceNote]);
 
   const selectedClient = useMemo(() => {
     return clients.find((c) => c.id === clientId) || clients[0];
@@ -170,11 +207,22 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         }
       }
 
+      try {
+        sessionStorage.removeItem('damview_payment_modal_draft');
+      } catch {}
+
       onSavePayment(newPayment, validPdfBase64, pdfFileName);
       onClose();
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleModalClose = () => {
+    try {
+      sessionStorage.removeItem('damview_payment_modal_draft');
+    } catch {}
+    onClose();
   };
 
   const handleDownloadPdf = async () => {
@@ -311,7 +359,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             {/* Back / Cancel trigger alongside Save */}
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleModalClose}
               className="px-3 py-1.5 text-xs font-semibold bg-stone-800 hover:bg-stone-700 text-stone-300 rounded border border-stone-700 flex items-center gap-1 transition-colors cursor-pointer ml-1"
               title="Cancel and close editor"
             >

@@ -41,8 +41,9 @@ import {
 
 export default function App() {
   const [currentModule, setCurrentModuleState] = useState<MainNavModule>(() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const saved = localStorage.getItem('damview_active_module') as MainNavModule;
+    if (typeof window !== 'undefined') {
+      // 1. Check URL Hash (e.g. #invoices, #receipts, #statements)
+      const hash = window.location.hash.replace('#', '').toLowerCase() as MainNavModule;
       const validModules: MainNavModule[] = [
         'dashboard',
         'reservations',
@@ -59,8 +60,16 @@ export default function App() {
         'excel',
         'settings',
       ];
-      if (saved && validModules.includes(saved)) {
-        return saved;
+      if (hash && validModules.includes(hash)) {
+        return hash;
+      }
+
+      // 2. Check localStorage
+      if (window.localStorage) {
+        const saved = localStorage.getItem('damview_active_module') as MainNavModule;
+        if (saved && validModules.includes(saved)) {
+          return saved;
+        }
       }
     }
     return 'dashboard';
@@ -70,6 +79,9 @@ export default function App() {
     setCurrentModuleState(mod);
     try {
       localStorage.setItem('damview_active_module', mod);
+      if (typeof window !== 'undefined' && window.location.hash !== `#${mod}`) {
+        window.history.replaceState(null, '', `#${mod}`);
+      }
     } catch {}
   };
 
@@ -365,6 +377,54 @@ export default function App() {
     window.addEventListener('damview:navigate-journal', handleNavigateJournal);
     window.addEventListener('damview:gas-version-mismatch', handleGasVersionMismatch);
 
+    // Handle browser hash changes (Back/Forward buttons)
+    const handleHashChange = () => {
+      if (typeof window !== 'undefined') {
+        const hash = window.location.hash.replace('#', '').toLowerCase() as MainNavModule;
+        const validModules: MainNavModule[] = [
+          'dashboard',
+          'reservations',
+          'pos',
+          'quotations',
+          'proformas',
+          'invoices',
+          'receipts',
+          'statements',
+          'nightaudit',
+          'vault',
+          'clients',
+          'sync',
+          'excel',
+          'settings',
+        ];
+        if (hash && validModules.includes(hash)) {
+          setCurrentModuleState(hash);
+          try {
+            localStorage.setItem('damview_active_module', hash);
+          } catch {}
+        }
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+
+    // Safeguard active uncommitted drafts & in-flight background requests on page reload/closure
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const hasActiveEditing =
+        editingDoc !== null ||
+        (typeof window !== 'undefined' &&
+          (localStorage.getItem('damview_active_editing_doc') ||
+            localStorage.getItem('damview_draft_document_editor')));
+      
+      const isCriticalSync = isSyncing;
+
+      if (hasActiveEditing || isCriticalSync) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     // Sync when tab receives focus to catch changes from other devices immediately
     const handleWindowFocus = () => {
       syncManager.syncBidirectional().catch(() => {});
@@ -423,6 +483,8 @@ export default function App() {
       window.removeEventListener('damview:navigate-module', handleNavigateModule);
       window.removeEventListener('damview:navigate-journal', handleNavigateJournal);
       window.removeEventListener('damview:gas-version-mismatch', handleGasVersionMismatch);
+      window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('keydown', handleGlobalKeyDown);
       window.removeEventListener('damview:open-apps-script-diff', handleOpenAppsScriptDiff);

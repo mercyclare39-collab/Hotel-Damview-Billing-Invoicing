@@ -104,12 +104,37 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   onNewDocumentForClient,
   highlightedItemId,
 }) => {
-  const [selectedClientId, setSelectedClientId] = useState<string>(
-    initialClientId || (clients[0]?.id ?? ""),
-  );
+  const [selectedClientId, setSelectedClientIdState] = useState<string>(() => {
+    if (initialClientId) return initialClientId;
+    if (typeof window !== "undefined" && window.localStorage) {
+      const saved = localStorage.getItem("damview_soa_client_id");
+      if (saved && clients.some((c) => c.id === saved)) return saved;
+    }
+    return clients[0]?.id ?? "";
+  });
+
+  const setSelectedClientId = (id: string) => {
+    setSelectedClientIdState(id);
+    try {
+      localStorage.setItem("damview_soa_client_id", id);
+    } catch {}
+  };
 
   // Active Main View: 'journal' for Document Journal, 'ledger' for Financial Ledger & Statement
-  const [activeView, setActiveView] = useState<"journal" | "ledger">("journal");
+  const [activeView, setActiveViewState] = useState<"journal" | "ledger">(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const saved = localStorage.getItem("damview_soa_active_view");
+      if (saved === "journal" || saved === "ledger") return saved;
+    }
+    return "journal";
+  });
+
+  const setActiveView = (view: "journal" | "ledger") => {
+    setActiveViewState(view);
+    try {
+      localStorage.setItem("damview_soa_active_view", view);
+    } catch {}
+  };
 
   // Highlighted item ID for journal table focus
   const [localHighlightedItemId, setLocalHighlightedItemId] = useState<string | null>(
@@ -130,8 +155,36 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
     return d.toISOString().split("T")[0];
   }, []);
 
-  const [startDate, setStartDate] = useState(defaultStartDate);
-  const [endDate, setEndDate] = useState(formatDate());
+  const [startDate, setStartDateState] = useState(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const saved = localStorage.getItem("damview_soa_start_date");
+      if (saved) return saved;
+    }
+    return defaultStartDate;
+  });
+
+  const setStartDate = (d: string) => {
+    setStartDateState(d);
+    try {
+      localStorage.setItem("damview_soa_start_date", d);
+    } catch {}
+  };
+
+  const [endDate, setEndDateState] = useState(() => {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const saved = localStorage.getItem("damview_soa_end_date");
+      if (saved) return saved;
+    }
+    return formatDate();
+  });
+
+  const setEndDate = (d: string) => {
+    setEndDateState(d);
+    try {
+      localStorage.setItem("damview_soa_end_date", d);
+    } catch {}
+  };
+
   // Editable statement issue date
   const [issueDate, setIssueDate] = useState(formatDate());
   const [statusFilter, setStatusFilter] = useState<
