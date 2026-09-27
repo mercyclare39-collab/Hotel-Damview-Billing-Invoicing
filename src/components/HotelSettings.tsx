@@ -513,10 +513,25 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
       const res = await syncManager.testConnection(targetUrl);
       setTestResult(res);
       if (res.ok) {
+        const versionMatch = res.message.match(/v\d+\.\d+(\.\d+)?/);
+        const detectedVer = versionMatch ? versionMatch[0] : null;
+
+        if (detectedVer && detectedVer !== GOOGLE_APPS_SCRIPT_VERSION) {
+          window.dispatchEvent(
+            new CustomEvent('damview:gas-version-mismatch', {
+              detail: {
+                message: `Google Apps Script update available: Deployed ${detectedVer} → Latest ${GOOGLE_APPS_SCRIPT_VERSION}. Click Copy Code.gs below to update.`,
+                deployedVersion: detectedVer,
+                latestVersion: GOOGLE_APPS_SCRIPT_VERSION,
+              },
+            })
+          );
+        }
+
         appNotificationService.notifyAppsScript(
           'Google Apps Script Connected',
-          `Successfully verified endpoint connection (${GOOGLE_APPS_SCRIPT_VERSION}). Google Spreadsheet: ${res.sheetName || 'Hotel Damview ERP'}.`,
-          { version: GOOGLE_APPS_SCRIPT_VERSION, sheetName: res.sheetName, url: targetUrl }
+          `Successfully verified endpoint connection (${detectedVer || GOOGLE_APPS_SCRIPT_VERSION}). Google Spreadsheet: ${res.sheetName || 'Hotel Damview ERP'}.`,
+          { version: detectedVer || GOOGLE_APPS_SCRIPT_VERSION, sheetName: res.sheetName, url: targetUrl }
         );
       } else {
         appNotificationService.notify({

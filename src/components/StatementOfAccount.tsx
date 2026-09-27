@@ -59,6 +59,7 @@ interface StatementOfAccountProps {
   clients: Client[];
   documents: BillingDocument[];
   payments: PaymentRecord[];
+  statements?: StatementRecord[];
   profile: HotelProfile;
   initialClientId?: string;
   onRecordPayment?: (clientId: string, doc?: BillingDocument) => void;
@@ -91,6 +92,7 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   clients,
   documents,
   payments,
+  statements = [],
   profile,
   initialClientId,
   onRecordPayment,
@@ -493,6 +495,67 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   // =========================================================================
   // 3. ACTIONS & EXPORTS
   // =========================================================================
+  const handleSaveAndRecordStatement = async () => {
+    if (!selectedClient) return;
+    setIsGeneratingPdf(true);
+    try {
+      const targetElement =
+        modalPreviewRef.current || statementPreviewRef.current;
+      let pdfRes: any;
+      if (targetElement) {
+        pdfRes = await generatePdfFromElement(
+          targetElement,
+          statementNumber,
+          selectedClient.name,
+          issueDate || endDate,
+          { download: false },
+        );
+      }
+
+      const stmtRecord: StatementRecord = {
+        id: `soa-${Date.now()}`,
+        statementNumber,
+        clientId: selectedClient.id,
+        clientName: selectedClient.name,
+        clientKraPin: selectedClient.kraPin,
+        issueDate: issueDate || endDate,
+        startDate,
+        endDate,
+        totalDebit,
+        totalCredit,
+        closingBalance,
+        entriesCount: ledgerEntries.length,
+        pdfGenerated: true,
+        createdAt: new Date().toISOString(),
+      };
+
+      await dbService.saveStatement(stmtRecord);
+
+      if (pdfRes?.blob) {
+        localBackupService
+          .mirrorDocumentDualLocalBackup(
+            pdfRes.blob,
+            pdfRes.fileName,
+            stmtRecord,
+            statementNumber,
+          )
+          .catch((err) => console.warn("Local statement backup warning:", err));
+
+        syncManager
+          .archiveStatementPdf(stmtRecord, pdfRes.base64, pdfRes.fileName)
+          .catch((err) =>
+            console.warn("Google Drive statement sync warning:", err),
+          );
+      }
+
+      setIsPdfPreviewModalOpen(true);
+    } catch (err: any) {
+      console.error("Failed to save and record Statement:", err);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   const handleDownloadStatementPdf = async () => {
     const targetElement =
       modalPreviewRef.current || statementPreviewRef.current;
@@ -894,6 +957,17 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
               >
                 <Eye className="w-3.5 h-3.5 text-amber-700" />
                 <span>Preview Statement</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveAndRecordStatement}
+                disabled={isGeneratingPdf}
+                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded font-bold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                title="Save Statement record to local journal, queue Drive upload, and open preview modal"
+              >
+                <FileCheck className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Save & Record Document</span>
               </button>
 
               <button
@@ -1783,6 +1857,27 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
             closingBalance={closingBalance}
             isPrintVersion={true}
           />
+        </div>
+      )}
+
+      {/* OFFSCREEN RENDERED CONTAINER FOR RELIABLE PDF GENERATION */}
+      {selectedClient && (
+        <div style={{ position: "absolute", left: "-9999px", top: "-9999px", width: "210mm", height: "auto", overflow: "hidden" }} aria-hidden="true">
+          <div ref={statementPreviewRef}>
+            <A4StatementPreview
+              client={selectedClient}
+              profile={profile}
+              startDate={startDate}
+              endDate={endDate}
+              statementNumber={statementNumber}
+              issueDate={issueDate}
+              entries={ledgerEntries}
+              totalDebit={totalDebit}
+              totalCredit={totalCredit}
+              closingBalance={closingBalance}
+              scale={1}
+            />
+          </div>
         </div>
       )}
     </div>

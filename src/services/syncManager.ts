@@ -111,6 +111,16 @@ class EnterpriseSyncManager {
   }
 
   /**
+   * Immediate Push: Forces queue drain without waiting for idle timer
+   */
+  public triggerImmediatePush(): void {
+    if (typeof window === 'undefined') return;
+    this.processQueue(true).catch((err) =>
+      console.warn('[SyncManager] Immediate push warning:', err)
+    );
+  }
+
+  /**
    * Force Sync Now: Resets backoff timestamps, clears retry gates, and drains queue immediately
    */
   public async forceSyncNow(): Promise<{ success: boolean; message: string; processedCount: number }> {
@@ -664,6 +674,123 @@ class EnterpriseSyncManager {
       statusText,
       humanStatus,
     };
+  }
+
+  /**
+   * Diagnostic utility function to trace the lifecycle of a document action from UI trigger to XHR/Fetch completion,
+   * logging any promise rejections, network state, and silent failures in EnterpriseSyncManager to the browser console.
+   */
+  private lifecycleTraces: Array<{
+    traceId: string;
+    actionType: string;
+    documentId?: string;
+    documentNumber?: string;
+    triggeredAt: string;
+    completedAt?: string;
+    durationMs?: number;
+    status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'SILENT_FAILURE_DETECTED';
+    networkState: {
+      isOnline: boolean;
+      effectiveType?: string;
+      rtt?: number;
+    };
+    error?: string;
+    payloadSummary?: any;
+  }> = [];
+
+  public async traceDocumentActionLifecycle<T>(
+    actionType: string,
+    actionFn: () => Promise<T>,
+    metadata?: { documentId?: string; documentNumber?: string; payload?: any }
+  ): Promise<T> {
+    const traceId = 'trace-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
+    const triggeredAt = new Date().toISOString();
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    const connection = typeof navigator !== 'undefined' ? (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection : undefined;
+    const networkState = {
+      isOnline,
+      effectiveType: connection?.effectiveType,
+      rtt: connection?.rtt,
+    };
+
+    const traceRecord: {
+      traceId: string;
+      actionType: string;
+      documentId?: string;
+      documentNumber?: string;
+      triggeredAt: string;
+      completedAt?: string;
+      durationMs?: number;
+      status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'SILENT_FAILURE_DETECTED';
+      networkState: {
+        isOnline: boolean;
+        effectiveType?: string;
+        rtt?: number;
+      };
+      error?: string;
+      payloadSummary?: any;
+    } = {
+      traceId,
+      actionType,
+      documentId: metadata?.documentId,
+      documentNumber: metadata?.documentNumber,
+      triggeredAt,
+      status: 'PENDING',
+      networkState,
+      payloadSummary: metadata?.payload ? { keys: Object.keys(metadata.payload), sizeBytes: JSON.stringify(metadata.payload).length } : undefined,
+    };
+
+    this.lifecycleTraces.unshift(traceRecord);
+    if (this.lifecycleTraces.length > 200) this.lifecycleTraces.pop();
+
+    console.info(`[EnterpriseSyncManager:DiagnosticTrace:Trigger] Action "${actionType}" started`, {
+      traceId,
+      triggeredAt,
+      networkState,
+      metadata,
+    });
+
+    const startTime = Date.now();
+    try {
+      const result = await actionFn();
+      const completedAt = new Date().toISOString();
+      const durationMs = Date.now() - startTime;
+      traceRecord.status = 'SUCCESS';
+      traceRecord.completedAt = completedAt;
+      traceRecord.durationMs = durationMs;
+
+      console.info(`[EnterpriseSyncManager:DiagnosticTrace:Success] Action "${actionType}" completed successfully in ${durationMs}ms`, {
+        traceId,
+        completedAt,
+        durationMs,
+        networkState: { isOnline: navigator.onLine },
+        resultSummary: result ? (typeof result === 'object' ? { success: (result as any).success, id: (result as any).id } : 'primitive') : 'void',
+      });
+      return result;
+    } catch (err: any) {
+      const completedAt = new Date().toISOString();
+      const durationMs = Date.now() - startTime;
+      const errorMsg = err?.message || String(err);
+      
+      const isSilentFailure = errorMsg.includes('silent') || (!navigator.onLine && errorMsg.includes('fetch'));
+      traceRecord.status = isSilentFailure ? 'SILENT_FAILURE_DETECTED' : 'FAILED';
+      traceRecord.completedAt = completedAt;
+      traceRecord.durationMs = durationMs;
+      traceRecord.error = errorMsg;
+
+      console.error(`[EnterpriseSyncManager:DiagnosticTrace:Error] Action "${actionType}" failed/rejected after ${durationMs}ms`, {
+        traceId,
+        error: errorMsg,
+        stack: err?.stack,
+        networkState: { isOnline: navigator.onLine },
+        status: traceRecord.status,
+      });
+      throw err;
+    }
+  }
+
+  public getDocumentActionTraces(): any[] {
+    return this.lifecycleTraces;
   }
 
   /**

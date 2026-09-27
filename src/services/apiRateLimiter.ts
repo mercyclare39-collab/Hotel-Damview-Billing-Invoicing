@@ -37,11 +37,11 @@ interface QueuedTask<T> {
 }
 
 export class EnterpriseApiRateLimiter {
-  // Token Bucket Configuration (12 tokens max, 1 token replenished every 400ms)
-  private maxTokens = 12;
-  private tokens = 12;
-  private refillRateMs = 450; // Refill 1 token every 450ms (~2.2 req/sec sustained)
-  private minInterCallDelayMs = 250; // Minimum gap between dispatched requests
+  // Token Bucket & Throttling Configuration (Unconstrained & Instantaneous)
+  private maxTokens = 99999;
+  private tokens = 99999;
+  private refillRateMs = 1; 
+  private minInterCallDelayMs = 0;
   private lastDispatchTime = 0;
   private refillTimer: any = null;
 

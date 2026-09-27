@@ -167,7 +167,13 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
   // Live Sheet Data state (Live Previewer)
   const [liveSheetData, setLiveSheetData] = useState<SpreadsheetDataPayload | null>(null);
-  const [selectedDiscoveredTab, setSelectedDiscoveredTab] = useState<string>('Invoices');
+  const [selectedDiscoveredTab, setSelectedDiscoveredTab] = useState<string>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = localStorage.getItem('damview_selected_discovered_tab');
+      if (saved) return saved;
+    }
+    return 'Invoices';
+  });
   const [isLoadingLiveSheet, setIsLoadingLiveSheet] = useState(false);
   const [liveSheetFilter, setLiveSheetFilter] = useState('');
   const [showEmbeddedIframe, setShowEmbeddedIframe] = useState(false);
@@ -464,8 +470,21 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
       const detectedVer = versionMatch ? versionMatch[0] : GOOGLE_APPS_SCRIPT_VERSION;
       setDetectedScriptVersion(detectedVer);
       
-      // When connection test succeeds, mark backend as verified and do not trigger false-positive mismatch alert
-      setShowVersionMismatchAlert(false);
+      // Live comparison: alert immediately if deployed script does not match the latest authoritative version
+      if (detectedVer && detectedVer !== GOOGLE_APPS_SCRIPT_VERSION) {
+        setShowVersionMismatchAlert(true);
+        window.dispatchEvent(
+          new CustomEvent('damview:gas-version-mismatch', {
+            detail: {
+              message: `Companion Google Apps Script update required: Actively deployed Web App is running ${detectedVer}, but latest version is ${GOOGLE_APPS_SCRIPT_VERSION}. Click Settings to copy latest Code.gs.`,
+              deployedVersion: detectedVer,
+              latestVersion: GOOGLE_APPS_SCRIPT_VERSION,
+            },
+          })
+        );
+      } else {
+        setShowVersionMismatchAlert(false);
+      }
 
       const tabCount = result.tabs && result.tabs.length > 0 ? ` (${result.tabs.length} tabs verified)` : '';
       setSyncFeedback({
@@ -729,11 +748,10 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     try {
       const res = await syncManager.fetchSheetData();
       if (res.success && res.data) {
-        setLiveSheetData(res.data);
-        if (res.data.discoveredTabs && res.data.discoveredTabs.length > 0) {
-          if (!res.data.discoveredTabs.some((t) => t.name === selectedDiscoveredTab)) {
-            setSelectedDiscoveredTab(res.data.discoveredTabs[0].name);
-          }
+        const newSig = JSON.stringify(res.data.discoveredTabs || []);
+        const oldSig = liveSheetData ? JSON.stringify(liveSheetData.discoveredTabs || []) : '';
+        if (newSig !== oldSig) {
+          setLiveSheetData(res.data);
         }
       }
     } catch (err) {
@@ -1682,6 +1700,9 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
                         setSelectedDiscoveredTab(t.name);
                         setShowEmbeddedIframe(false);
                         setLiveSheetFilter('');
+                        try {
+                          localStorage.setItem('damview_selected_discovered_tab', t.name);
+                        } catch {}
                       }}
                       className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer ${
                         isSelected

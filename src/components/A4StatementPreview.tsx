@@ -146,66 +146,66 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE (Row-Level Parallelism with Shared Dynamic Heights) */}
-            <div className="mb-4 w-full">
-              <table className="w-full text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: '14px 0' }}>
+            {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE (Dynamic Auto-Fitting Geometry & Parallel Baseline Alignment) */}
+            <div className="mb-3.5 w-full">
+              <table className="w-full text-[10.5pt]" style={{ borderCollapse: 'separate', borderSpacing: '12px 0' }}>
                 <thead>
                   <tr>
                     <th className="w-1/2 p-0 text-left">
-                      <div className="bg-stone-50 border border-stone-200 rounded-t px-3 py-1.5 text-left uppercase font-bold text-[10pt] tracking-wider text-stone-900 border-b border-stone-200">
+                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-200/90">
                         STATEMENT TO
                       </div>
                     </th>
                     <th className="w-1/2 p-0 text-left">
-                      <div className="bg-stone-50 border border-stone-200 rounded-t px-3 py-1.5 text-left uppercase font-bold text-[10pt] tracking-wider text-stone-900 border-b border-stone-200">
+                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-200/90">
                         DOCUMENT DETAILS
                       </div>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Row 1: Client Name & Statement Number */}
+                  {/* Row 1: Client Name & Statement Number (Strict Baseline Parallelism) */}
                   <tr>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Client Name:</span>
-                        <span className="font-bold text-stone-950 text-right break-words text-[10pt] pl-2 max-w-[70%]">{client?.name || 'Selected Client'}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Client Name:</span>
+                        <span className="font-bold text-stone-950 text-right break-words text-[9.5pt] pl-2 max-w-[70%]">{client?.name || 'Selected Client'}</span>
                       </div>
                     </td>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Statement No:</span>
-                        <span className="font-bold font-mono text-stone-950 text-right text-[10.5pt] pl-2 max-w-[70%]">{statementNumber}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Statement No:</span>
+                        <span className="font-bold font-mono text-stone-950 text-right text-[10pt] pl-2 max-w-[70%]">{statementNumber}</span>
                       </div>
                     </td>
                   </tr>
-                  {/* Row 2: KRA PIN & Issue Date */}
+                  {/* Row 2: KRA PIN & Issue Date (Strict Baseline Parallelism) */}
                   <tr>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">KRA PIN:</span>
-                        <span className="font-mono text-stone-900 text-right text-[10pt] tracking-wider pl-2 max-w-[70%]">{client?.kraPin || 'N/A'}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">KRA PIN:</span>
+                        <span className="font-mono text-stone-900 text-right text-[9.5pt] tracking-wider pl-2 max-w-[70%]">{client?.kraPin || 'N/A'}</span>
                       </div>
                     </td>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Issue Date:</span>
-                        <span className="text-stone-900 text-right text-[10pt] pl-2 max-w-[70%]">{issueDate ? formatDate(issueDate) : formatDate()}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Issue Date:</span>
+                        <span className="text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{issueDate ? formatDate(issueDate) : formatDate()}</span>
                       </div>
                     </td>
                   </tr>
-                  {/* Row 3: Physical Address & Period Covered */}
+                  {/* Row 3: Physical Address & Period Covered (Multi-line Parallel Expansion Engine) */}
                   <tr>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200 rounded-b px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Physical Address:</span>
-                        <span className="text-stone-800 text-right break-words text-[10pt] pl-2 max-w-[75%]">{client?.address || 'N/A'}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Physical Address:</span>
+                        <span className="text-stone-800 text-right break-words text-[9.5pt] pl-2 max-w-[75%]">{client?.address || 'N/A'}</span>
                       </div>
                     </td>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200 rounded-b px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[36px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Period Covered:</span>
-                        <span className="font-medium text-stone-900 text-right text-[10pt] pl-2 max-w-[70%]">{dynamicPeriodCovered}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Period Covered:</span>
+                        <span className="font-medium text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{dynamicPeriodCovered}</span>
                       </div>
                     </td>
                   </tr>

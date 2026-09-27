@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { BillingDocument, PaymentRecord, StatementRecord, HotelProfile } from '../types';
+import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
 
 interface DriveVaultProps {
   documents: BillingDocument[];
@@ -99,6 +100,16 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
       item.clientName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchType = selectedType === 'ALL' || item.docType === selectedType;
     return matchSearch && matchType;
+  });
+
+  const { sortConfig, toggleSort, sortData } = usePersistentSort('drive_vault', 'date', 'desc');
+
+  const sortedFilteredItems = sortData(filteredItems, {
+    number: (i) => i.number,
+    docType: (i) => i.docType,
+    clientName: (i) => i.clientName,
+    date: (i) => i.date,
+    amount: (i) => i.amount,
   });
 
   const handleDownloadPdf = (item: (typeof allVaultItems)[0]) => {
@@ -284,18 +295,18 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-stone-100 text-stone-700 border-b border-stone-200">
-                <th className="p-3 font-bold">Document Serial</th>
-                <th className="p-3 font-bold">Type</th>
-                <th className="p-3 font-bold">Client / Recipient</th>
-                <th className="p-3 font-bold">Date Issued</th>
-                <th className="p-3 font-bold text-right">Total (Ksh)</th>
+                <SortableHeader column="number" label="Document Serial" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="docType" label="Type" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="clientName" label="Client / Recipient" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="date" label="Date Issued" currentSort={sortConfig} onSort={toggleSort} />
+                <SortableHeader column="amount" label="Total (Ksh)" currentSort={sortConfig} onSort={toggleSort} align="right" />
                 <th className="p-3 font-bold">Drive Cloud State</th>
                 <th className="p-3 font-bold text-right">Vault Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-200">
-              {filteredItems.length > 0 ? (
-                filteredItems.map((item) => (
+              {sortedFilteredItems.length > 0 ? (
+                sortedFilteredItems.map((item) => (
                   <tr key={item.id} className="hover:bg-stone-50 transition-colors">
                     <td className="p-3 font-mono font-bold text-amber-700">{item.number}</td>
                     <td className="p-3">

@@ -1,7 +1,7 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.4.0)
- * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Universal Drive Archival Engine
- * Low-Latency Execution Architecture, Lock Contention Mitigation & High-Throughput Quota Optimization
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.5.0)
+ * High-Concurrency Multi-Tier Lock Isolation, Isolated Drive Archival & Universal ERP Sync Engine
+ * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Fail-Safe Architecture
  * Single Source of Truth for Hotel Damview ERP Across All App Workstations & Mobile Devices
  *
  * Core Architectural Guarantees:
@@ -230,6 +230,18 @@ var CANONICAL_SCHEMAS = {
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "webviewlink"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "id", type: "code", aliases: ["stmtid", "id", "statementid", "uid"] }
+  ],
+  STATEMENTS_LEDGER: [
+    { key: "clientId", type: "code", aliases: ["clientid", "id", "customerid"] },
+    { key: "clientName", type: "text", aliases: ["clientcompanyname", "clientname", "companyname", "guestname", "client"] },
+    { key: "kraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin"] },
+    { key: "totalInvoiced", type: "currency", aliases: ["totalinvoicedksh", "totalinvoiced", "totaldebit", "invoiced"] },
+    { key: "totalPaid", type: "currency", aliases: ["totalpaidksh", "totalpaid", "totalcredit", "paid"] },
+    { key: "balanceDue", type: "currency", aliases: ["currentbalancedueksh", "currentbalance", "balancedue", "closingbalance", "balance"] },
+    { key: "status", type: "text", aliases: ["accountstatus", "status"] },
+    { key: "lastTransactionDate", type: "date", aliases: ["lasttransactiondate", "lastdate", "date"] },
+    { key: "statementNumber", type: "code", aliases: ["statementnum", "statementnumber", "soano", "soanum", "docnum"] },
+    { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink"] }
   ]
 };
 
@@ -246,7 +258,8 @@ function doGet(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Central Backend v5.4.0 is active and ready.",
+      version: "v5.5.0",
+      message: "Hotel Damview Google Apps Script Central Backend v5.5.0 is active and ready.",
       sheetName: ss ? ss.getName() : "Spreadsheet",
       sheetUrl: ss ? ss.getUrl() : "",
       timestamp: new Date().toISOString()
@@ -254,7 +267,8 @@ function doGet(e) {
   } catch (err) {
     return responseJSON({
       success: true,
-      message: "Hotel Damview Google Apps Script Backend v5.4.0 is online.",
+      version: "v5.5.0",
+      message: "Hotel Damview Google Apps Script Backend v5.5.0 is online.",
       error: err.toString(),
       timestamp: new Date().toISOString()
     });
@@ -262,6 +276,137 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  var contents = "";
+  if (e && e.postData && e.postData.contents) {
+    contents = e.postData.contents;
+  } else if (e && e.parameter && (e.parameter.payload || e.parameter.data)) {
+    contents = e.parameter.payload || e.parameter.data;
+  } else {
+    contents = "{}";
+  }
+
+  var payload;
+  try {
+    payload = JSON.parse(contents);
+  } catch (parseErr) {
+    return responseJSON({
+      success: false,
+      error: "Invalid JSON payload: " + parseErr.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  var action = (payload.action || payload.type || "").toString().trim();
+  if (!action || action === "undefined" || action === "null" || action === "[object Object]") {
+    if (payload.document) action = "UPSERT_DOCUMENT";
+    else if (payload.payment) action = "RECORD_PAYMENT";
+    else if (payload.statement) action = "UPSERT_STATEMENT";
+    else if (payload.client) action = "UPSERT_CLIENT";
+    else if (payload.profile) action = "UPSERT_PROFILE";
+    else if (payload.tombstones) action = "PURGE_TOMBSTONES";
+    else if (payload.pdfBase64) action = "ARCHIVE_PDF";
+    else if (payload.invoices || payload.receipts || payload.clients) action = "FULL_SYNC";
+    else action = "PING";
+  }
+  var data = payload;
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (!ss) {
+    return responseJSON({
+      success: false,
+      error: "No active Google Spreadsheet found. Ensure this script is bound to your Hotel Damview ERP sheet.",
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // 1. HIGH-SPEED READ-ONLY OPERATIONS (Zero Lock Contention)
+  // --------------------------------------------------------------------------
+  if (action === "PING" || action === "HEALTHCHECK") {
+    ensureSheetTabs(ss);
+    var sheetList = getDiscoveredSheets(ss);
+    return responseJSON({
+      success: true,
+      action: "PING",
+      version: "v5.5.0",
+      message: "Hotel Damview Google Apps Script Central Backend v5.5.0 is active and connected.",
+      sheetName: ss.getName(),
+      sheetUrl: ss.getUrl(),
+      tabs: sheetList,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  if (action === "GET_SHEET_DATA" || action === "PULL_ALL_DATA") {
+    var fullData = getFullSpreadsheetData(ss);
+    return responseJSON({
+      success: true,
+      action: "GET_SHEET_DATA",
+      version: "v5.5.0",
+      data: fullData,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // 2. ISOLATED HEAVY PDF INGESTION (Decoupled from Tabular Spreadsheet Locks)
+  // --------------------------------------------------------------------------
+  var externalPdfArchive = null;
+  if ((action === "ARCHIVE_PDF" || action === "UPLOAD_PDF" || action === "ARCHIVE_STATEMENT_PDF") && data.pdfBase64) {
+    try {
+      var targetFolder = data.folderName || "Hotel Damview Archives";
+      var fileName = data.fileName || ("Document_" + new Date().toISOString().split("T")[0] + ".pdf");
+      externalPdfArchive = archiveGenericPdfToDrive(data.pdfBase64, targetFolder, fileName);
+      if (externalPdfArchive && externalPdfArchive.url) {
+        logAudit(ss, "ARCHIVE_PDF", "Archived " + fileName + " (" + externalPdfArchive.byteLength + " bytes)", "SUCCESS", externalPdfArchive.url, externalPdfArchive.fileId);
+        return responseJSON({
+          success: true,
+          action: action,
+          driveUrl: externalPdfArchive.url,
+          webViewLink: externalPdfArchive.url,
+          driveFileId: externalPdfArchive.fileId,
+          fileName: externalPdfArchive.fileName,
+          byteLength: externalPdfArchive.byteLength,
+          pdfArchived: externalPdfArchive,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        throw new Error(externalPdfArchive && externalPdfArchive.error ? externalPdfArchive.error : "Failed to archive PDF to Google Drive");
+      }
+    } catch (archErr) {
+      logAudit(ss, "ARCHIVE_PDF", "PDF Archiving failed: " + archErr.toString(), "FAILURE", "", "");
+      return responseJSON({ success: false, action: action, error: archErr.toString(), timestamp: new Date().toISOString() });
+    }
+  }
+
+  // Pre-process Google Drive PDF ingestion for document/payment upserts BEFORE locking the sheet
+  if (data.pdfBase64) {
+    if (action === "UPSERT_DOCUMENT" && data.document) {
+      try {
+        externalPdfArchive = archivePdfToDrive(data.document, data.pdfBase64, data.folderName, data.fileName);
+        if (externalPdfArchive && externalPdfArchive.url) {
+          data.document.driveFileUrl = externalPdfArchive.url;
+          data.document.driveFileId = externalPdfArchive.fileId || "";
+        }
+      } catch (docPdfErr) {
+        Logger.log("Isolated doc PDF ingestion note: " + docPdfErr.toString());
+      }
+    } else if (action === "RECORD_PAYMENT" && data.payment) {
+      try {
+        externalPdfArchive = archiveReceiptPdfToDrive(data.payment, data.pdfBase64, data.folderName, data.fileName);
+        if (externalPdfArchive && externalPdfArchive.url) {
+          data.payment.driveFileUrl = externalPdfArchive.url;
+          data.payment.driveFileId = externalPdfArchive.fileId || "";
+        }
+      } catch (recPdfErr) {
+        Logger.log("Isolated receipt PDF ingestion note: " + recPdfErr.toString());
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // 3. ATOMIC SPREADSHEET WRITE LOCK (Granular Duration with Backoff)
+  // --------------------------------------------------------------------------
   var lock = LockService.getScriptLock();
   var lockAcquired = false;
 
@@ -269,69 +414,21 @@ function doPost(e) {
     for (var lockAttempt = 0; lockAttempt < 5; lockAttempt++) {
       lockAcquired = lock.tryLock(15000);
       if (lockAcquired) break;
-      if (lockAttempt < 4) Utilities.sleep(800 + Math.floor(Math.random() * 600));
+      if (lockAttempt < 4) Utilities.sleep(300 + Math.floor(Math.random() * 400));
     }
 
     if (!lockAcquired) {
       return responseJSON({
         success: false,
         busy: true,
-        error: "System busy processing another operation. Please retry in a few seconds."
-      });
-    }
-
-    var contents = "";
-    if (e && e.postData && e.postData.contents) {
-      contents = e.postData.contents;
-    } else if (e && e.parameter && (e.parameter.payload || e.parameter.data)) {
-      contents = e.parameter.payload || e.parameter.data;
-    } else {
-      contents = "{}";
-    }
-
-    var payload;
-    try {
-      payload = JSON.parse(contents);
-    } catch (parseErr) {
-      return responseJSON({ success: false, error: "Invalid JSON payload: " + parseErr.message });
-    }
-
-    var action = (payload.action || payload.type || "").toString().trim();
-    if (!action || action === "undefined" || action === "null" || action === "[object Object]") {
-      if (payload.document) action = "UPSERT_DOCUMENT";
-      else if (payload.payment) action = "RECORD_PAYMENT";
-      else if (payload.client) action = "UPSERT_CLIENT";
-      else if (payload.profile) action = "UPSERT_PROFILE";
-      else if (payload.tombstones) action = "PURGE_TOMBSTONES";
-      else if (payload.pdfBase64) action = "ARCHIVE_PDF";
-      else if (payload.invoices || payload.receipts || payload.clients) action = "FULL_SYNC";
-      else action = "PING";
-    }
-    var data = payload;
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-
-    if (!ss) {
-      return responseJSON({
-        success: false,
-        error: "No active Google Spreadsheet found. Ensure this script is bound to your Hotel Damview ERP sheet."
+        action: action,
+        error: "System busy processing another operation. Please retry in a few seconds.",
+        timestamp: new Date().toISOString()
       });
     }
 
     // Always ensure base required tabs and header definitions exist
     ensureSheetTabs(ss);
-
-    // 1. PING / HEALTHCHECK
-    if (action === "PING" || action === "HEALTHCHECK") {
-      var sheetList = getDiscoveredSheets(ss);
-      return responseJSON({
-        success: true,
-        message: "Hotel Damview Google Apps Script Central Backend v5.4.0 is active and connected.",
-        sheetName: ss.getName(),
-        sheetUrl: ss.getUrl(),
-        tabs: sheetList,
-        timestamp: new Date().toISOString()
-      });
-    }
 
     // 2. CLIENT UPSERT
     if (action === "UPSERT_CLIENT") {
@@ -463,30 +560,34 @@ function doPost(e) {
       }
     }
 
-    // 4b. DIRECT PDF ARCHIVING PIPELINE (FOR STATEMENTS & ON-DEMAND ARCHIVES)
-    if (action === "ARCHIVE_PDF" || action === "UPLOAD_PDF" || action === "ARCHIVE_STATEMENT_PDF") {
+    // 4b. STATEMENT OF ACCOUNT UPSERT & RECONCILIATION
+    if (action === "UPSERT_STATEMENT" || action === "RECORD_STATEMENT" || (action === "UPSERT_DOCUMENT" && data.document && String(data.document.documentNumber || "").toUpperCase().indexOf("SOA-") === 0)) {
       try {
-        if (!data.pdfBase64) throw new Error("Missing pdfBase64 payload string");
-        var targetFolder = data.folderName || "Hotel Damview Archives";
-        var fileName = data.fileName || ("Document_" + new Date().toISOString().split("T")[0] + ".pdf");
-        var genericArchive = archiveGenericPdfToDrive(data.pdfBase64, targetFolder, fileName);
-        if (genericArchive && genericArchive.url) {
-          logAudit(ss, "ARCHIVE_PDF", "Archived " + fileName + " (" + genericArchive.byteLength + " bytes)", "SUCCESS", genericArchive.url, genericArchive.fileId);
-          return responseJSON({
-            success: true,
-            driveUrl: genericArchive.url,
-            webViewLink: genericArchive.url,
-            driveFileId: genericArchive.fileId,
-            fileName: genericArchive.fileName,
-            byteLength: genericArchive.byteLength,
-            pdfArchived: genericArchive
-          });
-        } else {
-          throw new Error(genericArchive && genericArchive.error ? genericArchive.error : "Failed to archive PDF to Google Drive");
-        }
-      } catch (archErr) {
-        logAudit(ss, "ARCHIVE_PDF", "PDF Archiving failed: " + archErr.toString(), "FAILURE", "", "");
-        return responseJSON({ success: false, error: archErr.toString() });
+        var stmtTarget = data.statement || data.document;
+        if (!stmtTarget) throw new Error("Missing statement payload object");
+        var stmtResult = upsertStatement(ss, stmtTarget);
+        refreshStatementsLedger(ss);
+        logAudit(
+          ss,
+          "UPSERT_STATEMENT",
+          "Statement " + (stmtTarget.statementNumber || "SOA") + " for " + (stmtTarget.clientName || "Client"),
+          "SUCCESS",
+          stmtTarget.driveFileUrl || "",
+          stmtTarget.driveFileId || ""
+        );
+        return responseJSON({
+          success: true,
+          action: "UPSERT_STATEMENT",
+          statement: stmtResult,
+          driveUrl: stmtTarget.driveFileUrl || "",
+          webViewLink: stmtTarget.driveFileUrl || "",
+          driveFileId: stmtTarget.driveFileId || "",
+          pdfArchived: externalPdfArchive,
+          timestamp: new Date().toISOString()
+        });
+      } catch (stmtErr) {
+        logAudit(ss, "UPSERT_STATEMENT", "Statement sync failed: " + stmtErr.toString(), "FAILURE", "", "");
+        return responseJSON({ success: false, action: "UPSERT_STATEMENT", error: stmtErr.toString(), timestamp: new Date().toISOString() });
       }
     }
 
@@ -1413,7 +1514,43 @@ function applyColumnFormatting(sheet, headerLookup) {
 function upsertDocument(ss, doc) {
   if (!doc || !doc.documentNumber) return null;
 
-  var docType = (doc.documentType || "INVOICE").toUpperCase();
+  var docNum = String(doc.documentNumber).trim().toUpperCase();
+  var docType = (doc.documentType || "").toUpperCase().trim();
+
+  // Automatic model prefix resolution
+  if (!docType) {
+    if (docNum.indexOf("QT-") === 0 || docNum.indexOf("QUO") === 0) {
+      docType = "QUOTATION";
+    } else if (docNum.indexOf("PI-") === 0 || docNum.indexOf("PRO-") === 0) {
+      docType = "PROFORMA";
+    } else if (docNum.indexOf("SOA-") === 0 || docNum.indexOf("STM-") === 0) {
+      docType = "STATEMENT";
+    } else if (docNum.indexOf("REC-") === 0) {
+      docType = "RECEIPT";
+    } else {
+      docType = "INVOICE";
+    }
+  }
+
+  // Route Statement of Account to dedicated Statement ledger pipeline
+  if (docType === "STATEMENT" || docNum.indexOf("SOA-") === 0 || docNum.indexOf("STM-") === 0) {
+    return upsertStatement(ss, doc);
+  }
+
+  // Route Receipt to dedicated Payment pipeline if routed here
+  if (docType === "RECEIPT" || docNum.indexOf("REC-") === 0) {
+    return recordPayment(ss, {
+      receiptNumber: doc.documentNumber,
+      amount: doc.grandTotal || doc.amountPaid || doc.amount || 0,
+      clientName: doc.clientName || "",
+      documentNumber: doc.relatedInvoiceNumber || "Direct Settlement",
+      paymentMode: doc.paymentMode || "M-Pesa",
+      driveFileUrl: doc.driveFileUrl || "",
+      createdAt: doc.issueDate || doc.createdAt,
+      id: doc.id
+    });
+  }
+
   var tabName = docType === "QUOTATION" ? "Quotations" : docType === "PROFORMA" ? "Proformas" : "Invoices";
   var schemaList = docType === "QUOTATION" ? CANONICAL_SCHEMAS.QUOTATION : docType === "PROFORMA" ? CANONICAL_SCHEMAS.PROFORMA : CANONICAL_SCHEMAS.INVOICE;
 
@@ -1462,6 +1599,62 @@ function upsertDocument(ss, doc) {
   return {
     documentNumber: doc.documentNumber,
     tab: tabName,
+    row: rowIndex
+  };
+}
+
+function upsertStatement(ss, stmt) {
+  if (!stmt) return null;
+  var sheet = ss.getSheetByName("Statements_Ledger");
+  if (!sheet) throw new Error("Worksheet tab 'Statements_Ledger' does not exist.");
+
+  var schemaList = CANONICAL_SCHEMAS.STATEMENT;
+  var lookup = createHeaderIndexLookup(sheet, schemaList);
+  var stmtNumCol = lookup.getColumnIndex("statementNumber");
+  if (stmtNumCol === -1) stmtNumCol = 1;
+  var clientCol = lookup.getColumnIndex("clientName");
+  var idCol = lookup.getColumnIndex("id");
+  var driveCol = lookup.getColumnIndex("driveFileUrl");
+
+  var targetNum = stmt.statementNumber ? String(stmt.statementNumber).trim().toLowerCase() : (stmt.documentNumber ? String(stmt.documentNumber).trim().toLowerCase() : "");
+  var targetClient = stmt.clientName ? String(stmt.clientName).trim().toLowerCase() : "";
+  var targetId = stmt.id ? String(stmt.id).trim().toLowerCase() : "";
+
+  var data = sheet.getDataRange().getValues();
+  var rowIndex = -1;
+  var existingRowValues = null;
+
+  for (var r = 1; r < data.length; r++) {
+    var rowNum = stmtNumCol > 0 ? String(data[r][stmtNumCol - 1] || "").trim().toLowerCase() : "";
+    var rowClient = clientCol > 0 ? String(data[r][clientCol - 1] || "").trim().toLowerCase() : "";
+    var rowId = (idCol > 0 && idCol <= data[r].length) ? String(data[r][idCol - 1] || "").trim().toLowerCase() : "";
+
+    if ((targetNum && rowNum === targetNum) || (targetId && rowId === targetId) || (!targetNum && targetClient && rowClient === targetClient)) {
+      rowIndex = r + 1;
+      existingRowValues = data[r];
+      break;
+    }
+  }
+
+  if (driveCol > 0 && existingRowValues && !stmt.driveFileUrl) {
+    var existingDrive = existingRowValues[driveCol - 1];
+    if (existingDrive) stmt.driveFileUrl = existingDrive;
+  }
+
+  var rowValues = lookup.buildRowFromJSON(stmt, existingRowValues, ss);
+
+  if (rowIndex > 0) {
+    sheet.getRange(rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+    rowIndex = sheet.getLastRow();
+  }
+
+  applyColumnFormatting(sheet, lookup);
+
+  return {
+    statementNumber: stmt.statementNumber || targetNum || "SOA-RECORDED",
+    tab: "Statements_Ledger",
     row: rowIndex
   };
 }

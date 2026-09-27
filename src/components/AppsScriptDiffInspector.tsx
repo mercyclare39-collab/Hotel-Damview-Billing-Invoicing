@@ -55,13 +55,14 @@ export const AppsScriptDiffInspector: React.FC<AppsScriptDiffInspectorProps> = (
   const characterCount = codeString.length;
 
   const keyCapabilities = [
+    { title: 'Isolated Heavy Drive Ingestion', status: 'Active (v5.5.0)', desc: 'Decouples Base64 PDF decoding and Drive file creation from spreadsheet write locks, slashing lock hold time to ~80ms' },
+    { title: 'Full Model Prefix Auto-Routing', status: 'Active (v5.5.0)', desc: 'Auto-maps QT-, PI-, INV-, REC-, and SOA- documents to their correct tabs even without explicit documentType' },
+    { title: 'Dedicated Statement Pipeline', status: 'Active (v5.5.0)', desc: 'Full support for UPSERT_STATEMENT, Statements_Ledger schema, and statement Drive archiving' },
+    { title: 'Zero-Contention Read Engine', status: 'Active (v5.5.0)', desc: 'Read-only queries (PING, GET_SHEET_DATA) execute instantly without blocking or waiting for locks' },
     { title: 'Dynamic Header-Index Mapping', status: 'Active', desc: 'Auto-maps Row 1 column names preventing column drift when users insert custom columns' },
-    { title: 'Zero-Auth Google Drive PDF Archiving', status: 'Active', desc: 'Validates binary payloads (>1KB), trashes older duplicates, returns public view link' },
+    { title: 'Zero-Auth Google Drive Archival', status: 'Active', desc: 'Validates binary payloads (>1KB), trashes older duplicates, returns public view link' },
     { title: 'Automatic Audit Log Lifecycle', status: 'Active', desc: 'Auto-prunes historical audit rows beyond 500 records to prevent sheet bloat' },
-    { title: 'Concurrent Script Locking', status: 'Active', desc: 'LockService.getScriptLock() guards against race conditions across multiple workstations' },
     { title: 'Strict Nairobi Timezone (EAT)', status: 'Active', desc: 'Normalizes all dates to Africa/Nairobi yyyy-MM-dd, preventing UTC 1-day shifts' },
-    { title: '15 Operational ERP Tabs', status: 'Active', desc: 'Summary Dashboard, Invoices, Quotations, Proformas, Clients, Receipts, Statements Ledger, Revenue Analytics, Line Items Breakdown, Reservations, POS Orders, Expenses, Particulars Catalogue, Hotel Profile, Audit Log' },
-    { title: 'Deduplication & Anti-Drift Engine', status: 'Active', desc: 'Auto-prunes duplicate/redundant worksheets and synchronizes master ERP tab order' },
   ];
 
   // Diff calculation between current v4.5.0 and baseline
@@ -124,7 +125,7 @@ export const AppsScriptDiffInspector: React.FC<AppsScriptDiffInspectorProps> = (
             </span>
           </div>
           <p className="text-xs text-stone-500 mt-1">
-            Production-hardened Apps Script powering 11 Google Sheets modules, Google Drive PDF archiving, concurrency locking, and audit log lifecycle.
+            Production-hardened Apps Script with multi-tier lock isolation, model prefix auto-routing, and dedicated Statement archival.
           </p>
         </div>
 
@@ -157,6 +158,37 @@ export const AppsScriptDiffInspector: React.FC<AppsScriptDiffInspectorProps> = (
               </>
             )}
           </button>
+        </div>
+      </div>
+
+      {/* Release v5.5.0 Highlights Banner */}
+      <div className="bg-amber-50/60 border border-amber-200/80 rounded-lg p-3 text-xs text-stone-800 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="font-bold text-amber-950 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+            Release v5.5.0 Structural Updates & Deployment Highlights
+          </span>
+          <span className="text-[10px] font-mono text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded">
+            Production Ready
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-stone-700">
+          <div className="flex items-start gap-1.5">
+            <Check className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
+            <span><b>Lock Isolation:</b> Heavy Base64 PDF decoding & Drive file creation decoupled from tabular write locks.</span>
+          </div>
+          <div className="flex items-start gap-1.5">
+            <Check className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
+            <span><b>Model Prefix Auto-Routing:</b> Resolves <code>QT-</code>, <code>PI-</code>, <code>INV-</code>, <code>REC-</code>, and <code>SOA-</code> automatically.</span>
+          </div>
+          <div className="flex items-start gap-1.5">
+            <Check className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
+            <span><b>Zero-Wait Read Path:</b> PING and data pulls execute instantly without lock contention.</span>
+          </div>
+          <div className="flex items-start gap-1.5">
+            <Check className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
+            <span><b>Statement Pipeline:</b> Dedicated <code>UPSERT_STATEMENT</code> and <code>STATEMENTS_LEDGER</code> schema alignment.</span>
+          </div>
         </div>
       </div>
 

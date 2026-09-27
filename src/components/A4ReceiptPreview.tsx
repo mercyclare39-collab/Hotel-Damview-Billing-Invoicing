@@ -90,66 +90,66 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
               </h2>
             </div>
 
-            {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE (Row-Level Parallelism with Shared Dynamic Heights) */}
-            <div className="mb-4 w-full">
-              <table className="w-full text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: '14px 0' }}>
+            {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE (Dynamic Auto-Fitting Geometry & Parallel Baseline Alignment) */}
+            <div className="mb-3.5 w-full">
+              <table className="w-full text-[10.5pt]" style={{ borderCollapse: 'separate', borderSpacing: '12px 0' }}>
                 <thead>
                   <tr>
                     <th className="w-1/2 p-0 text-left">
-                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-3 py-1.5 text-left uppercase font-bold text-[10pt] tracking-wider text-stone-900 border-b border-stone-200/90">
+                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-200/90">
                         RECEIVED FROM
                       </div>
                     </th>
                     <th className="w-1/2 p-0 text-left">
-                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-3 py-1.5 text-left uppercase font-bold text-[10pt] tracking-wider text-stone-900 border-b border-stone-200/90">
+                      <div className="bg-stone-50 border border-stone-200/90 rounded-t px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900 border-b border-stone-200/90">
                         DOCUMENT DETAILS
                       </div>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Row 1: Client Name & Receipt Number */}
+                  {/* Row 1: Client Name & Receipt Number (Strict Baseline Parallelism) */}
                   <tr>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200/90 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[34px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Client Name:</span>
-                        <span className="font-bold text-stone-950 text-right break-words text-[10pt] pl-2 max-w-[70%]">{payment.clientName || 'Walk-In Guest'}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Client Name:</span>
+                        <span className="font-bold text-stone-950 text-right break-words text-[9.5pt] pl-2 max-w-[70%]">{payment.clientName || 'Walk-In Guest'}</span>
                       </div>
                     </td>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200/90 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[34px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Receipt No:</span>
-                        <span className="font-bold font-mono text-stone-950 text-right text-[10.5pt] pl-2 max-w-[70%]">{payment.receiptNumber || 'REC-DRAFT'}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Receipt No:</span>
+                        <span className="font-bold font-mono text-stone-950 text-right text-[10pt] pl-2 max-w-[70%]">{payment.receiptNumber || 'REC-DRAFT'}</span>
                       </div>
                     </td>
                   </tr>
-                  {/* Row 2: Client ID & Date */}
+                  {/* Row 2: Client ID & Date (Strict Baseline Parallelism) */}
                   <tr>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200/90 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[34px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Client ID / Ref:</span>
-                        <span className="font-mono text-stone-800 text-right text-[10pt] tracking-wider pl-2 max-w-[70%]">{payment.clientId || 'N/A'}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Client ID / Ref:</span>
+                        <span className="font-mono text-stone-800 text-right text-[9.5pt] tracking-wider pl-2 max-w-[70%]">{payment.clientId || 'N/A'}</span>
                       </div>
                     </td>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200/90 px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[34px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Date:</span>
-                        <span className="text-stone-800 text-right text-[10pt] pl-2 max-w-[70%]">{formatDate(payment.date)}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Date:</span>
+                        <span className="text-stone-800 text-right text-[9.5pt] pl-2 max-w-[70%]">{formatDate(payment.date)}</span>
                       </div>
                     </td>
                   </tr>
-                  {/* Row 3: Settled Invoice & Payment Method */}
+                  {/* Row 3: Settled Invoice & Payment Method (Multi-line Parallel Expansion Engine) */}
                   <tr>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200/90 rounded-b px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[34px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Invoice Settled:</span>
-                        <span className="font-bold text-stone-900 font-mono text-right break-words text-[10pt] pl-2 max-w-[70%]">{payment.documentNumber || 'Direct Payment'}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Invoice Settled:</span>
+                        <span className="font-bold text-stone-900 font-mono text-right break-words text-[9.5pt] pl-2 max-w-[70%]">{payment.documentNumber || 'Direct Payment'}</span>
                       </div>
                     </td>
-                    <td className="w-1/2 p-0 align-middle">
-                      <div className="border-x border-b border-stone-200/90 rounded-b px-3 py-1.5 flex justify-between items-center gap-2 h-full bg-white min-h-[34px]">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[10pt] shrink-0">Payment Method:</span>
-                        <span className="font-semibold text-stone-900 text-right text-[10pt] pl-2 max-w-[70%]">{payment.paymentMode}</span>
+                    <td className="w-1/2 p-0" style={{ height: '100%', verticalAlign: 'top' }}>
+                      <div className="border-x border-b border-stone-200/85 rounded-b px-2.5 py-1.25 flex justify-between items-center gap-2 h-full min-h-full bg-white leading-tight">
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Payment Method:</span>
+                        <span className="font-semibold text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{payment.paymentMode}</span>
                       </div>
                     </td>
                   </tr>

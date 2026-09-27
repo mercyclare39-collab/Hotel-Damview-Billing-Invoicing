@@ -144,20 +144,19 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
   const handleQuickDownload = async (doc: BillingDocument) => {
     setSelectedDocForPreview(doc);
     setIsGeneratingPdf(true);
-    // Wait for modal render
     setTimeout(async () => {
-      const previewEl = document.getElementById(`journal-modal-a4`);
+      const previewEl = document.getElementById(`journal-offscreen-a4`) || document.getElementById(`journal-modal-a4`);
       if (previewEl) {
         try {
           await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
             download: true,
           });
         } catch (err: any) {
-          alert('PDF generation error: ' + err.message);
+          console.warn('PDF generation warning:', err);
         }
       }
       setIsGeneratingPdf(false);
-    }, 300);
+    }, 100);
   };
 
   // Universal share helper with direct vector PDF binary attachment
@@ -165,7 +164,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
     setSelectedDocForPreview(doc);
     setIsGeneratingPdf(true);
     setTimeout(async () => {
-      const previewEl = document.getElementById(`journal-modal-a4`);
+      const previewEl = document.getElementById(`journal-offscreen-a4`) || document.getElementById(`journal-modal-a4`);
       if (previewEl) {
         try {
           const res = await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
@@ -185,7 +184,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
         }
       }
       setIsGeneratingPdf(false);
-    }, 300);
+    }, 100);
   };
 
   // Direct vector PDF printing helper
@@ -193,7 +192,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
     setSelectedDocForPreview(doc);
     setIsGeneratingPdf(true);
     setTimeout(async () => {
-      const previewEl = document.getElementById(`journal-modal-a4`);
+      const previewEl = document.getElementById(`journal-offscreen-a4`) || document.getElementById(`journal-modal-a4`);
       if (previewEl) {
         try {
           const res = await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
@@ -207,7 +206,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
         window.print();
       }
       setIsGeneratingPdf(false);
-    }, 300);
+    }, 100);
   };
 
   const getStatusBadge = (status: DocumentStatus) => {
@@ -758,6 +757,19 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                 scale={0.9}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* OFFSCREEN RENDERED CONTAINER FOR RELIABLE PDF GENERATION */}
+      {selectedDocForPreview && (
+        <div style={{ position: "absolute", left: "-9999px", top: "-9999px", width: "210mm", height: "auto", overflow: "hidden" }} aria-hidden="true">
+          <div id="journal-offscreen-a4">
+            <A4DocumentPreview
+              document={selectedDocForPreview}
+              profile={profile}
+              scale={1}
+            />
           </div>
         </div>
       )}

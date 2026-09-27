@@ -552,7 +552,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             existingDocuments={documents}
             onSave={(savedDoc) => {
               onSaveDocument(savedDoc);
-              setActiveSubTab('journal');
+              // Keep user in editor to allow continuous action triggers (Print, Share, Download, Preview) without abrupt redirection
             }}
             onCancel={() => {
               onCancelEditor();

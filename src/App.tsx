@@ -515,29 +515,61 @@ export default function App() {
     setCurrentModule('invoices');
   };
 
-  const handleSaveDocument = async (doc: BillingDocument) => {
-    // Optimistic local state update (0ms perceived latency)
-    setDocuments((prev) => {
-      const idx = prev.findIndex((d) => d.id === doc.id);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = doc;
-        return next;
-      }
-      return [doc, ...prev];
-    });
-    setEditingDoc(null);
+  // Atomic Action Queue Mutex & Sequencer
+  const [isActionQueueBusy, setIsActionQueueBusy] = useState(false);
 
-    // Immediate local persistence & asynchronous cloud sync
-    try {
-      await syncManager.syncDocument(doc);
-      // Trigger bidirectional sync
-      syncManager.syncBidirectional().catch((syncErr) => {
-        logSystemIncident('WARNING', `Background sync after save document failed: ${syncErr.message}`);
-      });
-    } catch (err: any) {
-      logSystemIncident('ERROR', `Failed saving document to DB: ${err.message}`);
+  const queueActionSequence = async (
+    actionType: 'SAVE' | 'PRINT' | 'DOWNLOAD' | 'SHARE' | 'PREVIEW',
+    doc: BillingDocument,
+    actionCallback?: () => void
+  ): Promise<boolean> => {
+    if (isActionQueueBusy) {
+      console.warn(`[AtomicQueue] Action "${actionType}" deferred: queue is busy processing another action.`);
+      return false;
     }
+    setIsActionQueueBusy(true);
+
+    try {
+      // Step 1: Save-to-Local-First (IndexedDB & State)
+      setDocuments((prev) => {
+        const idx = prev.findIndex((d) => d.id === doc.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = doc;
+          return next;
+        }
+        return [doc, ...prev];
+      });
+
+      await dbService.saveDocument(doc);
+
+      // Step 2: Trigger-Drive-Upload & Cloud Sync Chain
+      try {
+        await syncManager.syncDocument(doc);
+        syncManager.syncBidirectional().catch((syncErr) => {
+          logSystemIncident('WARNING', `Atomic queue background sync warning for ${doc.documentNumber}: ${syncErr?.message}`);
+        });
+      } catch (cloudErr: any) {
+        logSystemIncident('WARNING', `Atomic queue cloud upload warning for ${doc.documentNumber}: ${cloudErr?.message}`);
+      }
+
+      // Step 3: Update-UI-Status & Execute Action Callback
+      setEditingDoc(null);
+      if (actionCallback) {
+        actionCallback();
+      }
+
+      return true;
+    } catch (err: any) {
+      logSystemIncident('ERROR', `Atomic queue action sequence "${actionType}" failed: ${err?.message || String(err)}`);
+      return false;
+    } finally {
+      setIsActionQueueBusy(false);
+    }
+  };
+
+  const handleSaveDocument = async (doc: BillingDocument) => {
+    await queueActionSequence('SAVE', doc);
   };
 
   const handleDeleteDocument = async (docId: string) => {
@@ -1042,6 +1074,7 @@ export default function App() {
               clients={clients}
               documents={documents}
               payments={payments}
+              statements={statements}
               profile={profile}
               initialClientId={statementClientId}
               onEditDocument={handleEditDocument}
