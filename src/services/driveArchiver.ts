@@ -1,5 +1,5 @@
 import { dbService } from './db';
-import { syncManager } from './sync';
+import { syncManager } from './syncManager';
 import { BillingDocument, PaymentRecord, StatementRecord } from '../types';
 
 export interface ArchiverResult {
@@ -19,35 +19,23 @@ export interface ArchiverResult {
  */
 export class DriveArchiver {
   /**
-   * Universal PDF base64 archiving to Google Drive
+   * Universal PDF blob or base64 archiving to Google Drive via multipart/form-data
    */
   static async archivePdf(
     pdfBase64: string,
     fileName: string,
-    folderName?: string
+    folderName?: string,
+    pdfBlob?: Blob
   ): Promise<ArchiverResult> {
     const profile = await dbService.getHotelProfile();
     const targetFolder = folderName || profile.googleDriveFolder || 'Hotel Damview Archives';
 
-    // Clean and validate Base64 stream
-    let cleanBase64 = String(pdfBase64 || '').trim();
-    const commaIdx = cleanBase64.indexOf(',');
-    if (cleanBase64.startsWith('data:') && commaIdx >= 0) {
-      cleanBase64 = cleanBase64.substring(commaIdx + 1).trim();
-    }
-
-    if (!cleanBase64 || cleanBase64.length < 500) {
-      return {
-        success: false,
-        error: 'Corrupt or truncated PDF binary stream (base64 length undersized).',
-      };
-    }
-
-    // Call central sync manager to execute Google Apps Script ARCHIVE_PDF action
-    const response = await syncManager.uploadPdfToDrive({
+    // Call central sync manager to execute multipart/form-data PDF upload with retries
+    const response = await syncManager.uploadPdfWithMultipartFormData({
       folderName: targetFolder,
       fileName,
-      pdfBase64: cleanBase64,
+      pdfBase64,
+      pdfBlob,
     });
 
     if (response.success && response.driveUrl) {
@@ -74,13 +62,30 @@ export class DriveArchiver {
   static async archiveDocument(
     doc: BillingDocument,
     pdfBase64?: string,
-    customFileName?: string
+    customFileName?: string,
+    pdfBlob?: Blob
   ): Promise<ArchiverResult> {
     const canonicalName =
       customFileName ||
       `${doc.documentNumber}_${(doc.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_')}_${doc.issueDate}.pdf`;
 
-    return syncManager.archiveDocumentPdf(doc, pdfBase64, canonicalName);
+    const res = await syncManager.uploadPdfWithMultipartFormData({
+      document: doc,
+      documentNumber: doc.documentNumber,
+      pdfBlob,
+      pdfBase64,
+      fileName: canonicalName,
+    });
+
+    return {
+      success: res.success,
+      driveUrl: res.driveUrl,
+      driveFileId: res.driveFileId,
+      fileName: res.fileName || canonicalName,
+      byteLength: res.byteLength,
+      uploadVerified: res.uploadVerified,
+      error: res.error,
+    };
   }
 
   /**
@@ -89,13 +94,30 @@ export class DriveArchiver {
   static async archiveReceipt(
     payment: PaymentRecord,
     pdfBase64?: string,
-    customFileName?: string
+    customFileName?: string,
+    pdfBlob?: Blob
   ): Promise<ArchiverResult> {
     const canonicalName =
       customFileName ||
       `REC_${payment.receiptNumber}_${(payment.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_')}_${payment.date}.pdf`;
 
-    return syncManager.archiveReceiptPdf(payment, pdfBase64, canonicalName);
+    const res = await syncManager.uploadPdfWithMultipartFormData({
+      payment,
+      receiptNumber: payment.receiptNumber,
+      pdfBlob,
+      pdfBase64,
+      fileName: canonicalName,
+    });
+
+    return {
+      success: res.success,
+      driveUrl: res.driveUrl,
+      driveFileId: res.driveFileId,
+      fileName: res.fileName || canonicalName,
+      byteLength: res.byteLength,
+      uploadVerified: res.uploadVerified,
+      error: res.error,
+    };
   }
 
   /**
@@ -104,13 +126,30 @@ export class DriveArchiver {
   static async archiveStatement(
     statement: StatementRecord,
     pdfBase64?: string,
-    customFileName?: string
+    customFileName?: string,
+    pdfBlob?: Blob
   ): Promise<ArchiverResult> {
     const canonicalName =
       customFileName ||
       `${statement.statementNumber}_${(statement.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_')}_${statement.issueDate}.pdf`;
 
-    return syncManager.archiveStatementPdf(statement, pdfBase64, canonicalName);
+    const res = await syncManager.uploadPdfWithMultipartFormData({
+      statement,
+      statementNumber: statement.statementNumber,
+      pdfBlob,
+      pdfBase64,
+      fileName: canonicalName,
+    });
+
+    return {
+      success: res.success,
+      driveUrl: res.driveUrl,
+      driveFileId: res.driveFileId,
+      fileName: res.fileName || canonicalName,
+      byteLength: res.byteLength,
+      uploadVerified: res.uploadVerified,
+      error: res.error,
+    };
   }
 
   /**

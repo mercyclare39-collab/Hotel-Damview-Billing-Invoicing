@@ -4,6 +4,7 @@ import {
   Client,
   PaymentRecord,
   HotelProfile,
+  StatementRecord,
   SyncQueueItem,
   SyncTelemetry,
   SyncHumanStatus,
@@ -28,6 +29,33 @@ import {
 import { apiRateLimiter } from './apiRateLimiter';
 
 type TelemetryListener = (telemetry: SyncTelemetry) => void;
+
+export interface MultipartPdfUploadOptions {
+  pdfBlob?: Blob;
+  pdfBase64?: string;
+  fileName: string;
+  folderName?: string;
+  documentNumber?: string;
+  receiptNumber?: string;
+  statementNumber?: string;
+  document?: BillingDocument;
+  payment?: PaymentRecord;
+  statement?: StatementRecord;
+  maxRetries?: number;
+  retryDelayMs?: number;
+  timeoutMs?: number;
+}
+
+export interface MultipartPdfUploadResult {
+  success: boolean;
+  driveUrl?: string;
+  driveFileId?: string;
+  fileName?: string;
+  byteLength?: number;
+  uploadVerified?: boolean;
+  error?: string;
+  serverAck?: any;
+}
 
 class EnterpriseSyncManager {
   private isProcessing = false;
@@ -585,6 +613,291 @@ class EnterpriseSyncManager {
         timeoutMs: customTimeoutMs,
       }
     );
+  }
+
+  /**
+   * Robust, retry-capable Google Drive PDF upload handler using fetch with a multipart/form-data payload.
+   * Uploads PDF binary blobs/base64 to Google Apps Script Web App endpoint and verifies server acknowledgement.
+   */
+  public async uploadPdfWithMultipartFormData(
+    options: MultipartPdfUploadOptions
+  ): Promise<MultipartPdfUploadResult> {
+    const {
+      pdfBlob,
+      pdfBase64: initialBase64,
+      fileName,
+      folderName,
+      documentNumber,
+      receiptNumber,
+      statementNumber,
+      document,
+      payment,
+      statement,
+      maxRetries = 3,
+      retryDelayMs = 2000,
+      timeoutMs = 90000,
+    } = options;
+
+    if (!this.isOnline && typeof navigator !== 'undefined' && !navigator.onLine) {
+      return {
+        success: false,
+        error: 'Cannot upload PDF to Google Drive while offline.',
+      };
+    }
+
+    const profile = await dbService.getHotelProfile();
+    const webAppUrl = profile?.googleWebAppUrl;
+
+    if (!webAppUrl || typeof webAppUrl !== 'string' || !webAppUrl.trim().startsWith('http')) {
+      return {
+        success: false,
+        error: 'Google Apps Script Web App URL is not configured. Please verify in Settings.',
+      };
+    }
+
+    let cleanUrl = webAppUrl.trim();
+    if (cleanUrl.includes('/dev')) {
+      cleanUrl = cleanUrl.replace(/\/dev(\/|\?|$)/, '/exec$1');
+    }
+    cleanUrl = cleanUrl.replace(/[\s\r\n'"]/g, '');
+
+    // Ensure we have a valid pdfBase64 string
+    let finalBase64 = initialBase64 || '';
+    if (!finalBase64 && pdfBlob) {
+      try {
+        finalBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const result = reader.result as string;
+            const commaIdx = result.indexOf(',');
+            resolve(commaIdx >= 0 ? result.substring(commaIdx + 1) : result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(pdfBlob);
+        });
+      } catch (readErr: any) {
+        return {
+          success: false,
+          error: `Failed to read PDF blob into base64 stream: ${readErr.message}`,
+        };
+      }
+    }
+
+    const targetFolder = folderName || profile?.googleDriveFolder || 'Hotel Damview Archives';
+
+    let attempt = 0;
+    let lastError = 'Upload failed';
+
+    while (attempt < maxRetries) {
+      attempt++;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        // Construct FormData for multipart/form-data delivery
+        const formData = new FormData();
+        formData.append('action', 'ARCHIVE_PDF');
+        formData.append('fileName', fileName);
+        formData.append('folderName', targetFolder);
+
+        if (documentNumber) formData.append('documentNumber', documentNumber);
+        if (receiptNumber) formData.append('receiptNumber', receiptNumber);
+        if (statementNumber) formData.append('statementNumber', statementNumber);
+
+        if (finalBase64) {
+          formData.append('pdfBase64', finalBase64);
+        }
+
+        if (pdfBlob) {
+          formData.append('file', pdfBlob, fileName);
+        }
+
+        const payloadObj = {
+          action: 'ARCHIVE_PDF',
+          fileName,
+          folderName: targetFolder,
+          documentNumber,
+          receiptNumber,
+          statementNumber,
+          document,
+          payment,
+          statement,
+          pdfBase64: finalBase64,
+          timestamp: new Date().toISOString(),
+        };
+        formData.append('payload', JSON.stringify(payloadObj));
+
+        // Note: Do NOT manually set Content-Type header when fetching with FormData!
+        // Browser automatically inserts multipart/form-data boundary parameter.
+        const res = await fetch(cleanUrl, {
+          method: 'POST',
+          body: formData,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+          throw new Error(`HTTP error ${res.status}: ${res.statusText}`);
+        }
+
+        const rawText = await res.text();
+        const trimmedText = rawText.trim();
+
+        if (
+          trimmedText.startsWith('<') ||
+          trimmedText.toLowerCase().includes('<!doctype') ||
+          trimmedText.toLowerCase().includes('<html')
+        ) {
+          if (trimmedText.includes('ServiceLogin') || trimmedText.includes('accounts.google.com')) {
+            throw new Error(
+              'Google Apps Script authorization error: Access restricted. Set "Who has access" to "Anyone" in Web App deployment settings.'
+            );
+          }
+          throw new Error('Google Apps Script endpoint returned HTML page instead of JSON acknowledgement.');
+        }
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(rawText);
+        } catch {
+          throw new Error(`Could not parse server JSON response: ${trimmedText.substring(0, 100)}`);
+        }
+
+        if (parsed && parsed.success === false) {
+          throw new Error(parsed.error || parsed.message || 'Server rejected PDF archive request');
+        }
+
+        const driveUrl =
+          parsed?.driveUrl ||
+          parsed?.webViewLink ||
+          parsed?.pdfArchived?.webViewLink ||
+          parsed?.pdfArchived?.url ||
+          parsed?.pdfArchived?.driveUrl;
+
+        const driveFileId =
+          parsed?.driveFileId ||
+          parsed?.pdfArchived?.fileId ||
+          parsed?.pdfArchived?.driveFileId;
+
+        const uploadVerified = Boolean(
+          parsed?.success &&
+            (parsed?.pdfArchived?.status === 'ARCHIVED' || (driveUrl && typeof driveUrl === 'string' && driveUrl.startsWith('http')))
+        );
+
+        if (uploadVerified && driveUrl) {
+          // Local DB Write-Through update
+          if (document) {
+            await dbService.saveDocument({
+              ...document,
+              driveFileUrl: driveUrl,
+              driveFileId: driveFileId || document.driveFileId,
+              syncedToGoogle: true,
+              lastSyncStatus: 'synced',
+            });
+          }
+          if (payment) {
+            await dbService.savePayment({
+              ...payment,
+              driveFileUrl: driveUrl,
+              driveFileId: driveFileId || payment.driveFileId,
+              syncedToGoogle: true,
+              lastSyncStatus: 'synced',
+            });
+          }
+          if (statement) {
+            await dbService.saveStatement({
+              ...statement,
+              driveFileUrl: driveUrl,
+              driveFileId: driveFileId || statement.driveFileId,
+            });
+          }
+
+          this.notifyTelemetry();
+
+          return {
+            success: true,
+            driveUrl,
+            driveFileId,
+            fileName: parsed?.fileName || fileName,
+            byteLength: parsed?.byteLength || (pdfBlob ? pdfBlob.size : finalBase64.length),
+            uploadVerified: true,
+            serverAck: parsed,
+          };
+        }
+
+        throw new Error('Server response missing driveUrl or file verification confirmation.');
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        lastError = err?.message || String(err);
+        console.warn(`[SyncManager:MultipartUpload] Attempt ${attempt}/${maxRetries} failed: ${lastError}`);
+
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs * Math.pow(1.5, attempt - 1)));
+        }
+      }
+    }
+
+    // Fallback attempt via postToScript JSON payload if multipart failed
+    try {
+      console.info('[SyncManager:MultipartUpload] Attempting JSON postToScript fallback route...');
+      const fallbackPayload = {
+        action: 'ARCHIVE_PDF',
+        pdfBase64: finalBase64,
+        fileName,
+        folderName: targetFolder,
+        documentNumber,
+        receiptNumber,
+        statementNumber,
+        document,
+        payment,
+        statement,
+        timestamp: new Date().toISOString(),
+      };
+      const fallbackRes = await this.postToScript(cleanUrl, fallbackPayload, timeoutMs);
+      if (fallbackRes && fallbackRes.success && (fallbackRes.driveUrl || fallbackRes.pdfArchived?.url)) {
+        const driveUrl = fallbackRes.driveUrl || fallbackRes.pdfArchived?.url || fallbackRes.webViewLink;
+        const driveFileId = fallbackRes.driveFileId || fallbackRes.pdfArchived?.fileId;
+
+        if (document) {
+          await dbService.saveDocument({ ...document, driveFileUrl: driveUrl, driveFileId });
+        }
+        if (payment) {
+          await dbService.savePayment({ ...payment, driveFileUrl: driveUrl, driveFileId });
+        }
+        if (statement) {
+          await dbService.saveStatement({ ...statement, driveFileUrl: driveUrl, driveFileId });
+        }
+
+        this.notifyTelemetry();
+
+        return {
+          success: true,
+          driveUrl,
+          driveFileId,
+          fileName: fallbackRes.fileName || fileName,
+          byteLength: fallbackRes.byteLength,
+          uploadVerified: true,
+          serverAck: fallbackRes,
+        };
+      }
+    } catch (fallbackErr: any) {
+      console.warn('[SyncManager:MultipartUpload] Fallback route also failed:', fallbackErr);
+    }
+
+    return {
+      success: false,
+      error: `Google Drive PDF upload failed after ${maxRetries} attempts: ${lastError}`,
+    };
+  }
+
+  /**
+   * Retry-capable multipart/form-data upload handler for PDF binary blobs and base64 payloads
+   */
+  public async uploadPdfBlobWithRetry(
+    options: MultipartPdfUploadOptions
+  ): Promise<MultipartPdfUploadResult> {
+    return this.uploadPdfWithMultipartFormData(options);
   }
 
   /**

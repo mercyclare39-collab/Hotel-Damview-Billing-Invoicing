@@ -1,5 +1,5 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.9.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v6.0.0)
  * High-Concurrency Multi-Tier Lock Isolation, Decoupled Instant Drive Archival & Universal ERP Sync Engine
  * Single Source of Truth Binary Archival & 100% Visual and Structural Parity Pipeline
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Fail-Safe Architecture
@@ -315,24 +315,39 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  var contents = "";
-  if (e && e.postData && e.postData.contents) {
-    contents = e.postData.contents;
-  } else if (e && e.parameter && (e.parameter.payload || e.parameter.data)) {
-    contents = e.parameter.payload || e.parameter.data;
-  } else {
-    contents = "{}";
+  var payload = {};
+  var rawContents = "";
+
+  if (e && e.parameter && (e.parameter.payload || e.parameter.data)) {
+    rawContents = e.parameter.payload || e.parameter.data;
+  } else if (e && e.postData && e.postData.contents) {
+    rawContents = e.postData.contents;
   }
 
-  var payload;
-  try {
-    payload = JSON.parse(contents);
-  } catch (parseErr) {
-    return responseJSON({
-      success: false,
-      error: "Invalid JSON payload: " + parseErr.message,
-      timestamp: new Date().toISOString()
-    });
+  if (rawContents) {
+    try {
+      payload = JSON.parse(rawContents);
+    } catch (parseErr) {
+      payload = {};
+    }
+  }
+
+  // Merge direct e.parameter fields from multipart/form-data or URL-encoded form submissions
+  if (e && e.parameter) {
+    for (var k in e.parameter) {
+      if (k !== "payload" && k !== "data" && e.parameter[k] !== undefined && e.parameter[k] !== "") {
+        payload[k] = e.parameter[k];
+      }
+    }
+  }
+
+  // Support binary file field parameters from multipart/form-data
+  if (e && e.parameter) {
+    if (e.parameter.pdfBase64 && !payload.pdfBase64) {
+      payload.pdfBase64 = e.parameter.pdfBase64;
+    } else if ((e.parameter.file || e.parameter.pdfFile || e.parameter.pdf) && !payload.pdfBase64) {
+      payload.pdfBase64 = e.parameter.file || e.parameter.pdfFile || e.parameter.pdf;
+    }
   }
 
   var action = (payload.action || payload.type || "").toString().trim();
@@ -367,8 +382,8 @@ function doPost(e) {
     return responseJSON({
       success: true,
       action: "PING",
-      version: "v5.9.0",
-      message: "Hotel Damview Google Apps Script Central Backend v5.9.0 is active and connected.",
+      version: "v6.0.0",
+      message: "Hotel Damview Google Apps Script Central Backend v6.0.0 is active and connected.",
       sheetName: ss.getName(),
       sheetUrl: ss.getUrl(),
       tabs: sheetList,
@@ -381,7 +396,7 @@ function doPost(e) {
     return responseJSON({
       success: true,
       action: "GET_SHEET_DATA",
-      version: "v5.9.0",
+      version: "v6.0.0",
       data: fullData,
       timestamp: new Date().toISOString()
     });
@@ -391,13 +406,54 @@ function doPost(e) {
   // 2. ISOLATED HEAVY PDF INGESTION (Decoupled from Tabular Spreadsheet Locks)
   // --------------------------------------------------------------------------
   var externalPdfArchive = null;
-  if ((action === "ARCHIVE_PDF" || action === "UPLOAD_PDF" || action === "ARCHIVE_STATEMENT_PDF" || action === "ARCHIVE_RECEIPT_PDF") && data.pdfBase64) {
+  var isArchivePdfAction = action === "ARCHIVE_PDF" || 
+                           action === "UPLOAD_PDF" || 
+                           action === "ARCHIVE_DOCUMENT_PDF" || 
+                           action === "ARCHIVE_RECEIPT_PDF" || 
+                           action === "ARCHIVE_PAYMENT_PDF" || 
+                           action === "ARCHIVE_STATEMENT_PDF" ||
+                           action.indexOf("ARCHIVE_") === 0;
+
+  if (isArchivePdfAction && data.pdfBase64) {
     try {
       var targetFolder = data.folderName || "Hotel Damview Archives";
       var fileName = data.fileName || ("Document_" + new Date().toISOString().split("T")[0] + ".pdf");
       externalPdfArchive = archiveGenericPdfToDrive(data.pdfBase64, targetFolder, fileName);
       if (externalPdfArchive && externalPdfArchive.url) {
-        logAudit(ss, "ARCHIVE_PDF", "Archived " + fileName + " (" + externalPdfArchive.byteLength + " bytes)", "SUCCESS", externalPdfArchive.url, externalPdfArchive.fileId);
+        logAudit(ss, action, "Archived " + fileName + " (" + externalPdfArchive.byteLength + " bytes)", "SUCCESS", externalPdfArchive.url, externalPdfArchive.fileId);
+
+        // Update corresponding sheet row if document/payment/statement identifiers are present
+        if (data.document || data.documentNumber) {
+          var targetDoc = data.document || { documentNumber: data.documentNumber };
+          targetDoc.driveFileUrl = externalPdfArchive.url;
+          targetDoc.driveFileId = externalPdfArchive.fileId;
+          try {
+            upsertDocument(ss, targetDoc);
+          } catch(docUpdateErr) {
+            Logger.log("Document row update note: " + docUpdateErr.toString());
+          }
+        }
+        if (data.payment || data.receiptNumber) {
+          var targetPay = data.payment || { receiptNumber: data.receiptNumber };
+          targetPay.driveFileUrl = externalPdfArchive.url;
+          targetPay.driveFileId = externalPdfArchive.fileId;
+          try {
+            recordPayment(ss, targetPay);
+          } catch(payUpdateErr) {
+            Logger.log("Payment row update note: " + payUpdateErr.toString());
+          }
+        }
+        if (data.statement || data.statementNumber) {
+          var targetStmt = data.statement || { statementNumber: data.statementNumber };
+          targetStmt.driveFileUrl = externalPdfArchive.url;
+          targetStmt.driveFileId = externalPdfArchive.fileId;
+          try {
+            upsertStatement(ss, targetStmt);
+          } catch(stmtUpdateErr) {
+            Logger.log("Statement row update note: " + stmtUpdateErr.toString());
+          }
+        }
+
         return responseJSON({
           success: true,
           action: action,
@@ -413,7 +469,7 @@ function doPost(e) {
         throw new Error(externalPdfArchive && externalPdfArchive.error ? externalPdfArchive.error : "Failed to archive PDF to Google Drive");
       }
     } catch (archErr) {
-      logAudit(ss, "ARCHIVE_PDF", "PDF Archiving failed: " + archErr.toString(), "FAILURE", "", "");
+      logAudit(ss, action, "PDF Archiving failed: " + archErr.toString(), "FAILURE", "", "");
       return responseJSON({ success: false, action: action, error: archErr.toString(), timestamp: new Date().toISOString() });
     }
   }
@@ -2730,16 +2786,21 @@ function getOrCreateDriveFolder(folderNameOrId) {
 function sanitizeBase64Pdf(rawBase64) {
   if (!rawBase64) return "";
   var clean = String(rawBase64).trim();
-  var commaIdx = clean.indexOf(",");
-  if (clean.indexOf("data:") === 0 && commaIdx >= 0) {
-    clean = clean.substring(commaIdx + 1).trim();
-  }
-  // Remove all whitespace, line breaks, or URL encoded artifacts
-  clean = clean.replace(/\s+/g, "").replace(/[\r\n]/g, "");
   if (clean.indexOf("%") >= 0) {
     try {
       clean = decodeURIComponent(clean);
     } catch (e) {}
+  }
+  var commaIdx = clean.indexOf(",");
+  if (clean.toLowerCase().indexOf("data:") === 0 && commaIdx >= 0) {
+    clean = clean.substring(commaIdx + 1).trim();
+  }
+  // Strip whitespace, tabs, and newlines
+  clean = clean.replace(/\s+/g, "").replace(/[\r\n\t]/g, "");
+  // Support URL-safe base64 (- and _)
+  clean = clean.replace(/-/g, "+").replace(/_/g, "/");
+  while (clean.length % 4 !== 0) {
+    clean += "=";
   }
   return clean;
 }
@@ -2751,12 +2812,12 @@ function archivePdfToDrive(doc, pdfBase64, folderName, customFileName) {
     var folder = getOrCreateDriveFolder(folderName);
     var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
-    if (cleanBase64.length < 500) {
-      return { error: "Corrupt or truncated base64 PDF stream (length < 500)", status: "VALIDATION_FAILED" };
+    if (cleanBase64.length < 50) {
+      return { error: "Corrupt or truncated base64 PDF stream", status: "VALIDATION_FAILED" };
     }
 
     var decodedBytes = Utilities.base64Decode(cleanBase64);
-    if (!decodedBytes || decodedBytes.length < 1000) {
+    if (!decodedBytes || decodedBytes.length < 50) {
       return { error: "Corrupted PDF binary: decoded byte length is undersized (" + (decodedBytes ? decodedBytes.length : 0) + " bytes)", status: "VALIDATION_FAILED" };
     }
 
@@ -2815,12 +2876,12 @@ function archiveReceiptPdfToDrive(payment, pdfBase64, folderName, customFileName
     var folder = getOrCreateDriveFolder(folderName);
     var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
-    if (cleanBase64.length < 500) {
+    if (cleanBase64.length < 50) {
       return { error: "Corrupt or truncated base64 Receipt PDF stream", status: "VALIDATION_FAILED" };
     }
 
     var decodedBytes = Utilities.base64Decode(cleanBase64);
-    if (!decodedBytes || decodedBytes.length < 1000) {
+    if (!decodedBytes || decodedBytes.length < 50) {
       return { error: "Corrupted Receipt PDF binary: decoded byte length is undersized", status: "VALIDATION_FAILED" };
     }
 
@@ -2879,12 +2940,12 @@ function archiveStatementPdfToDrive(statement, pdfBase64, folderName, customFile
     var folder = getOrCreateDriveFolder(folderName);
     var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
-    if (cleanBase64.length < 500) {
+    if (cleanBase64.length < 50) {
       return { error: "Corrupt or truncated base64 Statement PDF stream", status: "VALIDATION_FAILED" };
     }
 
     var decodedBytes = Utilities.base64Decode(cleanBase64);
-    if (!decodedBytes || decodedBytes.length < 1000) {
+    if (!decodedBytes || decodedBytes.length < 50) {
       return { error: "Corrupted Statement PDF binary: decoded byte length is undersized", status: "VALIDATION_FAILED" };
     }
 
@@ -2943,12 +3004,12 @@ function archiveGenericPdfToDrive(pdfBase64, folderName, customFileName) {
     var folder = getOrCreateDriveFolder(folderName);
     var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
-    if (cleanBase64.length < 500) {
-      return { error: "Corrupt or truncated base64 PDF stream (length < 500)", status: "VALIDATION_FAILED" };
+    if (cleanBase64.length < 50) {
+      return { error: "Corrupt or truncated base64 PDF stream (length < 50)", status: "VALIDATION_FAILED" };
     }
 
     var decodedBytes = Utilities.base64Decode(cleanBase64);
-    if (!decodedBytes || decodedBytes.length < 1000) {
+    if (!decodedBytes || decodedBytes.length < 50) {
       return { error: "Corrupted PDF binary: decoded byte length is undersized (" + (decodedBytes ? decodedBytes.length : 0) + " bytes)", status: "VALIDATION_FAILED" };
     }
 

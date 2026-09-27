@@ -1,7 +1,12 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
 import { getPdfFileName, formatKsh, formatDate } from './formatters';
-import { BillingDocument, HotelProfile } from '../types';
+import { BillingDocument, HotelProfile, PaymentRecord, StatementRecord, Client, LedgerEntry } from '../types';
+import { A4DocumentPreview } from '../components/A4DocumentPreview';
+import { A4ReceiptPreview } from '../components/A4ReceiptPreview';
+import { A4StatementPreview } from '../components/A4StatementPreview';
 
 export interface GeneratePdfResult {
   blob: Blob;
@@ -482,6 +487,179 @@ export async function printPdfBlob(blob: Blob): Promise<void> {
       }
     }, 250);
   };
+}
+
+/**
+ * Standalone Off-Screen Vector PDF Generator for Billing Documents (Invoice, Quotation, Proforma).
+ * Mounts the exact A4DocumentPreview template off-screen and compiles a 100% pixel-perfect vector PDF binary.
+ */
+export async function generateDocumentPdf(
+  doc: BillingDocument,
+  profile: HotelProfile
+): Promise<GeneratePdfResult> {
+  const container = document.createElement('div');
+  container.id = `offscreen-doc-pdf-${Date.now()}`;
+  container.style.position = 'fixed';
+  container.style.left = '-99999px';
+  container.style.top = '0';
+  container.style.width = '794px';
+  container.style.backgroundColor = '#ffffff';
+  container.style.zIndex = '-99999';
+  document.body.appendChild(container);
+
+  const root = createRoot(container);
+
+  try {
+    await new Promise<void>((resolve) => {
+      root.render(React.createElement(A4DocumentPreview, { doc, profile, isPrintVersion: true }));
+      setTimeout(resolve, 120);
+    });
+
+    const targetEl = container.querySelector('.a4-page-container') as HTMLElement || container;
+    return await generatePdfFromElement(
+      targetEl,
+      doc.documentNumber,
+      doc.clientName,
+      doc.issueDate,
+      { download: false }
+    );
+  } finally {
+    try {
+      root.unmount();
+    } catch {}
+    if (container.parentNode) {
+      container.parentNode.removeChild(container);
+    }
+  }
+}
+
+/**
+ * Standalone Off-Screen Vector PDF Generator for Payment Receipts (REC).
+ * Mounts the exact A4ReceiptPreview template off-screen and compiles a 100% pixel-perfect vector PDF binary.
+ */
+export async function generateReceiptPdf(
+  payment: PaymentRecord,
+  profile: HotelProfile
+): Promise<GeneratePdfResult> {
+  const container = document.createElement('div');
+  container.id = `offscreen-rec-pdf-${Date.now()}`;
+  container.style.position = 'fixed';
+  container.style.left = '-99999px';
+  container.style.top = '0';
+  container.style.width = '794px';
+  container.style.backgroundColor = '#ffffff';
+  container.style.zIndex = '-99999';
+  document.body.appendChild(container);
+
+  const root = createRoot(container);
+
+  try {
+    await new Promise<void>((resolve) => {
+      root.render(React.createElement(A4ReceiptPreview, { payment, profile, isPrintVersion: true }));
+      setTimeout(resolve, 120);
+    });
+
+    const targetEl = container.querySelector('.a4-page-container') as HTMLElement || container;
+    return await generatePdfFromElement(
+      targetEl,
+      payment.receiptNumber,
+      payment.clientName,
+      payment.date,
+      { download: false }
+    );
+  } finally {
+    try {
+      root.unmount();
+    } catch {}
+    if (container.parentNode) {
+      container.parentNode.removeChild(container);
+    }
+  }
+}
+
+/**
+ * Standalone Off-Screen Vector PDF Generator for Statements of Account (SOA).
+ * Mounts the exact A4StatementPreview template off-screen and compiles a 100% pixel-perfect vector PDF binary.
+ */
+export async function generateStatementPdf(
+  statement: StatementRecord,
+  profile: HotelProfile,
+  client?: Client,
+  entries?: LedgerEntry[]
+): Promise<GeneratePdfResult> {
+  const container = document.createElement('div');
+  container.id = `offscreen-stmt-pdf-${Date.now()}`;
+  container.style.position = 'fixed';
+  container.style.left = '-99999px';
+  container.style.top = '0';
+  container.style.width = '794px';
+  container.style.backgroundColor = '#ffffff';
+  container.style.zIndex = '-99999';
+  document.body.appendChild(container);
+
+  const root = createRoot(container);
+
+  const targetClient: Client = client || {
+    id: statement.clientId || 'CLIENT-UNKNOWN',
+    name: statement.clientName || 'Selected Client',
+    contactPerson: '',
+    kraPin: '',
+    address: '',
+    phone: '',
+    email: '',
+    createdAt: statement.createdAt || new Date().toISOString(),
+    updatedAt: statement.updatedAt || new Date().toISOString(),
+  };
+
+  const ledgerEntries: LedgerEntry[] = entries || [
+    {
+      rowNumber: 1,
+      date: statement.endDate || statement.issueDate || new Date().toISOString().split('T')[0],
+      reference: statement.statementNumber || 'SOA-CANONICAL',
+      documentType: 'INVOICE',
+      description: `Period Statement: ${formatDate(statement.startDate)} to ${formatDate(statement.endDate)}`,
+      debit: statement.totalDebit || statement.closingBalance,
+      credit: statement.totalCredit || 0,
+      cumulativeBalance: statement.closingBalance,
+    },
+  ];
+
+  try {
+    await new Promise<void>((resolve) => {
+      root.render(
+        React.createElement(A4StatementPreview, {
+          client: targetClient,
+          profile,
+          startDate: statement.startDate,
+          endDate: statement.endDate,
+          statementNumber: statement.statementNumber,
+          entries: ledgerEntries,
+          totalDebit: statement.totalDebit || statement.closingBalance,
+          totalCredit: statement.totalCredit || 0,
+          closingBalance: statement.closingBalance,
+          issueDate: statement.issueDate,
+          isPrintVersion: true,
+        })
+      );
+      setTimeout(resolve, 120);
+    });
+
+    const targetEl = container.querySelector('.a4-page-container') as HTMLElement || container;
+    return await generatePdfFromElement(
+      targetEl,
+      statement.statementNumber,
+      statement.clientName,
+      statement.issueDate || statement.endDate,
+      { download: false }
+    );
+  } finally {
+    try {
+      root.unmount();
+    } catch {}
+    if (container.parentNode) {
+      container.parentNode.removeChild(container);
+    }
+  }
 }
 
 /**

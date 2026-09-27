@@ -18,9 +18,11 @@ import {
   Cloud,
   HardDrive,
   X,
+  Upload,
 } from 'lucide-react';
 import { BillingDocument, PaymentRecord, StatementRecord, HotelProfile } from '../types';
 import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
+import { driveArchiver } from '../services/driveArchiver';
 
 interface DriveVaultProps {
   documents: BillingDocument[];
@@ -62,6 +64,7 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
       driveUrl: d.driveFileUrl,
       rawDoc: d,
       rawPayment: null,
+      rawStatement: null,
       category: 'Billing Document',
     })),
     ...payments.map((p) => ({
@@ -76,6 +79,7 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
       driveUrl: p.driveFileUrl,
       rawDoc: null,
       rawPayment: p,
+      rawStatement: null,
       category: 'Official Receipt',
     })),
     ...statements.map((s) => ({
@@ -90,6 +94,7 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
       driveUrl: s.driveFileUrl,
       rawDoc: null,
       rawPayment: null,
+      rawStatement: s,
       category: 'Statement of Account',
     })),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -111,6 +116,31 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
     date: (i) => i.date,
     amount: (i) => i.amount,
   });
+
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+
+  const handleArchiveToDriveSingle = async (item: (typeof allVaultItems)[0]) => {
+    if (archivingId) return;
+    setArchivingId(item.id);
+    try {
+      let res: any;
+      if (item.rawDoc) {
+        res = await driveArchiver.archiveDocument(item.rawDoc);
+      } else if (item.rawPayment) {
+        res = await driveArchiver.archiveReceipt(item.rawPayment);
+      } else if (item.rawStatement) {
+        res = await driveArchiver.archiveStatement(item.rawStatement);
+      }
+
+      if (res?.success && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('damview:data-changed'));
+      }
+    } catch (err) {
+      console.warn('Vault single item Drive archive error:', err);
+    } finally {
+      setArchivingId(null);
+    }
+  };
 
   const handleDownloadPdf = (item: (typeof allVaultItems)[0]) => {
     if (item.driveUrl) {
@@ -340,6 +370,19 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
                     </td>
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {!item.driveUrl && (
+                          <button
+                            type="button"
+                            onClick={() => handleArchiveToDriveSingle(item)}
+                            disabled={archivingId === item.id}
+                            title="Upload PDF directly to Google Drive"
+                            className="flex items-center gap-1 px-2 py-1 bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-[11px] rounded shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            <Upload className={`w-3 h-3 ${archivingId === item.id ? 'animate-bounce' : ''}`} />
+                            <span>{archivingId === item.id ? 'Uploading...' : 'Upload to Drive'}</span>
+                          </button>
+                        )}
+
                         {item.rawDoc && (
                           <button
                             type="button"

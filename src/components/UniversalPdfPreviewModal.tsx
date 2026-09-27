@@ -360,7 +360,7 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
 
       let archiveRes: any;
       if (doc) {
-        archiveRes = await driveArchiver.archiveDocument(doc, base64ToUpload, pdfFileName || undefined);
+        archiveRes = await driveArchiver.archiveDocument(doc, base64ToUpload, pdfFileName || undefined, pdfBlob || undefined);
         if (archiveRes.success && archiveRes.driveUrl) {
           setCurrentDriveUrl(archiveRes.driveUrl);
           await dbService.saveDocument({
@@ -370,7 +370,7 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
           });
         }
       } else if (payment) {
-        archiveRes = await driveArchiver.archiveReceipt(payment, base64ToUpload, pdfFileName || undefined);
+        archiveRes = await driveArchiver.archiveReceipt(payment, base64ToUpload, pdfFileName || undefined, pdfBlob || undefined);
         if (archiveRes.success && archiveRes.driveUrl) {
           setCurrentDriveUrl(archiveRes.driveUrl);
           await dbService.savePayment({
@@ -380,7 +380,7 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
           });
         }
       } else if (statement?.statementRecord) {
-        archiveRes = await driveArchiver.archiveStatement(statement.statementRecord, base64ToUpload, pdfFileName || undefined);
+        archiveRes = await driveArchiver.archiveStatement(statement.statementRecord, base64ToUpload, pdfFileName || undefined, pdfBlob || undefined);
         if (archiveRes.success && archiveRes.driveUrl) {
           setCurrentDriveUrl(archiveRes.driveUrl);
           await dbService.saveStatement({

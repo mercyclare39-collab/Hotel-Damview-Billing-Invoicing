@@ -1,7 +1,7 @@
 import { dbService } from './db';
 import { BillingDocument, Client, PaymentRecord, HotelProfile, LineItem, StatementRecord, SyncQueueItem } from '../types';
 import { getPdfFileName } from '../utils/formatters';
-import { generateTestPdfDocument } from '../utils/pdfGenerator';
+import { generateTestPdfDocument, generateDocumentPdf, generateReceiptPdf, generateStatementPdf } from '../utils/pdfGenerator';
 import {
   autoCorrectIncomingDocument,
   autoCorrectIncomingClient,
@@ -13,6 +13,7 @@ import {
 import { appNotificationService } from './appNotificationService';
 import { apiRateLimiter } from './apiRateLimiter';
 import { GOOGLE_APPS_SCRIPT_VERSION } from './googleScriptCode';
+import { syncManager as enterpriseSyncManager } from './syncManager';
 export * from './schemaDiagnostics';
 
 export interface FieldLogEntry {
@@ -1409,13 +1410,24 @@ class GoogleSyncManager {
 
   /**
    * Direct trigger to archive a document PDF to Google Drive and sync remote ledger.
+   * If pdfBase64 is not supplied, it automatically compiles the 11pt vector PDF offscreen.
    */
   async archiveDocumentPdf(
     doc: BillingDocument,
     pdfBase64?: string,
     fileName?: string
   ): Promise<{ success: boolean; driveUrl?: string; driveFileId?: string; uploadVerified?: boolean; error?: string }> {
-    return this.syncDocument(doc, pdfBase64, fileName);
+    let base64 = pdfBase64;
+    if (!base64 || base64.length < 50) {
+      try {
+        const profile = await dbService.getHotelProfile();
+        const compiled = await generateDocumentPdf(doc, profile);
+        base64 = compiled.base64;
+      } catch (genErr) {
+        console.warn('Could not auto-compile document PDF before Drive archival:', genErr);
+      }
+    }
+    return this.syncDocument(doc, base64, fileName);
   }
 
   /**
@@ -1560,10 +1572,11 @@ class GoogleSyncManager {
   }
 
   /**
-   * Direct PDF base64 archive pipeline to Google Drive via Apps Script
+   * Direct PDF base64 / binary blob archive pipeline to Google Drive via Apps Script multipart/form-data
    */
   async uploadPdfToDrive(options: {
-    pdfBase64: string;
+    pdfBase64?: string;
+    pdfBlob?: Blob;
     fileName: string;
     folderName?: string;
   }): Promise<{
@@ -1574,66 +1587,21 @@ class GoogleSyncManager {
     byteLength?: number;
     error?: string;
   }> {
-    const profile = await dbService.getHotelProfile();
-    const url = profile.googleWebAppUrl;
-    const targetFolder = options.folderName || profile.googleDriveFolder || 'Hotel Damview Archives';
+    return enterpriseSyncManager.uploadPdfWithMultipartFormData(options);
+  }
 
-    if (!url || !url.startsWith('http')) {
-      return {
-        success: false,
-        error: 'Google Apps Script Web App URL is not configured.',
-      };
-    }
+  /**
+   * Multipart/form-data PDF upload delegate with automatic retries and server verification
+   */
+  async uploadPdfWithMultipartFormData(options: any) {
+    return enterpriseSyncManager.uploadPdfWithMultipartFormData(options);
+  }
 
-    if (!navigator.onLine) {
-      return {
-        success: false,
-        error: 'Offline mode active. Upload queued.',
-      };
-    }
-
-    try {
-      this.notifyListeners({ isSyncing: true, statusText: `Archiving ${options.fileName} to Google Drive...` });
-
-      const payload = {
-        action: 'ARCHIVE_PDF',
-        pdfBase64: options.pdfBase64,
-        fileName: options.fileName,
-        folderName: targetFolder,
-        timestamp: new Date().toISOString(),
-      };
-
-      const res = await this.postToScript(url, payload, 45000);
-
-      this.notifyListeners({
-        isSyncing: false,
-        statusText: res.success ? 'PDF Archived to Drive' : 'Drive Archiving Failed',
-      });
-
-      if (!res.success) {
-        return {
-          success: false,
-          error: res.error || 'Failed to archive PDF to Google Drive.',
-        };
-      }
-
-      const driveUrl = res.driveUrl || (res.pdfArchived && res.pdfArchived.url);
-      const driveFileId = res.driveFileId || (res.pdfArchived && res.pdfArchived.fileId);
-
-      return {
-        success: true,
-        driveUrl,
-        driveFileId,
-        fileName: res.fileName || options.fileName,
-        byteLength: res.byteLength,
-      };
-    } catch (err: any) {
-      this.notifyListeners({ isSyncing: false, statusText: 'Drive Upload Error' });
-      return {
-        success: false,
-        error: err?.message || 'Drive PDF Upload failed.',
-      };
-    }
+  /**
+   * Retry-capable multipart/form-data PDF upload handler for streaming generated PDF blobs
+   */
+  async uploadPdfBlobWithRetry(options: any) {
+    return enterpriseSyncManager.uploadPdfWithMultipartFormData(options);
   }
 
   /**
@@ -1860,17 +1828,29 @@ class GoogleSyncManager {
 
   /**
    * Direct trigger to archive a receipt payment PDF to Google Drive and sync remote ledger.
+   * Auto-compiles 11pt vector PDF offscreen if base64 is missing.
    */
   async archiveReceiptPdf(
     payment: PaymentRecord,
     pdfBase64?: string,
     fileName?: string
   ): Promise<{ success: boolean; driveUrl?: string; driveFileId?: string; uploadVerified?: boolean; error?: string }> {
-    return this.syncPayment(payment, pdfBase64, fileName);
+    let base64 = pdfBase64;
+    if (!base64 || base64.length < 50) {
+      try {
+        const profile = await dbService.getHotelProfile();
+        const compiled = await generateReceiptPdf(payment, profile);
+        base64 = compiled.base64;
+      } catch (genErr) {
+        console.warn('Could not auto-compile receipt PDF before Drive archival:', genErr);
+      }
+    }
+    return this.syncPayment(payment, base64, fileName);
   }
 
   /**
    * Direct trigger to archive a Statement of Account PDF to Google Drive via Apps Script.
+   * Auto-compiles 11pt vector PDF offscreen if base64 is missing.
    */
   async archiveStatementPdf(
     statement: StatementRecord,
@@ -1885,9 +1865,14 @@ class GoogleSyncManager {
       `${statement.statementNumber}_${(statement.clientName || 'Client').replace(/[^a-zA-Z0-9]/g, '_')}_${statement.issueDate}.pdf`;
 
     let validPdfBase64 = pdfBase64;
-    if (validPdfBase64 && validPdfBase64.length < 500) {
-      console.warn('Pre-upload validation: Statement PDF base64 stream length is undersized (< 500 characters).');
-      validPdfBase64 = undefined;
+    if (!validPdfBase64 || validPdfBase64.length < 50) {
+      try {
+        const client = statement.clientId ? await dbService.getClientById(statement.clientId) : undefined;
+        const compiled = await generateStatementPdf(statement, profile, client || undefined);
+        validPdfBase64 = compiled.base64;
+      } catch (genErr) {
+        console.warn('Could not auto-compile statement PDF before Drive archival:', genErr);
+      }
     }
 
     // 1. WRITE-AHEAD COMMIT: Save statement locally FIRST
