@@ -70,7 +70,7 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
                   {profile.name || 'HOTEL DAMVIEW'}
                 </h1>
                 {profile.tagline?.trim() && (
-                  <div className="text-[10pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
+                  <div className="text-[11pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
                     {profile.tagline.trim()}
                   </div>
                 )}
@@ -92,16 +92,16 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
 
             {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE (Strict Symmetrical Row Baseline Alignment) */}
             <div className="mb-3.5 w-full">
-              <table className="w-full text-[10.5pt]" style={{ borderCollapse: 'separate', borderSpacing: '12px 0' }}>
+              <table className="w-full text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: '12px 0' }}>
                 <thead>
                   <tr>
                     <th className="w-1/2 p-0 text-left border border-stone-300 rounded-t bg-stone-100/80">
-                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900">
+                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[11pt] tracking-wider text-stone-900">
                         RECEIVED FROM
                       </div>
                     </th>
                     <th className="w-1/2 p-0 text-left border border-stone-300 rounded-t bg-stone-100/80">
-                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900">
+                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[11pt] tracking-wider text-stone-900">
                         DOCUMENT DETAILS
                       </div>
                     </th>
@@ -112,14 +112,14 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
                   <tr>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Client Name:</span>
-                        <span className="font-bold text-stone-950 text-right break-words text-[9.5pt] pl-2 max-w-[70%]">{payment.clientName || 'Walk-In Guest'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Client Name:</span>
+                        <span className="font-bold text-stone-950 text-right break-words text-[11pt] pl-2 max-w-[70%]">{payment.clientName || 'Walk-In Guest'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Receipt No:</span>
-                        <span className="font-bold font-mono text-stone-950 text-right text-[10pt] pl-2 max-w-[70%]">{payment.receiptNumber || 'REC-DRAFT'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Receipt No:</span>
+                        <span className="font-bold font-mono text-stone-950 text-right text-[11pt] pl-2 max-w-[70%]">{payment.receiptNumber || 'REC-DRAFT'}</span>
                       </div>
                     </td>
                   </tr>
@@ -127,14 +127,14 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
                   <tr>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Client ID / Ref:</span>
-                        <span className="font-mono text-stone-800 text-right text-[9.5pt] tracking-wider pl-2 max-w-[70%]">{payment.clientId || 'N/A'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Client ID / Ref:</span>
+                        <span className="font-mono text-stone-800 text-right text-[11pt] tracking-wider pl-2 max-w-[70%]">{payment.clientId || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Date:</span>
-                        <span className="text-stone-800 text-right text-[9.5pt] pl-2 max-w-[70%]">{formatDate(payment.date)}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Date:</span>
+                        <span className="text-stone-800 text-right text-[11pt] pl-2 max-w-[70%]">{formatDate(payment.date)}</span>
                       </div>
                     </td>
                   </tr>
@@ -142,14 +142,14 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
                   <tr>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 rounded-b bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Invoice Settled:</span>
-                        <span className="font-bold text-stone-900 font-mono text-right break-words text-[9.5pt] pl-2 max-w-[70%]">{payment.documentNumber || 'Direct Payment'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Invoice Settled:</span>
+                        <span className="font-bold text-stone-900 font-mono text-right break-words text-[11pt] pl-2 max-w-[70%]">{payment.documentNumber || 'Direct Payment'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 rounded-b bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Payment Method:</span>
-                        <span className="font-semibold text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{payment.paymentMode}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Payment Method:</span>
+                        <span className="font-semibold text-stone-900 text-right text-[11pt] pl-2 max-w-[70%]">{payment.paymentMode}</span>
                       </div>
                     </td>
                   </tr>
@@ -254,7 +254,7 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
             {payment.referenceNote && payment.referenceNote.trim().length > 0 && (
               <div className="document-card bg-white mb-2 p-2.5 text-[11pt]">
                 <div className="text-stone-800 leading-snug flex items-start gap-1">
-                  <span className="font-bold text-stone-900 uppercase text-[10.5pt] mr-1 shrink-0">Transaction Reference:</span>
+                  <span className="font-bold text-stone-900 uppercase text-[11pt] mr-1 shrink-0">Transaction Reference:</span>
                   <span className="text-stone-900">{payment.referenceNote}</span>
                 </div>
               </div>
@@ -263,10 +263,10 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
             {/* Terms & Conditions Block at fixed position */}
             <div className="document-card bg-slate-50/50 p-2.5 text-[11pt] mb-2.5">
               <div className="text-stone-800 leading-snug">
-                <div className="font-bold uppercase text-[10.5pt] tracking-wider text-stone-900 border-b border-[#cbd5e1] pb-1 mb-1.5">
+                <div className="font-bold uppercase text-[11pt] tracking-wider text-stone-900 border-b border-[#cbd5e1] pb-1 mb-1.5">
                   Terms & Conditions
                 </div>
-                <ol className="list-decimal list-inside space-y-0.5 text-[10pt] text-stone-700">
+                <ol className="list-decimal list-inside space-y-0.5 text-[11pt] text-stone-700">
                   <li>All payments received are subject to bank/channel clearance and are non-refundable unless authorized by management.</li>
                   <li>This official receipt serves as valid proof of payment for the specified invoice and folio account.</li>
                   <li>Please retain this official receipt for financial auditing, tax records, and client account reconciliation.</li>

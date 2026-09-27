@@ -124,7 +124,7 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                   {profile.name || 'HOTEL DAMVIEW'}
                 </h1>
                 {profile.tagline?.trim() && (
-                  <div className="text-[10pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
+                  <div className="text-[11pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
                     {profile.tagline.trim()}
                   </div>
                 )}
@@ -148,16 +148,16 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
 
             {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE (Strict Symmetrical Row Baseline Alignment) */}
             <div className="mb-3.5 w-full">
-              <table className="w-full text-[10.5pt]" style={{ borderCollapse: 'separate', borderSpacing: '12px 0' }}>
+              <table className="w-full text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: '12px 0' }}>
                 <thead>
                   <tr>
                     <th className="w-1/2 p-0 text-left border border-stone-300 rounded-t bg-stone-100/80">
-                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900">
+                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[11pt] tracking-wider text-stone-900">
                         STATEMENT TO
                       </div>
                     </th>
                     <th className="w-1/2 p-0 text-left border border-stone-300 rounded-t bg-stone-100/80">
-                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900">
+                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[11pt] tracking-wider text-stone-900">
                         DOCUMENT DETAILS
                       </div>
                     </th>
@@ -168,14 +168,14 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                   <tr>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Client Name:</span>
-                        <span className="font-bold text-stone-950 text-right break-words text-[9.5pt] pl-2 max-w-[70%]">{client?.name || 'Selected Client'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Client Name:</span>
+                        <span className="font-bold text-stone-950 text-right break-words text-[11pt] pl-2 max-w-[70%]">{client?.name || 'Selected Client'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Statement No:</span>
-                        <span className="font-bold font-mono text-stone-950 text-right text-[10pt] pl-2 max-w-[70%]">{statementNumber}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Statement No:</span>
+                        <span className="font-bold font-mono text-stone-950 text-right text-[11pt] pl-2 max-w-[70%]">{statementNumber}</span>
                       </div>
                     </td>
                   </tr>
@@ -183,14 +183,14 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                   <tr>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">KRA PIN:</span>
-                        <span className="font-mono text-stone-900 text-right text-[9.5pt] tracking-wider pl-2 max-w-[70%]">{client?.kraPin || 'N/A'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">KRA PIN:</span>
+                        <span className="font-mono text-stone-900 text-right text-[11pt] tracking-wider pl-2 max-w-[70%]">{client?.kraPin || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Issue Date:</span>
-                        <span className="text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{issueDate ? formatDate(issueDate) : formatDate()}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Issue Date:</span>
+                        <span className="text-stone-900 text-right text-[11pt] pl-2 max-w-[70%]">{issueDate ? formatDate(issueDate) : formatDate()}</span>
                       </div>
                     </td>
                   </tr>
@@ -198,14 +198,14 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
                   <tr>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 rounded-b bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Physical Address:</span>
-                        <span className="text-stone-800 text-right break-words text-[9.5pt] pl-2 max-w-[75%]">{client?.address || 'N/A'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Physical Address:</span>
+                        <span className="text-stone-800 text-right break-words text-[11pt] pl-2 max-w-[75%]">{client?.address || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 rounded-b bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Period Covered:</span>
-                        <span className="font-medium text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{dynamicPeriodCovered}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Period Covered:</span>
+                        <span className="font-medium text-stone-900 text-right text-[11pt] pl-2 max-w-[70%]">{dynamicPeriodCovered}</span>
                       </div>
                     </td>
                   </tr>
@@ -356,10 +356,10 @@ export const A4StatementPreview = forwardRef<HTMLDivElement, A4StatementPreviewP
           <div className="mt-auto pt-2 w-full text-[11pt]">
             <div className="border border-stone-300 bg-stone-50/60 mb-2.5 p-2.5 text-[11pt] w-full">
               <div className="text-stone-800 leading-snug">
-                <div className="font-bold uppercase text-[10.5pt] tracking-wider text-stone-900 border-b border-[#cbd5e1] pb-1 mb-1.5">
+                <div className="font-bold uppercase text-[11pt] tracking-wider text-stone-900 border-b border-[#cbd5e1] pb-1 mb-1.5">
                   Terms & Conditions
                 </div>
-                <ol className="list-decimal list-inside space-y-0.5 text-[10pt] text-stone-700">
+                <ol className="list-decimal list-inside space-y-0.5 text-[11pt] text-stone-700">
                   <li>Please examine this statement immediately and notify the accounts department of any discrepancies within 7 days.</li>
                   <li>Outstanding balances remaining unpaid past the credit period are subject to overdue credit terms.</li>
                   <li>All remittance payments should reference the assigned Client ID or respective invoice numbers.</li>

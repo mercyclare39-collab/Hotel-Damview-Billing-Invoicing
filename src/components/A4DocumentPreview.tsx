@@ -157,7 +157,7 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                   {profile.name || 'HOTEL DAMVIEW'}
                 </h1>
                 {profile.tagline?.trim() && (
-                  <div className="text-[10pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
+                  <div className="text-[11pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
                     {profile.tagline.trim()}
                   </div>
                 )}
@@ -181,16 +181,16 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
 
             {/* 3. PARALLEL TWO-COLUMN DETAILS ARCHITECTURE (Strict Symmetrical Row Baseline Alignment) */}
             <div className="mb-3.5 w-full">
-              <table className="w-full text-[10.5pt]" style={{ borderCollapse: 'separate', borderSpacing: '12px 0' }}>
+              <table className="w-full text-[11pt]" style={{ borderCollapse: 'separate', borderSpacing: '12px 0' }}>
                 <thead>
                   <tr>
                     <th className="w-1/2 p-0 text-left border border-stone-300 rounded-t bg-stone-100/80">
-                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900">
+                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[11pt] tracking-wider text-stone-900">
                         {clientBoxTitle}
                       </div>
                     </th>
                     <th className="w-1/2 p-0 text-left border border-stone-300 rounded-t bg-stone-100/80">
-                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[9.5pt] tracking-wider text-stone-900">
+                      <div className="px-2.5 py-1 text-left uppercase font-bold text-[11pt] tracking-wider text-stone-900">
                         DOCUMENT DETAILS
                       </div>
                     </th>
@@ -201,14 +201,14 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                   <tr>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Client Name:</span>
-                        <span className="font-bold text-stone-950 text-right break-words text-[9.5pt] pl-2 max-w-[70%]">{doc.clientName || 'Cash / Walk-In Customer'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Client Name:</span>
+                        <span className="font-bold text-stone-950 text-right break-words text-[11pt] pl-2 max-w-[70%]">{doc.clientName || 'Cash / Walk-In Customer'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">{isQuotation ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:'}</span>
-                        <span className="font-bold font-mono text-stone-950 text-right text-[10pt] pl-2 max-w-[70%]">{doc.documentNumber || 'DRAFT'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">{isQuotation ? 'Quote No:' : isProforma ? 'Proforma No:' : 'Invoice No:'}</span>
+                        <span className="font-bold font-mono text-stone-950 text-right text-[11pt] pl-2 max-w-[70%]">{doc.documentNumber || 'DRAFT'}</span>
                       </div>
                     </td>
                   </tr>
@@ -216,14 +216,14 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                   <tr>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">KRA PIN:</span>
-                        <span className="font-mono text-stone-900 text-right text-[9.5pt] tracking-wider pl-2 max-w-[70%]">{doc.clientKraPin || 'N/A'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">KRA PIN:</span>
+                        <span className="font-mono text-stone-900 text-right text-[11pt] tracking-wider pl-2 max-w-[70%]">{doc.clientKraPin || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Issue Date:</span>
-                        <span className="text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{formatDate(doc.issueDate)}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Issue Date:</span>
+                        <span className="text-stone-900 text-right text-[11pt] pl-2 max-w-[70%]">{formatDate(doc.issueDate)}</span>
                       </div>
                     </td>
                   </tr>
@@ -231,14 +231,14 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                   <tr>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 rounded-b bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">Physical Address:</span>
-                        <span className="text-stone-800 text-right break-words text-[9.5pt] pl-2 max-w-[75%]">{doc.clientAddress || 'N/A'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">Physical Address:</span>
+                        <span className="text-stone-800 text-right break-words text-[11pt] pl-2 max-w-[75%]">{doc.clientAddress || 'N/A'}</span>
                       </div>
                     </td>
                     <td className="w-1/2 p-0 border-x border-b border-stone-300 rounded-b bg-white" style={{ verticalAlign: 'middle' }}>
                       <div className="px-2.5 py-1.25 flex justify-between items-center gap-2 leading-tight">
-                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[9.5pt] shrink-0">{isQuotation ? 'Valid Until:' : 'Due Date:'}</span>
-                        <span className="font-medium text-stone-900 text-right text-[9.5pt] pl-2 max-w-[70%]">{doc.dueDate ? formatDate(doc.dueDate) : '-'}</span>
+                        <span className="font-semibold text-stone-600 whitespace-nowrap text-[11pt] shrink-0">{isQuotation ? 'Valid Until:' : 'Due Date:'}</span>
+                        <span className="font-medium text-stone-900 text-right text-[11pt] pl-2 max-w-[70%]">{doc.dueDate ? formatDate(doc.dueDate) : '-'}</span>
                       </div>
                     </td>
                   </tr>
@@ -357,10 +357,10 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
               {hasPaymentSettlement ? (
                 <div className="flex items-stretch justify-between gap-4 w-full">
                   {/* Left: Clean, headerless Settlement Instructions card */}
-                  <div className="flex-1 border border-stone-300 rounded p-2.5 bg-stone-50/60 text-[10pt] leading-tight space-y-1">
+                  <div className="flex-1 border border-stone-300 rounded p-2.5 bg-stone-50/60 text-[11pt] leading-tight space-y-1">
                     {hasBankRemittance && (
                       <>
-                        <div className="font-bold text-stone-900 border-b border-stone-200 pb-0.5 uppercase tracking-wider text-[9pt]">
+                        <div className="font-bold text-stone-900 border-b border-stone-200 pb-0.5 uppercase tracking-wider text-[11pt]">
                           Bank Remittance Instructions
                         </div>
                         {hasBankName && (
@@ -553,10 +553,10 @@ export const A4DocumentPreview = forwardRef<HTMLDivElement, A4DocumentPreviewPro
                 </div>
               ) : (
                 <div className="text-stone-800 leading-snug">
-                  <div className="font-bold uppercase text-[10.5pt] tracking-wider text-stone-900 border-b border-[#cbd5e1] pb-1 mb-1.5">
+                  <div className="font-bold uppercase text-[11pt] tracking-wider text-stone-900 border-b border-[#cbd5e1] pb-1 mb-1.5">
                     Terms & Conditions
                   </div>
-                  <ol className="list-decimal list-inside space-y-0.5 text-[10pt] text-stone-700">
+                  <ol className="list-decimal list-inside space-y-0.5 text-[11pt] text-stone-700">
                     {isQuotation ? (
                       <>
                         <li>This quotation is valid for 30 days from the date of issue and is subject to space and facility availability.</li>
