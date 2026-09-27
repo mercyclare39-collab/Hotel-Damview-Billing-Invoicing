@@ -128,8 +128,8 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
 
-  // Multi-tier view mode: 'pdf_binary' (Tier 1) vs 'high_fidelity_vector' (Tier 2)
-  const [viewMode, setViewMode] = useState<'pdf_binary' | 'high_fidelity_vector'>('pdf_binary');
+  // Unified High-Fidelity Vector Standard (Authoritative 1:1 Rendering)
+  const [viewMode, setViewMode] = useState<'pdf_binary' | 'high_fidelity_vector'>('high_fidelity_vector');
   const [isSandboxBlocked, setIsSandboxBlocked] = useState(false);
   const [hasTimedOutPdfCheck, setHasTimedOutPdfCheck] = useState(false);
 
