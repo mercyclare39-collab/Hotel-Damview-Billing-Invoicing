@@ -205,6 +205,9 @@ export default function App() {
   // Statement client filter state
   const [statementClientId, setStatementClientId] = useState<string | undefined>(undefined);
 
+  // Active highlighted document ID for cross-module journal routing & focus
+  const [highlightedDocId, setHighlightedDocId] = useState<string | null>(null);
+
   // App-Wide Sync Warning Notification State across ALL active modules
   const [syncWarningNotification, setSyncWarningNotification] = useState<{
     id: string;
@@ -336,11 +339,30 @@ export default function App() {
       }
     };
 
+    const handleNavigateJournal = (e: any) => {
+      const detail = e?.detail;
+      if (detail) {
+        const { moduleType, documentId } = detail;
+        if (moduleType === 'QUOTATION') setCurrentModule('quotations');
+        else if (moduleType === 'PROFORMA') setCurrentModule('proformas');
+        else if (moduleType === 'INVOICE') setCurrentModule('invoices');
+        else if (moduleType === 'RECEIPT') setCurrentModule('receipts');
+        else if (moduleType === 'SOA') setCurrentModule('statements');
+
+        setDocModuleSubTab('journal');
+        setEditingDoc(null);
+        if (documentId) {
+          setHighlightedDocId(documentId);
+        }
+      }
+    };
+
     window.addEventListener('damview:data-changed', handleRemoteDataChanged);
     window.addEventListener('damview-sync-completed', handleRemoteDataChanged);
     window.addEventListener('damview-renumbered', handleRemoteDataChanged);
     window.addEventListener('damview:sync-warning', handleSyncWarning);
     window.addEventListener('damview:navigate-module', handleNavigateModule);
+    window.addEventListener('damview:navigate-journal', handleNavigateJournal);
     window.addEventListener('damview:gas-version-mismatch', handleGasVersionMismatch);
 
     // Sync when tab receives focus to catch changes from other devices immediately
@@ -399,6 +421,7 @@ export default function App() {
       window.removeEventListener('damview-renumbered', handleRemoteDataChanged);
       window.removeEventListener('damview:sync-warning', handleSyncWarning);
       window.removeEventListener('damview:navigate-module', handleNavigateModule);
+      window.removeEventListener('damview:navigate-journal', handleNavigateJournal);
       window.removeEventListener('damview:gas-version-mismatch', handleGasVersionMismatch);
       window.removeEventListener('focus', handleWindowFocus);
       window.removeEventListener('keydown', handleGlobalKeyDown);
@@ -568,7 +591,22 @@ export default function App() {
     }
   };
 
-  const handleSaveDocument = async (doc: BillingDocument) => {
+  const handleSaveDocument = async (doc: BillingDocument, options?: { skipCloudPush?: boolean }) => {
+    // If called from DocumentEditor with skipCloudPush, DocumentEditor has already rendered the PDF
+    // and dispatched syncDocument(doc, pdfBase64, pdfFileName) directly in background.
+    if (options?.skipCloudPush) {
+      setDocuments((prev) => {
+        const idx = prev.findIndex((d) => d.id === doc.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = doc;
+          return next;
+        }
+        return [doc, ...prev];
+      });
+      await dbService.saveDocument(doc);
+      return;
+    }
     await queueActionSequence('SAVE', doc);
   };
 
@@ -594,7 +632,7 @@ export default function App() {
     setIsPaymentModalOpen(true);
   };
 
-  const handleSavePayment = async (payment: PaymentRecord) => {
+  const handleSavePayment = async (payment: PaymentRecord, pdfBase64?: string, fileName?: string) => {
     setIsPaymentModalOpen(false);
     setPaymentModalDoc(null);
 
@@ -602,7 +640,7 @@ export default function App() {
     setPayments((prev) => [payment, ...prev]);
 
     try {
-      await syncManager.syncPayment(payment);
+      await syncManager.syncPayment(payment, pdfBase64, fileName);
       syncManager.syncBidirectional().catch(() => {});
       // Refresh documents to reflect updated payment balances
       dbService.getDocuments().then(setDocuments);
@@ -986,6 +1024,7 @@ export default function App() {
               profile={profile}
               editingDocument={editingDoc}
               initialSubTab={docModuleSubTab}
+              highlightedDocId={highlightedDocId}
               onSaveDocument={handleSaveDocument}
               onDeleteDocument={handleDeleteDocument}
               onRecordPayment={handleOpenPaymentModal}
@@ -1010,6 +1049,7 @@ export default function App() {
               profile={profile}
               editingDocument={editingDoc}
               initialSubTab={docModuleSubTab}
+              highlightedDocId={highlightedDocId}
               onSaveDocument={handleSaveDocument}
               onDeleteDocument={handleDeleteDocument}
               onRecordPayment={handleOpenPaymentModal}
@@ -1034,6 +1074,7 @@ export default function App() {
               profile={profile}
               editingDocument={editingDoc}
               initialSubTab={docModuleSubTab}
+              highlightedDocId={highlightedDocId}
               onSaveDocument={handleSaveDocument}
               onDeleteDocument={handleDeleteDocument}
               onRecordPayment={handleOpenPaymentModal}
@@ -1055,6 +1096,7 @@ export default function App() {
               documents={documents}
               clients={clients}
               profile={profile}
+              highlightedReceiptId={highlightedDocId}
               onRecordNewPayment={() => handleOpenPaymentModal()}
               onViewDocument={(docId) => {
                 const doc = documents.find((d) => d.id === docId);
@@ -1077,6 +1119,7 @@ export default function App() {
               statements={statements}
               profile={profile}
               initialClientId={statementClientId}
+              highlightedItemId={highlightedDocId}
               onEditDocument={handleEditDocument}
               onConvertDocument={handleConvertDocument}
               onRecordPayment={(clientId, doc) => handleOpenPaymentModal(doc)}

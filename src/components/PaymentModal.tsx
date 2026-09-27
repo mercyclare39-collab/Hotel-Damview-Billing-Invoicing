@@ -34,7 +34,7 @@ interface PaymentModalProps {
   initialClientId?: string;
   isOpen: boolean;
   onClose: () => void;
-  onSavePayment: (payment: PaymentRecord) => void;
+  onSavePayment: (payment: PaymentRecord, pdfBase64?: string, fileName?: string) => void;
 }
 
 const DEFAULT_PROFILE: HotelProfile = {
@@ -138,7 +138,39 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         createdAt: new Date().toISOString(),
       };
 
-      onSavePayment(newPayment);
+      let validPdfBase64: string | undefined;
+      let pdfFileName: string | undefined;
+
+      if (previewReceiptRef.current) {
+        try {
+          const res = await generatePdfFromElement(
+            previewReceiptRef.current,
+            newPayment.receiptNumber,
+            newPayment.clientName,
+            newPayment.date,
+            { download: false }
+          );
+          if (res) {
+            const validation = validatePdfBlob(res.blob, res.base64);
+            if (validation.isValid) {
+              validPdfBase64 = res.base64;
+              pdfFileName = res.fileName;
+              localBackupService
+                .mirrorDocumentDualLocalBackup(
+                  res.blob,
+                  res.fileName,
+                  newPayment,
+                  newPayment.receiptNumber
+                )
+                .catch(() => {});
+            }
+          }
+        } catch (pdfErr) {
+          console.warn('Receipt PDF generation caught warning during save:', pdfErr);
+        }
+      }
+
+      onSavePayment(newPayment, validPdfBase64, pdfFileName);
       onClose();
     } finally {
       setIsSaving(false);

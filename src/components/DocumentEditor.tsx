@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Plus,
   Trash2,
@@ -58,6 +58,11 @@ import {
   universalSharePdfDocument,
   getDocumentOperationalSummary,
   validatePdfBlob,
+  downloadPdfBlob,
+  printPdfBlob,
+  createPdfBlobUrl,
+  revokePdfBlobUrl,
+  GeneratePdfResult,
 } from '../utils/pdfGenerator';
 import { dbService } from '../services/db';
 import { syncManager } from '../services/sync';
@@ -71,6 +76,7 @@ import {
 import { executeWithAutonomousRetry, logSystemIncident } from '../services/selfHealingPatch';
 import { A4DocumentPreview } from './A4DocumentPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
+import { UniversalPdfPreviewModal } from './UniversalPdfPreviewModal';
 import { usePWA } from '../hooks/usePWA';
 
 interface DocumentEditorProps {
@@ -79,10 +85,11 @@ interface DocumentEditorProps {
   clients: Client[];
   profile: HotelProfile;
   existingDocuments?: BillingDocument[];
-  onSave: (doc: BillingDocument) => void;
+  onSave: (doc: BillingDocument, options?: { skipCloudPush?: boolean }) => void;
   onCancel: () => void;
   onConvert?: (sourceDoc: BillingDocument, targetType: DocumentType) => void;
   onAddNewClient?: () => void;
+  onClosePreviewAndNavigateToJournal?: (doc: BillingDocument) => void;
 }
 
 const HOSPITALITY_PRESETS = [
@@ -106,6 +113,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onCancel,
   onConvert,
   onAddNewClient,
+  onClosePreviewAndNavigateToJournal,
 }) => {
   const [docType, setDocType] = useState<DocumentType>(initialDocument?.documentType || defaultType);
 
@@ -391,6 +399,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
   // Hidden DOM ref for offscreen rendering if preview pane is collapsed
   const a4PreviewRef = useRef<HTMLDivElement>(null);
   const modalA4PreviewRef = useRef<HTMLDivElement>(null);
+  const lastFinalizedDocRef = useRef<BillingDocument | null>(null);
 
   // Full derived document number: Enforced Prefix + Editable Numerical Suffix
   const activePrefix = getEnforcedPrefix(docType);
@@ -908,40 +917,85 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     );
   };
 
-  const runSaveAndRecordPipeline = async (silent = false): Promise<BillingDocument | null> => {
-    let finalNumber = fullDocumentNumber;
-    if (!numberSuffix.trim()) {
-      const nextNum = await dbService.getNextDocumentNumber(docType);
-      finalNumber = nextNum;
-    } else if (collisionDoc) {
-      setNumberSuffix(suggestedNextSuffix);
-      finalNumber = `${activePrefix}${suggestedNextSuffix}`;
-      setSaveNotification(`Assigned next available number ${finalNumber} (avoiding collision with ${collisionDoc.documentNumber})`);
-    } else {
-      setValidationGateAlert(null);
+  // Ref to prevent rapid double-click trigger spam & idempotent concurrency lock
+  const isActionExecutingRef = useRef(false);
+
+  // Single Source of Truth Compiled Vector PDF Binary State
+  const [compiledPdfBlobUrl, setCompiledPdfBlobUrl] = useState<string | null>(null);
+  const [compiledPdfBlob, setCompiledPdfBlob] = useState<Blob | null>(null);
+  const [compiledPdfBase64, setCompiledPdfBase64] = useState<string | null>(null);
+  const [compiledPdfFileName, setCompiledPdfFileName] = useState<string | null>(null);
+  const [previewViewMode, setPreviewViewMode] = useState<'pdf_binary' | 'template_flow'>('pdf_binary');
+
+  // Clean up compiled PDF object URLs on unmount or refresh
+  useEffect(() => {
+    return () => {
+      if (compiledPdfBlobUrl) {
+        revokePdfBlobUrl(compiledPdfBlobUrl);
+      }
+    };
+  }, [compiledPdfBlobUrl]);
+
+  // State for Auto-Firing action upon Modal Launch
+  const [modalAutoAction, setModalAutoAction] = useState<'NONE' | 'PRINT' | 'DOWNLOAD' | 'SHARE'>('NONE');
+
+  /**
+   * UNIFIED DOCUMENT ACTION EXECUTION PIPELINE
+   * Standardized across all 5 action triggers: Save & Record, Download, Print, Share, Preview.
+   * Guarantees:
+   * 1. Primary intent execution immediately without UI lag
+   * 2. Local commit & state persistence (< 1ms)
+   * 3. PDF generation ONCE with strict zero-byte & format validation
+   * 4. Immediate launch of live A4 preview modal
+   * 5. Instant background cloud sync & Google Drive archival with deduplication
+   */
+  const executeUnifiedDocumentWorkflow = async (
+    actionType: 'SAVE' | 'PREVIEW' | 'DOWNLOAD' | 'PRINT' | 'SHARE'
+  ): Promise<BillingDocument | null> => {
+    if (isActionExecutingRef.current) {
+      console.warn(`[DocumentEditor] Action "${actionType}" ignored: workflow already executing.`);
+      return null;
     }
 
-    // Ensure there is at least 1 valid line item (or fallback to placeholder item)
-    const itemsToSave =
-      activeLineItems.length > 0
-        ? activeLineItems
-        : lineItems.length > 0
-        ? lineItems
-        : [
-            {
-              id: 'li-default-' + Date.now(),
-              particulars: 'Hospitality Services & Amenities',
-              quantity: 1,
-              days: 1,
-              rate: 0,
-              discount: 0,
-              amount: 0,
-            },
-          ];
-
+    isActionExecutingRef.current = true;
     setIsSaving(true);
+    if (actionType === 'DOWNLOAD' || actionType === 'SHARE' || actionType === 'PRINT') {
+      setIsGeneratingPdf(true);
+    }
+
     try {
-      // 1. Prepare clean persisted document
+      // 1. Assign canonical number & check collisions
+      let finalNumber = fullDocumentNumber;
+      if (!numberSuffix.trim()) {
+        const nextNum = await dbService.getNextDocumentNumber(docType);
+        finalNumber = nextNum;
+      } else if (collisionDoc) {
+        setNumberSuffix(suggestedNextSuffix);
+        finalNumber = `${activePrefix}${suggestedNextSuffix}`;
+        setSaveNotification(`Assigned next available number ${finalNumber} (avoiding collision with ${collisionDoc.documentNumber})`);
+      } else {
+        setValidationGateAlert(null);
+      }
+
+      // Ensure at least 1 valid line item
+      const itemsToSave =
+        activeLineItems.length > 0
+          ? activeLineItems
+          : lineItems.length > 0
+          ? lineItems
+          : [
+              {
+                id: 'li-default-' + Date.now(),
+                particulars: 'Hospitality Services & Amenities',
+                quantity: 1,
+                days: 1,
+                rate: 0,
+                discount: 0,
+                amount: 0,
+              },
+            ];
+
+      // Prepare clean persisted document
       const docToPersist: BillingDocument = {
         ...currentDoc,
         documentNumber: finalNumber,
@@ -954,13 +1008,13 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
 
-      // 2. Instant Local Journal Record (L1 Cache & IndexedDB in < 1ms)
       const effectiveClientName = docToPersist.clientName.trim() || 'Client / Walk-in Guest';
       const finalizedDoc: BillingDocument = {
         ...docToPersist,
         clientName: effectiveClientName,
       };
 
+      // 2. Instant Local Journal Record (< 1ms in IndexedDB)
       await dbService.saveDocument(finalizedDoc);
 
       // Clear draft in localStorage upon successful commit
@@ -993,38 +1047,46 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         }
       } catch {}
 
-      try {
-        localStorage.removeItem('damview_draft_document_editor');
-      } catch {}
-      onSave(finalizedDoc);
+      // Notify parent state with skipCloudPush so App.tsx does not fire a competing, PDF-less cloud request
+      lastFinalizedDocRef.current = finalizedDoc;
+      onSave(finalizedDoc, { skipCloudPush: true });
 
-      if (!silent) {
-        setSaveNotification('Document recorded in local journal! Syncing to Google Drive in background...');
-        setTimeout(() => setSaveNotification(null), 4000);
-      }
+      // 3. Launch PDF Preview Modal Immediately (Guaranteed across all actions)
+      setModalAutoAction(actionType === 'SAVE' || actionType === 'PREVIEW' ? 'NONE' : actionType);
+      setShowFullPreviewModal(true);
 
-      // 3. Asynchronous Non-Blocking Drive Archival & Sheet Ledger Sync
-      const executeBackgroundSync = async () => {
-        const targetElement = await resolveTargetElement();
-        let pdfBase64: string | undefined;
-        let pdfFileName: string | undefined;
+      // 4. Resolve Target Element and Generate Vector PDF ONCE with Zero-Byte & Format Validation
+      const targetElement = await resolveTargetElement();
+      let pdfRes: GeneratePdfResult | null = null;
+      let validPdfBase64: string | undefined;
+      let pdfFileName: string | undefined;
 
-        if (targetElement) {
-          try {
-            const pdfRes = await generatePdfFromElement(
-              targetElement,
-              finalizedDoc.documentNumber,
-              finalizedDoc.clientName,
-              finalizedDoc.issueDate,
-              { download: false }
-            );
+      if (targetElement) {
+        try {
+          pdfRes = await generatePdfFromElement(
+            targetElement,
+            finalizedDoc.documentNumber,
+            finalizedDoc.clientName,
+            finalizedDoc.issueDate,
+            { download: false }
+          );
 
+          if (pdfRes) {
             const validation = validatePdfBlob(pdfRes.blob, pdfRes.base64);
             if (validation.isValid) {
-              pdfBase64 = pdfRes.base64;
+              validPdfBase64 = pdfRes.base64;
               pdfFileName = pdfRes.fileName;
 
-              // Background Dual Local Workstation Filesystem Backup (PDF + State Record JSON)
+              // Store compiled binary in component state as Single Source of Truth
+              setCompiledPdfBlob(pdfRes.blob);
+              setCompiledPdfBase64(pdfRes.base64);
+              setCompiledPdfFileName(pdfRes.fileName);
+              setCompiledPdfBlobUrl((prev) => {
+                if (prev) revokePdfBlobUrl(prev);
+                return createPdfBlobUrl(pdfRes!.blob);
+              });
+
+              // Dual local workstation filesystem backup
               localBackupService
                 .mirrorDocumentDualLocalBackup(
                   pdfRes.blob,
@@ -1033,19 +1095,66 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   finalizedDoc.documentNumber
                 )
                 .catch((bkErr) => console.warn('Local workstation filesystem archival warning:', bkErr));
+            } else {
+              console.warn('PDF pre-upload validation alert:', validation.error);
             }
-          } catch (pdfErr: any) {
-            logSystemIncident('ERROR', `Background PDF rendering caught failure: ${pdfErr?.message || String(pdfErr)}`);
           }
+        } catch (pdfErr: any) {
+          logSystemIncident('ERROR', `Unified PDF generation caught error: ${pdfErr?.message || String(pdfErr)}`);
         }
+      }
 
-        // Background Google Apps Script Push with Autonomous Retry & Telemetry
+      // 5. Execute Primary Intent Immediately using Pre-Generated Binary (Zero UI lag)
+      if (actionType === 'SAVE') {
+        setSaveNotification('Document recorded in local journal! Archiving to Google Drive in background...');
+        setTimeout(() => setSaveNotification(null), 4000);
+      } else if (actionType === 'DOWNLOAD') {
+        if (pdfRes?.blob) {
+          downloadPdfBlob(pdfRes.blob, pdfRes.fileName);
+        }
+      } else if (actionType === 'PRINT') {
+        if (pdfRes?.blob) {
+          printPdfBlob(pdfRes.blob).catch(() => window.print());
+        } else {
+          setTimeout(() => window.print(), 350);
+        }
+      } else if (actionType === 'SHARE') {
+        if (pdfRes?.blob) {
+          const summaryText = getDocumentOperationalSummary(finalizedDoc, profile);
+          await universalSharePdfDocument({
+            blob: pdfRes.blob,
+            fileName: pdfRes.fileName,
+            title: `${finalizedDoc.documentType} ${finalizedDoc.documentNumber} - ${profile.name}`,
+            summaryText,
+            clientPhone: finalizedDoc.clientPhone,
+            driveUrl: finalizedDoc.driveFileUrl,
+          });
+        }
+      }
+
+      // 6. Instant Background Cloud Sync & Google Drive Archival
+      // Dispatched immediately with the pre-generated valid Base64 PDF
+      (async () => {
         try {
           const syncResult = await executeWithAutonomousRetry(
-            () => syncManager.syncDocument(finalizedDoc, pdfBase64, pdfFileName),
+            () => syncManager.syncDocument(finalizedDoc, validPdfBase64, pdfFileName),
             { taskName: `Drive Archival for ${finalizedDoc.documentNumber}`, maxRetries: 3 }
           );
-          if (syncResult && syncResult.success && !silent) {
+
+          if (syncResult && syncResult.success) {
+            const driveUrl = syncResult.driveUrl;
+            const driveFileId = syncResult.driveFileId;
+            if (driveUrl) {
+              finalizedDoc.driveFileUrl = driveUrl;
+              finalizedDoc.driveFileId = driveFileId;
+              await dbService.saveDocument({
+                ...finalizedDoc,
+                driveFileUrl: driveUrl,
+                driveFileId,
+                syncedToGoogle: true,
+                lastSyncStatus: 'synced',
+              });
+            }
             setSaveNotification(
               syncResult.uploadVerified
                 ? 'Document verified in Google Drive & archived!'
@@ -1056,200 +1165,181 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         } catch (syncErr: any) {
           logSystemIncident(
             'ERROR',
-            `Autonomous sync retry background caught failure: ${syncErr?.message || String(syncErr)}`
+            `Background Google Drive archival caught failure: ${syncErr?.message || String(syncErr)}`
           );
         }
-      };
-
-      // Dispatch to browser idle queue or macro-task to prevent input freeze
-      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(() => {
-          executeBackgroundSync();
-        }, { timeout: 1000 });
-      } else {
-        setTimeout(executeBackgroundSync, 10);
-      }
+      })();
 
       return finalizedDoc;
     } catch (err: any) {
-      logSystemIncident('ERROR', `Save and record trapped exception: ${err?.message || String(err)}`);
+      logSystemIncident('ERROR', `Unified workflow trapped exception: ${err?.message || String(err)}`);
       setValidationGateAlert('Notice: ' + (err?.message || 'Check inputs'));
       return currentDoc;
     } finally {
+      isActionExecutingRef.current = false;
       setIsSaving(false);
+      setIsGeneratingPdf(false);
     }
   };
 
-  // State for Auto-Firing action upon Modal Launch
-  const [modalAutoAction, setModalAutoAction] = useState<'NONE' | 'PRINT' | 'DOWNLOAD' | 'SHARE'>('NONE');
-
   // Direct Trigger: Save & Record
   const handleSaveAndRecordDirect = async () => {
-    const saved = await runSaveAndRecordPipeline(false);
-    setModalAutoAction('NONE');
-    setShowFullPreviewModal(true);
+    await executeUnifiedDocumentWorkflow('SAVE');
   };
 
   // Chained Trigger: Live PDF Preview Modal
   const handleLivePreviewModalChained = async () => {
-    await runSaveAndRecordPipeline(true);
-    setModalAutoAction('NONE');
-    setShowFullPreviewModal(true);
+    await executeUnifiedDocumentWorkflow('PREVIEW');
   };
 
-  // Chained Trigger: Download PDF
+  // Chained Trigger: Download PDF (Single Source of Truth)
   const handleDownloadPdfChained = async () => {
-    setIsGeneratingPdf(true);
-    try {
-      const saved = await runSaveAndRecordPipeline(true);
-      const docToExport = saved || currentDoc;
-      setModalAutoAction('DOWNLOAD');
-      setShowFullPreviewModal(true);
-
-      const targetElement = await resolveTargetElement();
-      if (targetElement) {
-        await generatePdfFromElement(
-          targetElement,
-          docToExport.documentNumber,
-          docToExport.clientName || 'Client',
-          docToExport.issueDate,
-          { download: true }
-        );
-      }
-    } catch (err: any) {
-      console.warn('PDF download warning:', err);
-    } finally {
-      setIsGeneratingPdf(false);
+    if (compiledPdfBlob && compiledPdfFileName) {
+      downloadPdfBlob(compiledPdfBlob, compiledPdfFileName);
+      setSaveNotification(`Downloaded official PDF: ${compiledPdfFileName}`);
+      setTimeout(() => setSaveNotification(null), 3000);
+      return;
     }
+    await executeUnifiedDocumentWorkflow('DOWNLOAD');
   };
 
-  // Chained Trigger: Direct Print
+  // Chained Trigger: Direct Print (Single Source of Truth)
   const handleDirectPrintChained = async () => {
-    await runSaveAndRecordPipeline(true);
-    setModalAutoAction('PRINT');
-    setShowFullPreviewModal(true);
-    setTimeout(() => {
-      window.print();
-    }, 350);
+    if (compiledPdfBlob) {
+      printPdfBlob(compiledPdfBlob).catch(() => window.print());
+      return;
+    }
+    await executeUnifiedDocumentWorkflow('PRINT');
   };
 
-  // Chained Trigger: Universal Share
+  // Chained Trigger: Universal Share (Single Source of Truth)
   const handleShareChained = async () => {
-    setIsGeneratingPdf(true);
-    try {
-      const saved = await runSaveAndRecordPipeline(true);
-      const docToExport = saved || currentDoc;
-      setModalAutoAction('SHARE');
-      setShowFullPreviewModal(true);
-
-      const targetElement = await resolveTargetElement();
-      if (targetElement) {
-        const { blob, fileName } = await generatePdfFromElement(
-          targetElement,
-          docToExport.documentNumber,
-          docToExport.clientName || 'Client',
-          docToExport.issueDate,
-          { download: false }
-        );
-        const summaryText = getDocumentOperationalSummary(docToExport, profile);
-        await universalSharePdfDocument({
-          blob,
-          fileName,
-          title: `${docToExport.documentType} ${docToExport.documentNumber} - ${profile.name}`,
-          summaryText,
-          clientPhone: docToExport.clientPhone,
-          driveUrl: docToExport.driveFileUrl,
-        });
-      }
-    } catch (err: any) {
-      console.warn('Share error:', err);
-    } finally {
-      setIsGeneratingPdf(false);
+    if (compiledPdfBlob && compiledPdfFileName) {
+      const summaryText = getDocumentOperationalSummary(currentDoc, profile);
+      await universalSharePdfDocument({
+        blob: compiledPdfBlob,
+        fileName: compiledPdfFileName,
+        title: `${currentDoc.documentType} ${fullDocumentNumber} - ${profile.name}`,
+        summaryText,
+        clientPhone: currentDoc.clientPhone,
+        driveUrl: currentDoc.driveFileUrl,
+      });
+      return;
     }
+    await executeUnifiedDocumentWorkflow('SHARE');
   };
 
-  // Chained Trigger: Open Vector PDF in New Tab / Window
+  // Chained Trigger: Open Vector PDF in New Tab / Window (Single Source of Truth)
   const handleOpenNewTabPdfChained = async () => {
-    let popupWin: Window | null = null;
-    try {
-      popupWin = typeof window !== 'undefined' ? window.open('', '_blank') : null;
-    } catch {
-      popupWin = null;
+    if (compiledPdfBlobUrl) {
+      window.open(compiledPdfBlobUrl, '_blank', 'noopener,noreferrer');
+      return;
     }
-
-    if (popupWin) {
-      try {
-        popupWin.document.write(`
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title>Generating PDF: ${fullDocumentNumber} - ${profile.name}</title>
-              <style>
-                body { margin: 0; background-color: #0c0a09; color: #f5f5f4; font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; text-align: center; }
-                .card { background: #1c1917; border: 1px solid #44403c; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 400px; }
-                .spinner { width: 36px; height: 36px; border: 4px solid #44403c; border-top-color: #f59e0b; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1.25rem; }
-                @keyframes spin { to { transform: rotate(360deg); } }
-              </style>
-            </head>
-            <body>
-              <div class="card">
-                <div class="spinner"></div>
-                <h3 style="margin:0 0 0.5rem; font-size:1.1rem; color:#fef08a;">Preparing Vector A4 PDF</h3>
-                <p style="margin:0; font-size:0.85rem; color:#a8a29e;">${fullDocumentNumber} &bull; ${clientName || 'Guest'}</p>
-              </div>
-            </body>
-          </html>
-        `);
-      } catch {}
-    }
-
-    setIsGeneratingPdf(true);
-    try {
-      const saved = await runSaveAndRecordPipeline(true);
-      const docToExport = saved || currentDoc;
-
-      if (!popupWin) {
-        setSaveNotification('Pop-up window blocked. Displaying Full-Screen Live A4 Preview Modal.');
-        setShowFullPreviewModal(true);
-        return;
-      }
-
-      const targetElement = await resolveTargetElement();
-      if (!targetElement) {
-        if (popupWin) {
-          try { popupWin.close(); } catch {}
-        }
-        setShowFullPreviewModal(true);
-        return;
-      }
-
-      const { blob } = await generatePdfFromElement(
-        targetElement,
-        docToExport.documentNumber,
-        docToExport.clientName || 'Client',
-        docToExport.issueDate,
-        { download: false }
-      );
-      const pdfUrl = URL.createObjectURL(blob);
-      if (popupWin && !popupWin.closed) {
-        popupWin.location.href = pdfUrl;
-      } else {
-        setShowFullPreviewModal(true);
-      }
-    } catch (err: any) {
-      if (popupWin) {
-        try { popupWin.close(); } catch {}
-      }
-      setShowFullPreviewModal(true);
-      console.warn('PDF generation for popup window caught error:', err);
-    } finally {
-      setIsGeneratingPdf(false);
+    await executeUnifiedDocumentWorkflow('PREVIEW');
+    if (compiledPdfBlobUrl) {
+      window.open(compiledPdfBlobUrl, '_blank', 'noopener,noreferrer');
     }
   };
+
+  // Close / Dismiss Preview Modal & Navigate directly to corresponding Document Journal
+  const handleClosePreviewAndGoToJournal = useCallback(() => {
+    setShowFullPreviewModal(false);
+    if (compiledPdfBlobUrl) {
+      revokePdfBlobUrl(compiledPdfBlobUrl);
+      setCompiledPdfBlobUrl(null);
+    }
+    // Cleanly reset active document editor draft state from localStorage to avoid stale inputs
+    try {
+      localStorage.removeItem('damview_active_editing_doc');
+      localStorage.removeItem('damview_draft_document_editor');
+      if (initialDocument?.id) {
+        localStorage.removeItem(`damview_edit_draft_${initialDocument.id}`);
+        localStorage.removeItem('damview_last_editing_doc_id');
+      }
+    } catch {}
+
+    // Pop modal history state if active
+    if (typeof window !== 'undefined' && window.history.state?.modal === 'pdf-preview') {
+      window.history.back();
+    }
+
+    const targetDoc = lastFinalizedDocRef.current || currentDoc;
+
+    if (onClosePreviewAndNavigateToJournal) {
+      onClosePreviewAndNavigateToJournal(targetDoc);
+    } else {
+      window.dispatchEvent(
+        new CustomEvent('damview:navigate-journal', {
+          detail: {
+            moduleType: targetDoc.documentType,
+            documentId: targetDoc.id,
+            documentNumber: targetDoc.documentNumber,
+          },
+        })
+      );
+    }
+  }, [compiledPdfBlobUrl, currentDoc, initialDocument?.id, onClosePreviewAndNavigateToJournal]);
+
+  // Modal lifecycle listener for Escape key, backdrop dismiss, and browser history
+  useEffect(() => {
+    if (!showFullPreviewModal) return;
+
+    // Push history state to handle browser Back button cleanly
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ modal: 'pdf-preview', docId: currentDoc.id }, '');
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleClosePreviewAndGoToJournal();
+      }
+    };
+
+    const handlePopState = () => {
+      // User clicked browser Back button while preview modal was open
+      setShowFullPreviewModal(false);
+      if (compiledPdfBlobUrl) {
+        revokePdfBlobUrl(compiledPdfBlobUrl);
+        setCompiledPdfBlobUrl(null);
+      }
+      try {
+        localStorage.removeItem('damview_active_editing_doc');
+        localStorage.removeItem('damview_draft_document_editor');
+        if (initialDocument?.id) {
+          localStorage.removeItem(`damview_edit_draft_${initialDocument.id}`);
+          localStorage.removeItem('damview_last_editing_doc_id');
+        }
+      } catch {}
+
+      const targetDoc = lastFinalizedDocRef.current || currentDoc;
+      if (onClosePreviewAndNavigateToJournal) {
+        onClosePreviewAndNavigateToJournal(targetDoc);
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('damview:navigate-journal', {
+            detail: {
+              moduleType: targetDoc.documentType,
+              documentId: targetDoc.id,
+              documentNumber: targetDoc.documentNumber,
+            },
+          })
+        );
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [showFullPreviewModal, currentDoc, handleClosePreviewAndGoToJournal, compiledPdfBlobUrl, initialDocument?.id, onClosePreviewAndNavigateToJournal]);
 
   // Chained Trigger: Conversion Trigger (e.g. Quotation -> Proforma -> Invoice)
   const handleConvertChained = async (targetType: DocumentType) => {
-    const saved = await runSaveAndRecordPipeline(true);
+    const saved = await executeUnifiedDocumentWorkflow('SAVE');
     if (!saved) return;
     if (onConvert) {
       onConvert(saved, targetType);
@@ -2179,84 +2269,18 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       </div>
 
-      {/* FULL-SCREEN LIVE PDF PREVIEW MODAL */}
-      {showFullPreviewModal && (
-        <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xs flex flex-col p-2 sm:p-4 animate-fade-in no-print">
-          {/* Modal Header */}
-          <div className="bg-white rounded-t-lg border border-stone-300 px-4 py-3 flex items-center justify-between shadow-md shrink-0">
-            <div className="flex items-center gap-2">
-              <Eye className="w-4 h-4 text-amber-700" />
-              <span className="font-bold text-stone-900 text-sm">
-                Full-Screen Live A4 PDF Preview: {fullDocumentNumber}
-              </span>
-              <span className="text-xs text-stone-500 hidden sm:inline">
-                ({currentDoc.clientName} - {formatKsh(totals.grandTotal)})
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleOpenNewTabPdfChained}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded flex items-center gap-1.5 border border-stone-300 shadow-2xs cursor-pointer"
-                title="Open PDF in a new browser tab/window"
-              >
-                <ExternalLink className="w-3.5 h-3.5 text-amber-700" />
-                <span>Open in New Tab</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleShareChained}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1.5 shadow-xs cursor-pointer"
-                title="Share Document with direct PDF attachment & summary"
-              >
-                <Share2 className="w-3.5 h-3.5 text-amber-400" />
-                <span>{isGeneratingPdf ? 'Preparing...' : 'Share'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadPdfChained}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs cursor-pointer font-bold"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleDirectPrintChained}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded flex items-center gap-1 border border-stone-200 cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowFullPreviewModal(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 rounded hover:bg-stone-100 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Modal A4 Preview Body */}
-          <div className="flex-1 overflow-auto bg-stone-800/90 rounded-b-lg p-6 flex justify-center items-start">
-            <div
-              ref={modalA4PreviewRef}
-              className="bg-white shadow-2xl origin-top"
-              style={{
-                transform: 'scale(0.85)',
-                transformOrigin: 'top center',
-              }}
-            >
-              <A4DocumentPreview doc={currentDoc} profile={profile} />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* UNIVERSAL RESILIENT PDF PREVIEW MODAL */}
+      <UniversalPdfPreviewModal
+        isOpen={showFullPreviewModal}
+        onClose={handleClosePreviewAndGoToJournal}
+        profile={profile}
+        document={currentDoc}
+        precompiledBlob={compiledPdfBlob}
+        precompiledBase64={compiledPdfBase64}
+        precompiledFileName={compiledPdfFileName}
+        autoAction={modalAutoAction}
+        onNavigateToJournal={handleClosePreviewAndGoToJournal}
+      />
 
       {/* Standalone Client Management Modal */}
       <ClientModal

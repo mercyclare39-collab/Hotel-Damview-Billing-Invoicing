@@ -55,10 +55,14 @@ export const AppsScriptDiffInspector: React.FC<AppsScriptDiffInspectorProps> = (
   const characterCount = codeString.length;
 
   const keyCapabilities = [
-    { title: 'Isolated Heavy Drive Ingestion', status: 'Active (v5.5.0)', desc: 'Decouples Base64 PDF decoding and Drive file creation from spreadsheet write locks, slashing lock hold time to ~80ms' },
-    { title: 'Full Model Prefix Auto-Routing', status: 'Active (v5.5.0)', desc: 'Auto-maps QT-, PI-, INV-, REC-, and SOA- documents to their correct tabs even without explicit documentType' },
-    { title: 'Dedicated Statement Pipeline', status: 'Active (v5.5.0)', desc: 'Full support for UPSERT_STATEMENT, Statements_Ledger schema, and statement Drive archiving' },
-    { title: 'Zero-Contention Read Engine', status: 'Active (v5.5.0)', desc: 'Read-only queries (PING, GET_SHEET_DATA) execute instantly without blocking or waiting for locks' },
+    { title: 'Isolated Multi-Tier Lock Architecture & Statement Ingestion', status: 'Active (v5.8.0)', desc: 'Decouples heavy Base64 PDF decoding for Statements (SOA-), Receipts (REC-), and Documents (QT-, PI-, INV-) prior to acquiring write locks, preventing script timeouts and lock starvation' },
+    { title: 'Defensive Structured JSON Envelope & Safe Routing', status: 'Active (v5.8.0)', desc: 'Standardized structured JSON responses across doGet, doPost, and doOptions with comprehensive parameter-based query routing (PING, VERSION, GET_SHEET_DATA)' },
+    { title: 'Single Source of Truth Binary Archival & 100% Visual Parity', status: 'Active (v5.8.0)', desc: 'Direct ingestion of unscaled, authoritative client-compiled vector PDF streams into Google Drive via Utilities.newBlob, guaranteeing zero-distortion visual parity, intact subtle faded gridlines, and symmetrical parallel row heights without secondary re-rendering' },
+    { title: 'Decoupled Instant Drive Archival & Single-Pass Pipeline', status: 'Active (v5.8.0)', desc: 'Decouples heavy Base64 PDF binary ingestion and Drive file creation from spreadsheet write locks, preventing lock contention and eliminating duplicate uploads' },
+    { title: 'Unified Document Action Endpoints', status: 'Active (v5.8.0)', desc: 'Standardized atomic handling across all document triggers (Save, Download, Print, Share, Preview) for QT-, PI-, INV-, REC-, and SOA- documents with instant Google Drive URL capture' },
+    { title: 'Full Model Prefix Auto-Routing', status: 'Active (v5.8.0)', desc: 'Auto-maps QT-, PI-, INV-, REC-, and SOA- documents to their correct tabs even without explicit documentType' },
+    { title: 'Dedicated Statement Pipeline', status: 'Active (v5.8.0)', desc: 'Full support for UPSERT_STATEMENT, Statements_Ledger schema, and statement Drive archiving' },
+    { title: 'Zero-Contention Read Engine', status: 'Active (v5.8.0)', desc: 'Read-only queries (PING, GET_SHEET_DATA, VERSION) execute instantly without blocking or waiting for locks' },
     { title: 'Dynamic Header-Index Mapping', status: 'Active', desc: 'Auto-maps Row 1 column names preventing column drift when users insert custom columns' },
     { title: 'Zero-Auth Google Drive Archival', status: 'Active', desc: 'Validates binary payloads (>1KB), trashes older duplicates, returns public view link' },
     { title: 'Automatic Audit Log Lifecycle', status: 'Active', desc: 'Auto-prunes historical audit rows beyond 500 records to prevent sheet bloat' },

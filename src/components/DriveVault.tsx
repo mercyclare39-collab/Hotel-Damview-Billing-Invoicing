@@ -390,7 +390,7 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
         </div>
       </div>
 
-      {/* Live Google Drive Preview Modal */}
+      {/* Live Google Drive Preview Modal with Resilient Sandbox Fallback */}
       {selectedDrivePreviewUrl && (
         <div className="fixed inset-0 z-50 bg-stone-900/80 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden border border-stone-200">
@@ -412,13 +412,13 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
                 <button
                   type="button"
                   onClick={() => setSelectedDrivePreviewUrl(null)}
-                  className="p-1 text-stone-400 hover:text-white rounded"
+                  className="p-1 text-stone-400 hover:text-white rounded cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
-            <div className="flex-1 bg-stone-100 p-2 overflow-hidden">
+            <div className="flex-1 bg-stone-100 p-2 overflow-hidden relative">
               <iframe
                 src={`${selectedDrivePreviewUrl.url.replace('/view', '/preview')}?cb=${driveCacheBuster}`}
                 title={`Google Drive Preview - ${selectedDrivePreviewUrl.name}`}

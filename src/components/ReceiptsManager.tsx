@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   Receipt,
   Plus,
@@ -20,11 +20,13 @@ import {
   AlertTriangle,
   RefreshCw,
   FileSpreadsheet,
+  ShieldCheck,
 } from 'lucide-react';
 import { PaymentRecord, HotelProfile, Client, BillingDocument } from '../types';
 import { formatKsh, formatDate } from '../utils/formatters';
 import { A4ReceiptPreview } from './A4ReceiptPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
+import { UniversalPdfPreviewModal } from './UniversalPdfPreviewModal';
 import {
   generatePdfFromElement,
   universalSharePdfDocument,
@@ -47,6 +49,7 @@ interface ReceiptsManagerProps {
     payment: PaymentRecord,
     options?: { cascadeSheet?: boolean; cascadeDrive?: boolean }
   ) => Promise<void>;
+  highlightedReceiptId?: string | null;
 }
 
 export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
@@ -57,6 +60,7 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
   onRecordNewPayment,
   onViewDocument,
   onDeletePayment,
+  highlightedReceiptId,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [paymentModeFilter, setPaymentModeFilter] = useState<string>('ALL');
@@ -70,6 +74,78 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
   const [cascadeDrive, setCascadeDrive] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const receiptPrintRef = useRef<HTMLDivElement>(null);
+
+  // Active highlighted receipt ID for persistent focus
+  const [localHighlightedReceiptId, setLocalHighlightedReceiptId] = useState<string | null>(
+    highlightedReceiptId || null
+  );
+
+  useEffect(() => {
+    if (highlightedReceiptId) {
+      setLocalHighlightedReceiptId(highlightedReceiptId);
+    }
+  }, [highlightedReceiptId]);
+
+  // Smooth-scroll focused receipt into view in journal table
+  useEffect(() => {
+    if (!localHighlightedReceiptId) return;
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`receipt-row-${localHighlightedReceiptId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 150);
+
+    const clearTimer = setTimeout(() => {
+      setLocalHighlightedReceiptId((curr) => (curr === localHighlightedReceiptId ? null : curr));
+    }, 6000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(clearTimer);
+    };
+  }, [localHighlightedReceiptId]);
+
+  const handleDismissReceiptPreview = useCallback(() => {
+    if (selectedPayment) {
+      setLocalHighlightedReceiptId(selectedPayment.id);
+    }
+    setIsPreviewModalOpen(false);
+    if (typeof window !== 'undefined' && window.history.state?.modal === 'receipt-preview') {
+      window.history.back();
+    }
+  }, [selectedPayment]);
+
+  // Modal lifecycle for receipt preview (Esc key & browser Back popstate)
+  useEffect(() => {
+    if (!isPreviewModalOpen) return;
+
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ modal: 'receipt-preview', receiptId: selectedPayment?.id }, '');
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleDismissReceiptPreview();
+      }
+    };
+
+    const handlePopState = () => {
+      setIsPreviewModalOpen(false);
+      if (selectedPayment) {
+        setLocalHighlightedReceiptId(selectedPayment.id);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isPreviewModalOpen, handleDismissReceiptPreview, selectedPayment]);
 
   const handleConfirmDelete = async () => {
     if (!paymentToDelete) return;
@@ -354,18 +430,31 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
                 <tbody className="divide-y divide-stone-100">
                   {sortedPayments.map((payment) => {
                     const isSelected = selectedPayment?.id === payment.id;
+                    const isHighlighted = localHighlightedReceiptId === payment.id;
                     return (
                       <tr
                         key={payment.id}
+                        id={`receipt-row-${payment.id}`}
                         onClick={() => {
                           setSelectedPayment(payment);
                         }}
-                        className={`cursor-pointer transition-colors ${
-                          isSelected ? 'bg-amber-50/90 font-medium' : 'hover:bg-stone-50/80'
+                        className={`cursor-pointer transition-all duration-300 ${
+                          isHighlighted
+                            ? 'bg-amber-100/90 ring-2 ring-amber-500 shadow-md font-medium'
+                            : isSelected
+                            ? 'bg-amber-50/90 font-medium'
+                            : 'hover:bg-stone-50/80'
                         }`}
                       >
                         <td className="px-4 py-3 font-mono font-bold text-stone-900 whitespace-nowrap">
-                          {payment.receiptNumber}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{payment.receiptNumber}</span>
+                            {isHighlighted && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500 text-stone-950 shadow-2xs animate-pulse">
+                                Focused
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-stone-600 whitespace-nowrap">
                           {formatDate(payment.date)}
@@ -525,73 +614,18 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
         )}
       </div>
 
-      {/* Full-Screen PDF Preview Modal */}
-      {isPreviewModalOpen && selectedPayment && (
-        <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xs flex flex-col p-2 sm:p-4 animate-fade-in no-print">
-          <div className="bg-white rounded-t-lg border border-stone-300 px-4 py-3 flex items-center justify-between shadow-md max-w-4xl mx-auto w-full shrink-0">
-            <div className="flex items-center gap-2">
-              <Receipt className="w-4 h-4 text-amber-700" />
-              <span className="font-bold text-stone-900 text-sm">
-                Receipt Voucher: {selectedPayment.receiptNumber}
-              </span>
-              <span className="text-xs text-stone-500 hidden sm:inline">
-                ({selectedPayment.clientName} - {formatKsh(selectedPayment.amount)})
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleDownloadPdf(selectedPayment)}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handlePrint(selectedPayment)}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded flex items-center gap-1 border border-stone-200 transition-colors"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSharePdf(selectedPayment)}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-stone-50 text-stone-700 border border-stone-300 rounded flex items-center gap-1 transition-colors"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>Share</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentToDelete(selectedPayment)}
-                className="px-2.5 py-1.5 text-xs font-semibold bg-white hover:bg-rose-50 text-stone-600 hover:text-rose-600 border border-stone-300 rounded flex items-center gap-1 transition-colors"
-                title="Delete Receipt"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Delete</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsPreviewModalOpen(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 rounded hover:bg-stone-100 transition-colors ml-1"
-                title="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 flex justify-center bg-stone-800/90 rounded-b-lg max-w-4xl mx-auto w-full">
-            <div id={`modal-a4-receipt-${selectedPayment.receiptNumber}`} className="scale-[0.75] sm:scale-[0.88] origin-top bg-white shadow-2xl">
-              <A4ReceiptPreview payment={selectedPayment} profile={profile} />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* UNIVERSAL RESILIENT RECEIPT PREVIEW MODAL */}
+      <UniversalPdfPreviewModal
+        isOpen={isPreviewModalOpen && !!selectedPayment}
+        onClose={handleDismissReceiptPreview}
+        profile={profile}
+        payment={selectedPayment}
+        onNavigateToJournal={() => {
+          if (selectedPayment) {
+            setLocalHighlightedReceiptId(selectedPayment.id);
+          }
+        }}
+      />
 
       {/* Delete Receipt Confirmation Modal */}
       {paymentToDelete && (

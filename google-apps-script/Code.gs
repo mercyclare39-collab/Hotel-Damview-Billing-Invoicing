@@ -1,11 +1,18 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.5.0)
- * High-Concurrency Multi-Tier Lock Isolation, Isolated Drive Archival & Universal ERP Sync Engine
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.7.0)
+ * High-Concurrency Multi-Tier Lock Isolation, Decoupled Instant Drive Archival & Universal ERP Sync Engine
+ * Single Source of Truth Binary Archival & 100% Visual and Structural Parity Pipeline
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Fail-Safe Architecture
  * Single Source of Truth for Hotel Damview ERP Across All App Workstations & Mobile Devices
  *
  * Core Architectural Guarantees:
- * 1. Clean Data Propagation Without Artificial Fields:
+ * 1. Single Source of Truth Binary Archival (100% Visual & Structural Parity):
+ *    - Ingests direct authoritative client-compiled vector PDF Base64 streams without secondary conversions,
+ *      compression artifacts, or server-side layout re-rendering.
+ *    - Decodes Base64 payloads directly into native PDF blobs via Utilities.newBlob and creates files in DriveApp.
+ *    - Preserves exact vector styles, fonts, margins, subtle faded gridlines, and symmetrical parallel row heights.
+ *
+ * 2. Clean Data Propagation Without Artificial Fields:
  *    - All document data fields (including Notes, Terms & Conditions, and Particulars) strictly preserve
  *      their authentic values without synthesizing, inventing, or appending artificial fallback text.
  *    - Empty or omitted fields remain pristine empty strings or exact source values across inbound/outbound sync.
@@ -258,8 +265,8 @@ function doGet(e) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     return responseJSON({
       success: true,
-      version: "v5.5.0",
-      message: "Hotel Damview Google Apps Script Central Backend v5.5.0 is active and ready.",
+      version: "v5.7.0",
+      message: "Hotel Damview Google Apps Script Central Backend v5.7.0 is active and ready.",
       sheetName: ss ? ss.getName() : "Spreadsheet",
       sheetUrl: ss ? ss.getUrl() : "",
       timestamp: new Date().toISOString()
@@ -267,8 +274,8 @@ function doGet(e) {
   } catch (err) {
     return responseJSON({
       success: true,
-      version: "v5.5.0",
-      message: "Hotel Damview Google Apps Script Backend v5.5.0 is online.",
+      version: "v5.7.0",
+      message: "Hotel Damview Google Apps Script Backend v5.7.0 is online.",
       error: err.toString(),
       timestamp: new Date().toISOString()
     });
@@ -328,8 +335,8 @@ function doPost(e) {
     return responseJSON({
       success: true,
       action: "PING",
-      version: "v5.5.0",
-      message: "Hotel Damview Google Apps Script Central Backend v5.5.0 is active and connected.",
+      version: "v5.7.0",
+      message: "Hotel Damview Google Apps Script Central Backend v5.7.0 is active and connected.",
       sheetName: ss.getName(),
       sheetUrl: ss.getUrl(),
       tabs: sheetList,
@@ -342,7 +349,7 @@ function doPost(e) {
     return responseJSON({
       success: true,
       action: "GET_SHEET_DATA",
-      version: "v5.5.0",
+      version: "v5.7.0",
       data: fullData,
       timestamp: new Date().toISOString()
     });
@@ -352,7 +359,7 @@ function doPost(e) {
   // 2. ISOLATED HEAVY PDF INGESTION (Decoupled from Tabular Spreadsheet Locks)
   // --------------------------------------------------------------------------
   var externalPdfArchive = null;
-  if ((action === "ARCHIVE_PDF" || action === "UPLOAD_PDF" || action === "ARCHIVE_STATEMENT_PDF") && data.pdfBase64) {
+  if ((action === "ARCHIVE_PDF" || action === "UPLOAD_PDF" || action === "ARCHIVE_STATEMENT_PDF" || action === "ARCHIVE_RECEIPT_PDF") && data.pdfBase64) {
     try {
       var targetFolder = data.folderName || "Hotel Damview Archives";
       var fileName = data.fileName || ("Document_" + new Date().toISOString().split("T")[0] + ".pdf");
@@ -458,9 +465,10 @@ function doPost(e) {
         var doc = data.document;
         var driveUrl = doc.driveFileUrl || "";
         var driveFileId = doc.driveFileId || "";
-        var pdfArchive = null;
+        var pdfArchive = externalPdfArchive;
 
-        if (data.pdfBase64) {
+        // If not already archived before lock, archive now
+        if (!pdfArchive && data.pdfBase64) {
           try {
             pdfArchive = archivePdfToDrive(doc, data.pdfBase64, data.folderName, data.fileName);
             if (pdfArchive && pdfArchive.url) {
@@ -475,6 +483,12 @@ function doPost(e) {
           } catch (pdfErr) {
             logAudit(ss, "ARCHIVE_PDF", "PDF Archiving failed for " + doc.documentNumber + ": " + pdfErr.toString(), "FAILURE", "", "");
           }
+        } else if (pdfArchive && pdfArchive.url) {
+          driveUrl = pdfArchive.url;
+          driveFileId = pdfArchive.fileId || "";
+          doc.driveFileUrl = driveUrl;
+          doc.driveFileId = driveFileId;
+          logAudit(ss, "ARCHIVE_PDF", "Archived " + doc.documentNumber + " (" + (pdfArchive.fileName || "canonical.pdf") + ")", "SUCCESS", driveUrl, driveFileId);
         }
 
         var upsertResult = upsertDocument(ss, doc);
@@ -515,9 +529,9 @@ function doPost(e) {
         var payment = data.payment;
         var receiptDriveUrl = payment.driveFileUrl || "";
         var receiptDriveId = payment.driveFileId || "";
-        var receiptArchive = null;
+        var receiptArchive = externalPdfArchive;
 
-        if (data.pdfBase64) {
+        if (!receiptArchive && data.pdfBase64) {
           try {
             receiptArchive = archiveReceiptPdfToDrive(payment, data.pdfBase64, data.folderName, data.fileName);
             if (receiptArchive && receiptArchive.url) {
@@ -532,6 +546,12 @@ function doPost(e) {
           } catch (recPdfErr) {
             logAudit(ss, "ARCHIVE_RECEIPT_PDF", "Receipt PDF Archiving failed: " + recPdfErr.toString(), "FAILURE", "", "");
           }
+        } else if (receiptArchive && receiptArchive.url) {
+          receiptDriveUrl = receiptArchive.url;
+          receiptDriveId = receiptArchive.fileId || "";
+          payment.driveFileUrl = receiptDriveUrl;
+          payment.driveFileId = receiptDriveId;
+          logAudit(ss, "ARCHIVE_RECEIPT_PDF", "Archived Receipt " + payment.receiptNumber + " (" + (receiptArchive.fileName || "canonical.pdf") + ")", "SUCCESS", receiptDriveUrl, receiptDriveId);
         }
 
         var paymentResult = recordPayment(ss, payment);
@@ -2683,6 +2703,8 @@ function archivePdfToDrive(doc, pdfBase64, folderName, customFileName) {
       fileId: file.getId(),
       url: file.getUrl(),
       webViewLink: file.getUrl(),
+      driveUrl: file.getUrl(),
+      driveFileId: file.getId(),
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,
@@ -2749,6 +2771,8 @@ function archiveReceiptPdfToDrive(payment, pdfBase64, folderName, customFileName
       fileId: file.getId(),
       url: file.getUrl(),
       webViewLink: file.getUrl(),
+      driveUrl: file.getUrl(),
+      driveFileId: file.getId(),
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,

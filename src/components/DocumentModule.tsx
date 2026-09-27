@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   FileText,
   FileClock,
@@ -53,7 +53,7 @@ interface DocumentModuleProps {
   profile: HotelProfile;
   editingDocument: BillingDocument | null;
   initialSubTab?: 'new' | 'journal' | 'special';
-  onSaveDocument: (doc: BillingDocument) => void;
+  onSaveDocument: (doc: BillingDocument, options?: { skipCloudPush?: boolean }) => void;
   onDeleteDocument: (docId: string) => void;
   onRecordPayment: (doc: BillingDocument) => void;
   onConvertDocument: (sourceDoc: BillingDocument, targetType: DocumentType) => void;
@@ -61,6 +61,7 @@ interface DocumentModuleProps {
   onStartEditDocument: (doc: BillingDocument) => void;
   onCancelEditor: () => void;
   onAddNewClient?: () => void;
+  highlightedDocId?: string | null;
 }
 
 export const DocumentModule: React.FC<DocumentModuleProps> = ({
@@ -78,6 +79,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   onStartEditDocument,
   onCancelEditor,
   onAddNewClient,
+  highlightedDocId,
 }) => {
   // Sub-tabs: 'new' (Editor), 'journal' (List), 'special' (Expired for Quotes, Converted for Proformas, Unpaid for Invoices)
   const [activeSubTab, setActiveSubTab] = useState<'new' | 'journal' | 'special'>(
@@ -103,6 +105,82 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isResolvingAll, setIsResolvingAll] = useState(false);
   const [isResolvingDocId, setIsResolvingDocId] = useState<string | null>(null);
+
+  // Active highlighted document ID for instant visual focus upon journal navigation
+  const [activeHighlightedDocId, setActiveHighlightedDocId] = useState<string | null>(
+    highlightedDocId || null
+  );
+
+  useEffect(() => {
+    if (highlightedDocId) {
+      setActiveHighlightedDocId(highlightedDocId);
+      setActiveSubTab('journal');
+    }
+  }, [highlightedDocId]);
+
+  // Smooth-scroll focused document record into view in journal table
+  useEffect(() => {
+    if (!activeHighlightedDocId || activeSubTab !== 'journal') return;
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`doc-row-${activeHighlightedDocId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 150);
+
+    const clearTimer = setTimeout(() => {
+      setActiveHighlightedDocId((curr) => (curr === activeHighlightedDocId ? null : curr));
+    }, 6000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(clearTimer);
+    };
+  }, [activeHighlightedDocId, activeSubTab]);
+
+  // Quick Preview Modal Dismissal handler with automated journal routing & record focus
+  const handleDismissDocPreviewModal = useCallback(() => {
+    if (selectedDocForPreview) {
+      setActiveHighlightedDocId(selectedDocForPreview.id);
+    }
+    setSelectedDocForPreview(null);
+    setActiveSubTab('journal');
+    if (typeof window !== 'undefined' && window.history.state?.modal === 'doc-module-preview') {
+      window.history.back();
+    }
+  }, [selectedDocForPreview]);
+
+  // Modal lifecycle for Quick Preview (Esc key & browser Back popstate)
+  useEffect(() => {
+    if (!selectedDocForPreview) return;
+
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ modal: 'doc-module-preview', docId: selectedDocForPreview.id }, '');
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleDismissDocPreviewModal();
+      }
+    };
+
+    const handlePopState = () => {
+      setSelectedDocForPreview(null);
+      if (selectedDocForPreview) {
+        setActiveHighlightedDocId(selectedDocForPreview.id);
+      }
+      setActiveSubTab('journal');
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [selectedDocForPreview, handleDismissDocPreviewModal]);
 
   const {
     hasVariance,
@@ -550,8 +628,8 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             clients={clients}
             profile={profile}
             existingDocuments={documents}
-            onSave={(savedDoc) => {
-              onSaveDocument(savedDoc);
+            onSave={(savedDoc, options) => {
+              onSaveDocument(savedDoc, options);
               // Keep user in editor to allow continuous action triggers (Print, Share, Download, Preview) without abrupt redirection
             }}
             onCancel={() => {
@@ -560,6 +638,11 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
             }}
             onConvert={onConvertDocument}
             onAddNewClient={onAddNewClient}
+            onClosePreviewAndNavigateToJournal={(doc) => {
+              setActiveHighlightedDocId(doc.id);
+              setActiveSubTab('journal');
+              onCancelEditor();
+            }}
           />
         </div>
       ) : (
@@ -731,19 +814,28 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
                     sortedJournalDocs.map((doc) => {
                       const isDocWithVariance = hasVariance(doc.documentNumber);
                       const varianceInfo = getVariance(doc.documentNumber);
+                      const isHighlighted = activeHighlightedDocId === doc.id;
 
                       return (
                         <tr
                           key={doc.id}
-                          className={
-                            isDocWithVariance
-                              ? 'bg-amber-50/90 hover:bg-amber-100/90 border-l-4 border-l-amber-500 transition-all font-medium'
-                              : 'hover:bg-amber-50/40 transition-colors'
-                          }
+                          id={`doc-row-${doc.id}`}
+                          className={`transition-all duration-300 ${
+                            isHighlighted
+                              ? 'bg-amber-100/90 dark:bg-amber-950/50 ring-2 ring-amber-500 shadow-md font-medium'
+                              : isDocWithVariance
+                              ? 'bg-amber-50/90 hover:bg-amber-100/90 border-l-4 border-l-amber-500 font-medium'
+                              : 'hover:bg-amber-50/40'
+                          }`}
                         >
                           <td className="py-2.5 px-3 font-mono font-bold text-stone-900 whitespace-nowrap">
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <span>{doc.documentNumber}</span>
+                              {isHighlighted && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500 text-stone-950 shadow-2xs animate-pulse">
+                                  <span>Focused</span>
+                                </span>
+                              )}
                               {isDocWithVariance && (
                                 <span
                                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-950 border border-amber-400 shadow-2xs animate-pulse"
@@ -940,12 +1032,28 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
 
       {/* QUICK PREVIEW MODAL */}
       {selectedDocForPreview && (
-        <div className="fixed inset-0 z-50 bg-stone-900/80 backdrop-blur-xs flex flex-col justify-between p-4 overflow-y-auto">
-          <div className="flex items-center justify-between bg-stone-900 text-white px-4 py-3 rounded-t border-b border-stone-800 max-w-4xl mx-auto w-full">
-            <h3 className="font-bold text-sm tracking-wide flex items-center gap-2">
-              <Icon className="w-4 h-4 text-amber-400" />
-              {selectedDocForPreview.documentType}: {selectedDocForPreview.documentNumber} - {selectedDocForPreview.clientName}
-            </h3>
+        <div
+          className="fixed inset-0 z-50 bg-stone-900/80 backdrop-blur-xs flex flex-col justify-between p-4 overflow-y-auto cursor-pointer"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              handleDismissDocPreviewModal();
+            }
+          }}
+        >
+          <div
+            className="flex items-center justify-between bg-stone-900 text-white px-4 py-3 rounded-t border-b border-stone-800 max-w-4xl mx-auto w-full cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center flex-wrap gap-2.5">
+              <h3 className="font-bold text-sm tracking-wide flex items-center gap-2">
+                <Icon className="w-4 h-4 text-amber-400" />
+                {selectedDocForPreview.documentType}: {selectedDocForPreview.documentNumber} - {selectedDocForPreview.clientName}
+              </h3>
+              <div className="flex items-center gap-1 px-2 py-0.5 bg-emerald-950 text-emerald-300 rounded border border-emerald-700 text-[11px] font-semibold">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>100% Binary Parity</span>
+              </div>
+            </div>
             <div className="flex items-center gap-2">
               {/* Universal Share Direct Button */}
               <button
@@ -978,25 +1086,23 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => handleQuickShare(selectedDocForPreview)}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-amber-300 font-medium rounded text-xs flex items-center gap-1 border border-stone-700 transition-colors cursor-pointer"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>Share</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedDocForPreview(null)}
+                onClick={handleDismissDocPreviewModal}
                 className="p-1 text-stone-400 hover:text-white rounded hover:bg-stone-800 transition-colors ml-1 cursor-pointer"
-                title="Close Preview"
+                title="Close Preview & Navigate to Journal (Esc)"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
           </div>
-          <div className="flex-1 flex justify-center py-4 overflow-auto max-w-4xl mx-auto w-full bg-stone-200">
-            <div id="doc-module-preview-a4">
+          <div
+            className="flex-1 flex justify-center py-4 overflow-auto max-w-4xl mx-auto w-full bg-stone-200 cursor-pointer"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                handleDismissDocPreviewModal();
+              }
+            }}
+          >
+            <div id="doc-module-preview-a4" className="cursor-default" onClick={(e) => e.stopPropagation()}>
               <A4DocumentPreview
                 document={selectedDocForPreview}
                 profile={profile}

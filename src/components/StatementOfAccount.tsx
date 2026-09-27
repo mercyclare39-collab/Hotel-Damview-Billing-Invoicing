@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   FileSpreadsheet,
   Download,
@@ -26,6 +26,7 @@ import {
   ChevronRight,
   TrendingUp,
   MessageSquare,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Client,
@@ -53,6 +54,7 @@ import { A4StatementPreview } from "./A4StatementPreview";
 import { AutoScalingA4Container } from "./AutoScalingA4Container";
 import { A4DocumentPreview } from "./A4DocumentPreview";
 import { A4ReceiptPreview } from "./A4ReceiptPreview";
+import { UniversalPdfPreviewModal } from "./UniversalPdfPreviewModal";
 import { usePersistentSort, SortableHeader } from "../hooks/usePersistentSort";
 
 interface StatementOfAccountProps {
@@ -66,6 +68,7 @@ interface StatementOfAccountProps {
   onEditDocument?: (doc: BillingDocument) => void;
   onConvertDocument?: (doc: BillingDocument, targetType: DocumentType) => void;
   onNewDocumentForClient?: (clientId: string) => void;
+  highlightedItemId?: string | null;
 }
 
 type JournalFilterType =
@@ -99,6 +102,7 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   onEditDocument,
   onConvertDocument,
   onNewDocumentForClient,
+  highlightedItemId,
 }) => {
   const [selectedClientId, setSelectedClientId] = useState<string>(
     initialClientId || (clients[0]?.id ?? ""),
@@ -106,6 +110,18 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
 
   // Active Main View: 'journal' for Document Journal, 'ledger' for Financial Ledger & Statement
   const [activeView, setActiveView] = useState<"journal" | "ledger">("journal");
+
+  // Highlighted item ID for journal table focus
+  const [localHighlightedItemId, setLocalHighlightedItemId] = useState<string | null>(
+    highlightedItemId || null
+  );
+
+  useEffect(() => {
+    if (highlightedItemId) {
+      setLocalHighlightedItemId(highlightedItemId);
+      setActiveView("journal");
+    }
+  }, [highlightedItemId]);
 
   // Default date range: first day of current month to today
   const defaultStartDate = useMemo(() => {
@@ -137,6 +153,105 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   const statementPreviewRef = useRef<HTMLDivElement>(null);
   const modalPreviewRef = useRef<HTMLDivElement>(null);
   const itemModalPreviewRef = useRef<HTMLDivElement>(null);
+
+  // Smooth-scroll focused journal record item into view
+  useEffect(() => {
+    if (!localHighlightedItemId || activeView !== "journal") return;
+    const timer = setTimeout(() => {
+      const el =
+        document.getElementById(`soa-record-row-${localHighlightedItemId}`) ||
+        document.querySelector(`[data-doc-id="${localHighlightedItemId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 150);
+
+    const clearTimer = setTimeout(() => {
+      setLocalHighlightedItemId((curr) => (curr === localHighlightedItemId ? null : curr));
+    }, 6000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(clearTimer);
+    };
+  }, [localHighlightedItemId, activeView]);
+
+  // Statement PDF Modal Dismissal (Automated routing to Document Journal)
+  const handleDismissStatementPdfModal = useCallback(() => {
+    setIsPdfPreviewModalOpen(false);
+    setActiveView("journal");
+    if (typeof window !== 'undefined' && window.history.state?.modal === 'soa-statement-preview') {
+      window.history.back();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isPdfPreviewModalOpen) return;
+
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ modal: 'soa-statement-preview' }, '');
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleDismissStatementPdfModal();
+      }
+    };
+
+    const handlePopState = () => {
+      setIsPdfPreviewModalOpen(false);
+      setActiveView("journal");
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [isPdfPreviewModalOpen, handleDismissStatementPdfModal]);
+
+  // Journal Item Preview Modal Dismissal (Automated routing to Document Journal & record focus)
+  const handleDismissPreviewItem = useCallback(() => {
+    if (previewItem) {
+      setLocalHighlightedItemId(previewItem.doc?.id || previewItem.payment?.id || null);
+    }
+    setPreviewItem(null);
+    setActiveView("journal");
+    if (typeof window !== 'undefined' && window.history.state?.modal === 'soa-item-preview') {
+      window.history.back();
+    }
+  }, [previewItem]);
+
+  useEffect(() => {
+    if (!previewItem) return;
+
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ modal: 'soa-item-preview' }, '');
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleDismissPreviewItem();
+      }
+    };
+
+    const handlePopState = () => {
+      setPreviewItem(null);
+      setActiveView("journal");
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [previewItem, handleDismissPreviewItem]);
 
   const selectedClient = useMemo(() => {
     if (!selectedClientId) return null;
@@ -1129,11 +1244,22 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
                         const isUnsettledInvoice =
                           isInvoice &&
                           (rec.balanceDue === undefined || rec.balanceDue > 0);
+                        const isHighlighted =
+                          Boolean(localHighlightedItemId) &&
+                          (localHighlightedItemId === rec.id ||
+                            (rec.rawDoc && localHighlightedItemId === rec.rawDoc.id) ||
+                            (rec.rawPayment && localHighlightedItemId === rec.rawPayment.id));
 
                         return (
                           <tr
                             key={rec.id}
-                            className="hover:bg-amber-50/20 transition-colors"
+                            id={`soa-record-row-${rec.id}`}
+                            data-doc-id={rec.rawDoc?.id || rec.rawPayment?.id || rec.id}
+                            className={`transition-all duration-300 ${
+                              isHighlighted
+                                ? "bg-amber-100/90 dark:bg-amber-950/50 ring-2 ring-amber-500 shadow-md font-medium"
+                                : "hover:bg-amber-50/20"
+                            }`}
                           >
                             <td className="px-3.5 py-2.5 text-stone-600 whitespace-nowrap font-medium">
                               {rec.date}
@@ -1158,9 +1284,16 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
 
                             {/* Document Reference # */}
                             <td className="px-3.5 py-2.5 whitespace-nowrap">
-                              <span className="font-mono font-bold text-stone-900 bg-stone-100 px-2 py-0.5 rounded border border-stone-200">
-                                {rec.documentNumber}
-                              </span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-mono font-bold text-stone-900 bg-stone-100 px-2 py-0.5 rounded border border-stone-200">
+                                  {rec.documentNumber}
+                                </span>
+                                {isHighlighted && (
+                                  <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500 text-stone-950 animate-pulse">
+                                    Focused
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             {/* Client Name */}
@@ -1666,179 +1799,38 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
         )}
       </div>
 
-      {/* FULL-SCREEN STATEMENT PDF PREVIEW MODAL */}
-      {isPdfPreviewModalOpen && selectedClient && (
-        <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xs flex flex-col p-2 sm:p-4 animate-fade-in no-print">
-          <div className="bg-white rounded-t-lg border border-stone-300 px-4 py-3 flex items-center justify-between shadow-md max-w-5xl mx-auto w-full shrink-0">
-            <div className="flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-amber-700" />
-              <span className="font-bold text-stone-900 text-sm">
-                Statement of Account: {statementNumber}
-              </span>
-              <span className="text-xs text-stone-500 hidden sm:inline">
-                ({selectedClient.name} &bull; Issue Date:{" "}
-                {formatDate(issueDate)} &bull; Balance:{" "}
-                {formatKsh(closingBalance)})
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleShare}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                title="Share Statement of Account with direct PDF attachment & summary"
-              >
-                <Share2 className="w-3.5 h-3.5 text-amber-400" />
-                <span>
-                  {isGeneratingPdf ? "Preparing..." : "Share Statement"}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadStatementPdf}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>
-                  {isGeneratingPdf ? "Generating..." : "Download Statement PDF"}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded flex items-center gap-1 border border-stone-200 transition-colors cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsPdfPreviewModalOpen(false)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 rounded hover:bg-stone-100 transition-colors ml-1 cursor-pointer"
-                title="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-auto bg-stone-800/90 rounded-b-lg p-6 flex justify-center items-start max-w-5xl mx-auto w-full">
-            <div
-              ref={modalPreviewRef}
-              className="bg-white shadow-2xl origin-top"
-              style={{
-                transform: "scale(0.85)",
-                transformOrigin: "top center",
-              }}
-            >
-              <A4StatementPreview
-                client={selectedClient}
-                profile={profile}
-                startDate={startDate}
-                endDate={endDate}
-                statementNumber={statementNumber}
-                issueDate={issueDate}
-                entries={ledgerEntries}
-                totalDebit={totalDebit}
-                totalCredit={totalCredit}
-                closingBalance={closingBalance}
-              />
-            </div>
-          </div>
-        </div>
+      {/* UNIVERSAL RESILIENT STATEMENT PDF PREVIEW MODAL */}
+      {selectedClient && (
+        <UniversalPdfPreviewModal
+          isOpen={isPdfPreviewModalOpen}
+          onClose={handleDismissStatementPdfModal}
+          profile={profile}
+          statement={{
+            client: selectedClient,
+            startDate,
+            endDate,
+            issueDate,
+            entries: ledgerEntries,
+            summary: {
+              totalInvoiced: totalDebit,
+              totalPaid: totalCredit,
+              closingBalance,
+            },
+          }}
+          onNavigateToJournal={handleDismissStatementPdfModal}
+        />
       )}
 
-      {/* JOURNAL RECORD PREVIEW MODAL (Document or Receipt) */}
+      {/* UNIVERSAL RESILIENT JOURNAL ITEM PREVIEW MODAL (Document or Receipt) */}
       {previewItem && (
-        <div className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur-xs flex flex-col p-2 sm:p-4 animate-fade-in no-print">
-          <div className="bg-white rounded-t-lg border border-stone-300 px-4 py-3 flex items-center justify-between shadow-md max-w-5xl mx-auto w-full shrink-0">
-            <div className="flex items-center gap-2">
-              <FileCheck className="w-4 h-4 text-amber-700" />
-              <span className="font-bold text-stone-900 text-sm">
-                Preview:{" "}
-                {previewItem.type === "DOCUMENT"
-                  ? previewItem.doc?.documentNumber
-                  : previewItem.payment?.receiptNumber}
-              </span>
-              <span className="text-xs text-stone-500 hidden sm:inline">
-                (
-                {previewItem.type === "DOCUMENT"
-                  ? previewItem.doc?.clientName
-                  : previewItem.payment?.clientName}
-                )
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleShareItem}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-900 hover:bg-stone-800 text-amber-400 rounded flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                title="Share Document / Receipt with direct PDF attachment & summary"
-              >
-                <Share2 className="w-3.5 h-3.5 text-amber-400" />
-                <span>{isGeneratingPdf ? "Preparing..." : "Share"}</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadItemPdf}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 rounded flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>
-                  {isGeneratingPdf ? "Generating..." : "Download PDF"}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-3 py-1.5 text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-800 rounded flex items-center gap-1 border border-stone-200 transition-colors cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewItem(null)}
-                className="p-1.5 text-stone-400 hover:text-stone-700 rounded hover:bg-stone-100 transition-colors ml-1 cursor-pointer"
-                title="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-auto bg-stone-800/90 rounded-b-lg p-6 flex justify-center items-start max-w-5xl mx-auto w-full">
-            <div
-              ref={itemModalPreviewRef}
-              className="bg-white shadow-2xl origin-top"
-              style={{
-                transform: "scale(0.85)",
-                transformOrigin: "top center",
-              }}
-            >
-              {previewItem.type === "DOCUMENT" && previewItem.doc && (
-                <A4DocumentPreview
-                  document={previewItem.doc}
-                  profile={profile}
-                  scale={1}
-                />
-              )}
-              {previewItem.type === "RECEIPT" && previewItem.payment && (
-                <A4ReceiptPreview
-                  payment={previewItem.payment}
-                  profile={profile}
-                  scale={1}
-                />
-              )}
-            </div>
-          </div>
-        </div>
+        <UniversalPdfPreviewModal
+          isOpen={!!previewItem}
+          onClose={handleDismissPreviewItem}
+          profile={profile}
+          document={previewItem.type === "DOCUMENT" ? previewItem.doc : undefined}
+          payment={previewItem.type === "RECEIPT" ? previewItem.payment : undefined}
+          onNavigateToJournal={handleDismissPreviewItem}
+        />
       )}
 
       {/* HIDDEN PRINT-ONLY CONTAINER FOR STATEMENT */}

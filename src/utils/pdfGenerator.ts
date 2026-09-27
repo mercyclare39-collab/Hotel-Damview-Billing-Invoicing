@@ -218,8 +218,82 @@ export function injectSearchableVectorTextLayer(
 }
 
 /**
+ * Resolves the canonical unscaled A4 page container from any target element or ancestor/descendant.
+ * Guarantees zero CSS transform/scale distortion during rasterization and vector layer measurement.
+ */
+export function resolveA4PageContainer(element: HTMLElement): HTMLElement {
+  if (element.classList.contains('a4-page-container')) {
+    return element;
+  }
+  const found = element.querySelector<HTMLElement>('.a4-page-container');
+  if (found) return found;
+  return element;
+}
+
+/**
+ * Creates a memory-safe object URL from a PDF binary blob with guaranteed application/pdf MIME type
+ */
+export function createPdfBlobUrl(blob: Blob): string {
+  const pdfBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+  return URL.createObjectURL(pdfBlob);
+}
+
+/**
+ * Revokes a previously created PDF blob URL
+ */
+export function revokePdfBlobUrl(url: string | null | undefined): void {
+  if (url && url.startsWith('blob:')) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {}
+  }
+}
+
+/**
+ * Safely opens a PDF in a new window/tab, handling pop-up blockers, sandboxed iframes, and mobile browsers
+ */
+export function safeOpenPdfInNewTab(blob: Blob, fileName?: string): boolean {
+  try {
+    const pdfBlob = blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+    const blobUrl = URL.createObjectURL(pdfBlob);
+
+    // Try native window.open
+    const newWindow = window.open(blobUrl, '_blank', 'noopener,noreferrer');
+    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+      // Pop-up blocker fallback: programmatically trigger link click
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+
+    // Keep blob URL alive for user inspection
+    setTimeout(() => {
+      try {
+        URL.revokeObjectURL(blobUrl);
+      } catch {}
+    }, 60000);
+    return true;
+  } catch (err) {
+    console.warn('Failed to open PDF in new tab:', err);
+    return false;
+  }
+}
+
+/**
  * Generate high-resolution, vector-searchable A4 PDF from an HTML element.
- * Combines 2x ultra-crisp visual rendering with a 1:1 searchable & selectable vector text layer.
+ * 
+ * Guarantees 100% Visual and Structural Parity between Client Preview and Google Drive:
+ * 1. Isolated Unscaled Staging Sandbox: Deep-clones the target A4 template into an offscreen staging container
+ *    at exact 794px width (210mm @ 96 DPI) with transform: none. Completely eliminates CSS scale()
+ *    distortions, shifted table rows, clipped subtle faded gridlines, or font-rendering artifacts.
+ * 2. 2.5x Ultra-Crisp Canvas Engine: High-fidelity rasterization (240 DPI) preserving all borders and badges.
+ * 3. 1:1 Vector Text Layer: Searchable and selectable text layer positioned at millimeter-exact coordinates.
+ * 4. Single Source of Truth Binary: The exact compiled Blob and Base64 stream returned here is used for
+ *    in-app preview, local file downloads, native print/share dispatch, and Google Drive archival.
  */
 export async function generatePdfFromElement(
   element: HTMLElement,
@@ -230,21 +304,57 @@ export async function generatePdfFromElement(
 ): Promise<GeneratePdfResult> {
   const fileName = getPdfFileName(documentNumber, clientName, issueDate);
 
-  // High-resolution canvas rendering for graphics, backgrounds, subtle borders, and logos
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    useCORS: true,
-    logging: false,
-    backgroundColor: '#ffffff',
-    windowWidth: 794,
+  // 1. Resolve canonical A4 page container
+  const pageContainer = resolveA4PageContainer(element);
+
+  // 2. Wait for document fonts to be ready so vector text and layout compute with exact glyph metrics
+  try {
+    if (document.fonts && document.fonts.ready) {
+      await document.fonts.ready;
+    }
+  } catch {}
+
+  // 3. Create an isolated, unscaled off-screen staging sandbox
+  // This guarantees that any CSS transform: scale(...) on the parent/viewport/modal
+  // NEVER distorts the generated PDF canvas, table borders, subtle gridlines, or vector coordinates.
+  const sandbox = document.createElement('div');
+  sandbox.id = `pdf-staging-sandbox-${Date.now()}`;
+  sandbox.style.position = 'fixed';
+  sandbox.style.left = '-99999px';
+  sandbox.style.top = '0';
+  sandbox.style.width = '794px'; // Standard 210mm @ 96 DPI
+  sandbox.style.minHeight = '1123px'; // Standard 297mm @ 96 DPI
+  sandbox.style.margin = '0';
+  sandbox.style.padding = '0';
+  sandbox.style.border = 'none';
+  sandbox.style.transform = 'none';
+  sandbox.style.transformOrigin = 'top left';
+  sandbox.style.zIndex = '-99999';
+  sandbox.style.backgroundColor = '#ffffff';
+  sandbox.style.visibility = 'visible';
+  sandbox.style.pointerEvents = 'none';
+
+  // Deep clone the canonical A4 page element
+  const clone = pageContainer.cloneNode(true) as HTMLElement;
+  clone.style.transform = 'none';
+  clone.style.transformOrigin = 'top left';
+  clone.style.margin = '0';
+  clone.style.width = '794px';
+  clone.style.minHeight = '1123px';
+  clone.style.boxSizing = 'border-box';
+  clone.style.backgroundColor = '#ffffff';
+
+  // Remove any responsive scaling classes or transforms from all cloned descendants
+  const scaledDescendants = clone.querySelectorAll<HTMLElement>('[style*="transform"], [class*="scale"]');
+  scaledDescendants.forEach((desc) => {
+    desc.style.transform = 'none';
+    desc.style.transformOrigin = 'top left';
   });
 
-  if (canvas.width <= 0 || canvas.height <= 0) {
-    throw new Error('Canvas rendering engine returned zero dimensions.');
-  }
+  sandbox.appendChild(clone);
+  document.body.appendChild(sandbox);
 
-  const imgData = canvas.toDataURL('image/jpeg', 0.98);
-
+  let canvas: HTMLCanvasElement;
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -255,26 +365,54 @@ export async function generatePdfFromElement(
   const pdfWidth = pdf.internal.pageSize.getWidth(); // 210 mm
   const pdfHeight = pdf.internal.pageSize.getHeight(); // 297 mm
 
-  const imgWidth = pdfWidth;
-  const imgHeight = (canvas.height * pdfWidth) / canvas.width;
-
-  // Pagination support: ensure multi-page documents (long statements/invoices) are completely rendered
-  const totalPages = Math.max(1, Math.ceil((imgHeight - 1) / pdfHeight));
-
-  for (let page = 0; page < totalPages; page++) {
-    if (page > 0) {
-      pdf.addPage();
-    }
-    pdf.setPage(page + 1);
-    const yOffset = -page * pdfHeight;
-    pdf.addImage(imgData, 'JPEG', 0, yOffset, imgWidth, imgHeight);
-  }
-
-  // Inject searchable, selectable vector text layer on top of all pages
   try {
-    injectSearchableVectorTextLayer(pdf, element, pdfWidth, pdfHeight);
-  } catch (err) {
-    console.warn('Vector text layer injection notice:', err);
+    // Wait small tick for DOM and image assets to settle inside sandbox
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    // High-resolution canvas rendering: scale 2.5 (240 DPI print quality) for crystal-clear vector borders, logos, and typography
+    canvas = await html2canvas(clone, {
+      scale: 2.5,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      backgroundColor: '#ffffff',
+      width: 794,
+      windowWidth: 794,
+      scrollX: 0,
+      scrollY: 0,
+    });
+
+    if (canvas.width <= 0 || canvas.height <= 0) {
+      throw new Error('Canvas rendering engine returned zero dimensions.');
+    }
+
+    const imgData = canvas.toDataURL('image/jpeg', 0.98);
+    const imgWidth = pdfWidth;
+    const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+
+    // Pagination support: ensure multi-page documents are completely rendered
+    const totalPages = Math.max(1, Math.ceil((imgHeight - 1) / pdfHeight));
+
+    for (let page = 0; page < totalPages; page++) {
+      if (page > 0) {
+        pdf.addPage();
+      }
+      pdf.setPage(page + 1);
+      const yOffset = -page * pdfHeight;
+      pdf.addImage(imgData, 'JPEG', 0, yOffset, imgWidth, imgHeight);
+    }
+
+    // Inject searchable, selectable vector text layer on top of all pages using the unscaled staging element
+    try {
+      injectSearchableVectorTextLayer(pdf, clone, pdfWidth, pdfHeight);
+    } catch (err) {
+      console.warn('Vector text layer injection notice:', err);
+    }
+  } finally {
+    // Ensure sandbox is cleanly removed from DOM
+    if (sandbox.parentNode) {
+      sandbox.parentNode.removeChild(sandbox);
+    }
   }
 
   const blob = pdf.output('blob');

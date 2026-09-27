@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Search,
   Plus,
@@ -30,6 +30,7 @@ import {
   printPdfBlob,
 } from '../utils/pdfGenerator';
 import { A4DocumentPreview } from './A4DocumentPreview';
+import { UniversalPdfPreviewModal } from './UniversalPdfPreviewModal';
 import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
 import { DocumentStatusDropdown } from './DocumentStatusDropdown';
 import { dbService } from '../services/db';
@@ -44,6 +45,7 @@ interface DocumentJournalProps {
   onRecordPayment: (doc: BillingDocument) => void;
   onConvertDocument: (sourceDoc: BillingDocument, targetType: DocumentType) => void;
   onSaveDocument?: (doc: BillingDocument) => void;
+  highlightedDocId?: string | null;
 }
 
 export const DocumentJournal: React.FC<DocumentJournalProps> = ({
@@ -55,6 +57,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
   onRecordPayment,
   onConvertDocument,
   onSaveDocument,
+  highlightedDocId,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | DocumentType>('ALL');
@@ -65,6 +68,78 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
   const [isResolvingAll, setIsResolvingAll] = useState(false);
   const [isResolvingDocId, setIsResolvingDocId] = useState<string | null>(null);
   const pageSize = 25;
+
+  // Active highlighted document ID for instant visual focus
+  const [localHighlightedDocId, setLocalHighlightedDocId] = useState<string | null>(
+    highlightedDocId || null
+  );
+
+  useEffect(() => {
+    if (highlightedDocId) {
+      setLocalHighlightedDocId(highlightedDocId);
+    }
+  }, [highlightedDocId]);
+
+  // Smooth-scroll focused document record into view in journal table
+  useEffect(() => {
+    if (!localHighlightedDocId) return;
+    const timer = setTimeout(() => {
+      const el = document.getElementById(`journal-doc-row-${localHighlightedDocId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 150);
+
+    const clearTimer = setTimeout(() => {
+      setLocalHighlightedDocId((curr) => (curr === localHighlightedDocId ? null : curr));
+    }, 6000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(clearTimer);
+    };
+  }, [localHighlightedDocId]);
+
+  const handleDismissJournalDocPreview = useCallback(() => {
+    if (selectedDocForPreview) {
+      setLocalHighlightedDocId(selectedDocForPreview.id);
+    }
+    setSelectedDocForPreview(null);
+    if (typeof window !== 'undefined' && window.history.state?.modal === 'journal-doc-preview') {
+      window.history.back();
+    }
+  }, [selectedDocForPreview]);
+
+  // Modal lifecycle for Journal Document Preview (Esc key & browser Back popstate)
+  useEffect(() => {
+    if (!selectedDocForPreview) return;
+
+    if (typeof window !== 'undefined') {
+      window.history.pushState({ modal: 'journal-doc-preview', docId: selectedDocForPreview.id }, '');
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleDismissJournalDocPreview();
+      }
+    };
+
+    const handlePopState = () => {
+      setSelectedDocForPreview(null);
+      if (selectedDocForPreview) {
+        setLocalHighlightedDocId(selectedDocForPreview.id);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [selectedDocForPreview, handleDismissJournalDocPreview]);
 
   const {
     hasVariance,
@@ -438,20 +513,29 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
                 paginatedDocs.map((doc) => {
                   const isDocWithVariance = hasVariance(doc.documentNumber);
                   const varianceInfo = getVariance(doc.documentNumber);
+                  const isHighlighted = localHighlightedDocId === doc.id;
 
                   return (
                     <tr
                       key={doc.id}
-                      className={
-                        isDocWithVariance
-                          ? 'bg-amber-50/90 hover:bg-amber-100/90 border-l-4 border-l-amber-500 transition-all font-medium'
+                      id={`journal-doc-row-${doc.id}`}
+                      className={`transition-all duration-300 ${
+                        isHighlighted
+                          ? 'bg-amber-100/90 dark:bg-amber-950/50 ring-2 ring-amber-500 shadow-md font-medium'
+                          : isDocWithVariance
+                          ? 'bg-amber-50/90 hover:bg-amber-100/90 border-l-4 border-l-amber-500 font-medium'
                           : 'hover:bg-stone-50/80 transition-colors'
-                      }
+                      }`}
                     >
                       <td className="py-2.5 px-3">{getTypeBadge(doc.documentType)}</td>
                       <td className="py-2.5 px-3 font-mono font-bold text-stone-900">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span>{doc.documentNumber}</span>
+                          {isHighlighted && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500 text-stone-950 shadow-2xs animate-pulse">
+                              <span>Focused</span>
+                            </span>
+                          )}
                           {isDocWithVariance && (
                             <span
                               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-950 border border-amber-400 shadow-2xs animate-pulse"
@@ -689,90 +773,18 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
         )}
       </div>
 
-      {/* DOCUMENT PREVIEW MODAL */}
-      {selectedDocForPreview && (
-        <div className="fixed inset-0 z-50 bg-stone-900/80 backdrop-blur-xs flex flex-col justify-between p-4 overflow-y-auto">
-          <div className="flex items-center justify-between bg-stone-900 text-white px-4 py-3 rounded-t border-b border-stone-800 max-w-4xl mx-auto w-full">
-            <h3 className="font-bold text-sm tracking-wide">
-              Document Preview: {selectedDocForPreview.documentNumber} ({selectedDocForPreview.documentType})
-            </h3>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickPrint(selectedDocForPreview)}
-                className="px-3 py-1 bg-stone-800 hover:bg-stone-700 text-white rounded text-xs flex items-center gap-1 cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                Print
-              </button>
-              <button
-                type="button"
-                disabled={isGeneratingPdf}
-                onClick={() => handleQuickShare(selectedDocForPreview)}
-                className="px-3 py-1 bg-stone-800 hover:bg-stone-700 text-white font-bold rounded text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-                title="Share Document with direct PDF attachment & summary"
-              >
-                <Share2 className="w-3.5 h-3.5 text-amber-400" />
-                Share
-              </button>
-              <button
-                type="button"
-                disabled={isGeneratingPdf}
-                onClick={async () => {
-                  const el = document.getElementById('journal-modal-a4');
-                  if (el) {
-                    setIsGeneratingPdf(true);
-                    try {
-                      await generatePdfFromElement(
-                        el,
-                        selectedDocForPreview.documentNumber,
-                        selectedDocForPreview.clientName,
-                        selectedDocForPreview.issueDate,
-                        { download: true }
-                      );
-                    } finally {
-                      setIsGeneratingPdf(false);
-                    }
-                  }
-                }}
-                className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs flex items-center gap-1 cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                {isGeneratingPdf ? 'Generating...' : 'Download PDF'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setSelectedDocForPreview(null)}
-                className="px-3 py-1 bg-stone-700 hover:bg-stone-600 text-white rounded text-xs cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 flex justify-center py-4 overflow-auto max-w-4xl mx-auto w-full bg-stone-200">
-            <div id="journal-modal-a4">
-              <A4DocumentPreview
-                document={selectedDocForPreview}
-                profile={profile}
-                scale={0.9}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* OFFSCREEN RENDERED CONTAINER FOR RELIABLE PDF GENERATION */}
-      {selectedDocForPreview && (
-        <div style={{ position: "absolute", left: "-9999px", top: "-9999px", width: "210mm", height: "auto", overflow: "hidden" }} aria-hidden="true">
-          <div id="journal-offscreen-a4">
-            <A4DocumentPreview
-              document={selectedDocForPreview}
-              profile={profile}
-              scale={1}
-            />
-          </div>
-        </div>
-      )}
+      {/* UNIVERSAL RESILIENT DOCUMENT PREVIEW MODAL */}
+      <UniversalPdfPreviewModal
+        isOpen={!!selectedDocForPreview}
+        onClose={handleDismissJournalDocPreview}
+        profile={profile}
+        document={selectedDocForPreview}
+        onNavigateToJournal={() => {
+          if (selectedDocForPreview) {
+            setLocalHighlightedDocId(selectedDocForPreview.id);
+          }
+        }}
+      />
     </div>
   );
 };
