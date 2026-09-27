@@ -165,12 +165,12 @@ export const AppsScriptDiffInspector: React.FC<AppsScriptDiffInspectorProps> = (
         </div>
       </div>
 
-      {/* Release v5.5.0 Highlights Banner */}
+      {/* Release Current Highlights Banner */}
       <div className="bg-amber-50/60 border border-amber-200/80 rounded-lg p-3 text-xs text-stone-800 space-y-2">
         <div className="flex items-center justify-between">
           <span className="font-bold text-amber-950 flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-            Release v5.5.0 Structural Updates & Deployment Highlights
+            Release {currentVersion} Structural Updates &amp; Deployment Highlights
           </span>
           <span className="text-[10px] font-mono text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded">
             Production Ready
