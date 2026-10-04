@@ -73,16 +73,21 @@ interface SidebarProps {
   onToggleMobile: () => void;
 }
 
+interface NavItem {
+  id: MainNavModule;
+  label: string;
+  subtitle: string;
+  shortLabel: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge: string | number | null;
+  badgeColor: string;
+  description?: string;
+}
+
 interface NavCategory {
   title: string;
-  items: {
-    id: MainNavModule;
-    label: string;
-    icon: React.ComponentType<{ className?: string }>;
-    badge: string | number | null;
-    badgeColor: string;
-    description?: string;
-  }[];
+  shortTitle?: string;
+  items: NavItem[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -144,10 +149,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navCategories: NavCategory[] = [
     {
       title: 'OVERVIEW',
+      shortTitle: 'OVERVIEW',
       items: [
         {
           id: 'dashboard',
           label: 'Executive Dashboard',
+          subtitle: 'Real-time KPIs & Financials',
+          shortLabel: 'Dashboard',
           icon: LayoutDashboard,
           badge: null,
           badgeColor: '',
@@ -156,45 +164,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       title: 'BILLING & INVOICING',
+      shortTitle: 'BILLING',
       items: [
         {
           id: 'quotations',
           label: 'Quotations',
+          subtitle: 'Price Estimates & Proposals',
+          shortLabel: 'Quotations',
           icon: FileClock,
           badge: quotationsCount > 0 ? quotationsCount : null,
-          badgeColor: 'bg-blue-100 text-blue-900 border border-blue-300',
+          badgeColor: 'bg-blue-100 text-blue-900 border border-blue-300 font-bold',
         },
         {
           id: 'proformas',
           label: 'Proforma Invoices',
+          subtitle: 'Advance Billing & Orders',
+          shortLabel: 'Proformas',
           icon: Receipt,
           badge: proformasCount > 0 ? proformasCount : null,
-          badgeColor: 'bg-purple-100 text-purple-900 border border-purple-300',
+          badgeColor: 'bg-purple-100 text-purple-900 border border-purple-300 font-bold',
         },
         {
           id: 'invoices',
           label: 'Tax Invoices',
+          subtitle: 'Accounts Receivable & Billing',
+          shortLabel: 'Invoices',
           icon: FileText,
           badge: unpaidInvoicesCount > 0 ? `${unpaidInvoicesCount} due` : null,
           badgeColor: hasOverdueInvoices
             ? 'bg-rose-100 text-rose-900 border border-rose-300 font-bold animate-pulse'
-            : 'bg-amber-100 text-amber-900 border border-amber-300',
+            : 'bg-amber-100 text-amber-900 border border-amber-300 font-bold',
         },
       ],
     },
     {
       title: 'PAYMENTS & SETTLEMENTS',
+      shortTitle: 'PAYMENTS',
       items: [
         {
           id: 'receipts',
           label: 'Payment Receipts',
+          subtitle: 'Remittance Proof & Vouchers',
+          shortLabel: 'Receipts',
           icon: CreditCard,
           badge: receiptsCount > 0 ? receiptsCount : null,
-          badgeColor: 'bg-emerald-100 text-emerald-900 border border-emerald-300',
+          badgeColor: 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold',
         },
         {
           id: 'statements',
           label: 'Statement of Accounts',
+          subtitle: 'Client Ledgers & Balances',
+          shortLabel: 'Statements',
           icon: BookOpen,
           badge: null,
           badgeColor: '',
@@ -203,10 +223,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       title: 'HOSPITALITY',
+      shortTitle: 'HOSPITALITY',
       items: [
         {
           id: 'reservations',
           label: 'Room & Hall Folios',
+          subtitle: 'Guest Lodging & Bookings',
+          shortLabel: 'Folios',
           icon: Bed,
           badge: 'Live',
           badgeColor: 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold',
@@ -214,6 +237,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           id: 'pos',
           label: 'Restaurant & Bar POS',
+          subtitle: 'Counter Sales & Food Orders',
+          shortLabel: 'Restaurant POS',
           icon: Utensils,
           badge: null,
           badgeColor: '',
@@ -222,10 +247,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       title: 'OPERATIONS',
+      shortTitle: 'OPERATIONS',
       items: [
         {
           id: 'nightaudit',
           label: 'Night Audit & Reports',
+          subtitle: 'Daily Revenue & VAT Schedules',
+          shortLabel: 'Night Audit',
           icon: TrendingUp,
           badge: 'Daily',
           badgeColor: 'bg-amber-500 text-stone-950 font-bold',
@@ -233,18 +261,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           id: 'clients',
           label: 'Client Directory',
+          subtitle: 'Corporate Accounts & PINs',
+          shortLabel: 'Clients',
           icon: Users,
           badge: clientsCount > 0 ? clientsCount : null,
-          badgeColor: 'bg-stone-700 text-stone-200',
+          badgeColor: 'bg-stone-700 text-stone-200 font-semibold',
         },
       ],
     },
     {
       title: 'INTEGRATIONS & VAULT',
+      shortTitle: 'INTEGRATIONS',
       items: [
         {
           id: 'vault',
           label: 'Google Drive Vault',
+          subtitle: 'Cloud Document Archival',
+          shortLabel: 'Drive Vault',
           icon: FolderGit2,
           badge: null,
           badgeColor: '',
@@ -252,6 +285,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           id: 'sync',
           label: 'Google Sync Engine',
+          subtitle: 'Real-time Google Sheets Sync',
+          shortLabel: 'Sync Engine',
           icon: Cloud,
           badge: pendingSyncCount > 0 ? pendingSyncCount : null,
           badgeColor: 'bg-amber-500 text-stone-950 font-bold',
@@ -259,6 +294,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           id: 'excel',
           label: 'Excel Master Suite (.xlsm)',
+          subtitle: 'VBA Macro Workstation',
+          shortLabel: 'Excel Suite',
           icon: FileSpreadsheet,
           badge: 'Offline',
           badgeColor: 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold',
@@ -266,6 +303,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           id: 'settings',
           label: 'Hotel Settings',
+          subtitle: 'Profile, Tax & System Setup',
+          shortLabel: 'Settings',
           icon: Settings,
           badge: needRefresh ? 'Update' : null,
           badgeColor: 'bg-amber-500 text-stone-950 font-bold animate-pulse',
@@ -286,269 +325,350 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const sidebarContent = (
-    <div className="flex flex-col h-full bg-stone-900 text-stone-100 select-none border-r border-stone-800">
-      {/* 1. Header: Branding & Crest */}
-      <div className="p-4 border-b border-stone-800/80 flex items-center justify-between">
-        <div
-          onClick={() => handleNavClick('dashboard')}
-          className="flex items-center gap-3 cursor-pointer overflow-hidden"
-          title="Hotel Damview ERP"
-        >
-          <div className="shrink-0">
-            <HotelLogo logoBase64={profile.logoBase64} size={effectiveCollapsed ? 36 : 40} />
-          </div>
-          {!effectiveCollapsed && (
-            <div className="min-w-0 transition-opacity duration-200">
-              <div
-                className="font-bold text-sm tracking-wider uppercase text-amber-400 font-serif leading-tight truncate"
-                title={profile.name || 'HOTEL DAMVIEW'}
-              >
-                {profile.name || 'HOTEL DAMVIEW'}
-              </div>
-              <div
-                className="text-[10px] text-stone-300 tracking-wide truncate font-medium"
-                title={`${profile.physicalLocation || ''} • ${profile.postalAddress || ''}`}
-              >
-                {profile.physicalLocation || profile.postalAddress || profile.tagline || ''}
-              </div>
-              {profile.kraPin && (
-                <div className="text-[9px] font-mono text-stone-400 truncate mt-0.5">
-                  PIN: {profile.kraPin}
-                </div>
+  const renderSidebarContent = (forceExpanded: boolean = false) => {
+    // When forced (such as in mobile drawer or expanded aside), never collapse
+    const effectiveCollapsed = forceExpanded ? false : (isCollapsed && !isHovered);
+
+    return (
+      <div className="flex flex-col h-full bg-stone-900 text-stone-100 select-none border-r border-stone-800">
+        {/* 1. Header: Branding & Crest */}
+        <div className="p-3.5 border-b border-stone-800 flex items-center justify-between">
+          <div
+            onClick={() => handleNavClick('dashboard')}
+            className="flex items-center gap-3 cursor-pointer overflow-hidden min-w-0 flex-1"
+            title="Hotel Damview ERP"
+          >
+            <div className="shrink-0 flex flex-col items-center justify-center">
+              <HotelLogo logoBase64={profile.logoBase64} size={effectiveCollapsed ? 34 : 42} />
+              {effectiveCollapsed && (
+                <span className="text-[9.5px] font-bold text-amber-400 uppercase tracking-widest mt-1 text-center font-serif truncate max-w-full">
+                  DAMVIEW
+                </span>
               )}
+            </div>
+            {!effectiveCollapsed && (
+              <div className="min-w-0 transition-opacity duration-200 pl-0.5">
+                <div
+                  className="font-bold text-base tracking-wider uppercase text-amber-400 font-serif leading-tight truncate"
+                  title={profile.name || 'HOTEL DAMVIEW'}
+                >
+                  {profile.name || 'HOTEL DAMVIEW'}
+                </div>
+                <div
+                  className="text-xs text-stone-300 tracking-wide truncate font-medium mt-0.5"
+                  title={`${profile.physicalLocation || ''} • ${profile.postalAddress || ''}`}
+                >
+                  {profile.physicalLocation || profile.postalAddress || profile.tagline || 'Machakos, Kenya'}
+                </div>
+                {profile.kraPin && (
+                  <div className="text-[10px] font-mono text-stone-400 truncate mt-0.5 font-semibold">
+                    PIN: {profile.kraPin}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Desktop Collapse / Expand Toggle Button in Header */}
+          {!effectiveCollapsed ? (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              title={isCollapsed ? 'Expand Navigation Menu' : 'Collapse Navigation Menu'}
+              className="hidden lg:flex p-1.5 rounded-lg text-stone-300 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer shrink-0 ml-1 border border-stone-800"
+            >
+              <ChevronLeft className="w-4 h-4 text-amber-400" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              title="Expand Navigation Menu"
+              className="hidden lg:flex p-1 rounded-md text-stone-400 hover:text-amber-400 hover:bg-stone-800 transition-colors cursor-pointer shrink-0 border border-stone-800/80 mt-1"
+            >
+              <ChevronRight className="w-3.5 h-3.5 text-amber-400" />
+            </button>
+          )}
+
+          {/* Mobile close button */}
+          {isMobileOpen && (
+            <button
+              type="button"
+              onClick={onToggleMobile}
+              title="Close Navigation"
+              className="lg:hidden p-1.5 rounded-lg text-stone-300 hover:text-white hover:bg-stone-800 transition-colors"
+            >
+              <X className="w-5 h-5 text-amber-400" />
+            </button>
+          )}
+        </div>
+
+        {/* 2. Search / Quick Command Palette Launcher */}
+        {onOpenSearch && (
+          <div className="px-3 pt-3 pb-1">
+            <button
+              type="button"
+              onClick={onOpenSearch}
+              className={`w-full flex items-center justify-between gap-2 px-3 py-2 bg-stone-950/80 hover:bg-stone-800 border border-stone-700/80 rounded-lg text-xs text-stone-300 hover:text-white transition-colors cursor-pointer shadow-xs ${
+                effectiveCollapsed ? 'flex-col items-center justify-center text-center p-2' : ''
+              }`}
+              title="Search documents, clients, receipts (Cmd+K)"
+            >
+              <div className={`flex items-center gap-2.5 min-w-0 ${effectiveCollapsed ? 'flex-col items-center gap-0.5' : ''}`}>
+                <Search className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className={effectiveCollapsed ? 'text-[9.5px] font-semibold text-stone-200' : 'text-[12.5px] font-medium text-stone-200'}>
+                  {effectiveCollapsed ? 'Search' : 'Quick Search (Cmd+K)...'}
+                </span>
+              </div>
+              {!effectiveCollapsed && (
+                <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-stone-300 bg-stone-800 rounded border border-stone-700 font-bold">
+                  ⌘K
+                </kbd>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* 3. Connection Status & Sync Pill */}
+        <div className={`px-3 py-2 border-b border-stone-800/60 bg-stone-950/40 ${effectiveCollapsed ? 'text-center' : ''}`}>
+          {!effectiveCollapsed ? (
+            <div className="flex items-center justify-between gap-2">
+              <div
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                  isOnline
+                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80'
+                    : 'bg-rose-950/80 text-rose-300 border-rose-700/80'
+                }`}
+                title={isOnline ? 'Online: Automated Cloud sync active' : 'Offline: Local IndexedDB persistence active'}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
+                  }`}
+                />
+                <span>{isOnline ? 'Online Sync' : 'Offline Mode'}</span>
+              </div>
+
+              {/* Quick sync trigger button */}
+              <button
+                type="button"
+                onClick={onTriggerSync}
+                disabled={isSyncing}
+                title={
+                  pendingSyncCount > 0
+                    ? `${pendingSyncCount} item(s) pending sync to Google Workspace. Click to sync now.`
+                    : 'All records synced with Google Workspace. Click to refresh.'
+                }
+                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded border transition-colors ${
+                  pendingSyncCount > 0
+                    ? 'bg-amber-950/90 text-amber-300 border-amber-600 hover:bg-amber-900'
+                    : 'text-stone-300 border-stone-700 hover:text-white hover:bg-stone-800'
+                }`}
+              >
+                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
+                <span>{pendingSyncCount > 0 ? `${pendingSyncCount} queued` : 'Synced'}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex justify-center" title={isOnline ? 'Online' : 'Offline'}>
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  isOnline ? 'bg-emerald-400' : 'bg-rose-500'
+                }`}
+              />
             </div>
           )}
         </div>
 
-        {/* Desktop Collapse / Expand Toggle Button in Header */}
-        {!effectiveCollapsed && (
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-            className="hidden lg:flex p-1.5 rounded text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer shrink-0 ml-1"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        )}
+        {/* 4. Categorized Navigation Links - Highly visible titles and labels */}
+        <nav className="flex-1 px-2.5 py-3 space-y-4 overflow-y-auto custom-scrollbar">
+          {navCategories.map((category) => (
+            <div key={category.title} className="space-y-1">
+              {/* Category / Menu Section Header */}
+              {!effectiveCollapsed ? (
+                <div
+                  className="px-3 pt-3.5 pb-1.5 flex items-center justify-between border-b border-stone-800/80 mb-1.5 select-none"
+                  title={category.title}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                    <span className="text-[11.5px] font-bold uppercase tracking-wider text-amber-400 font-mono truncate">
+                      {category.title}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono font-medium text-stone-400 shrink-0 uppercase tracking-wider">
+                    {category.items.length} {category.items.length === 1 ? 'module' : 'modules'}
+                  </span>
+                </div>
+              ) : (
+                <div className="px-1 pt-2.5 pb-1 text-center select-none" title={category.title}>
+                  <span className="text-[9.5px] font-bold uppercase tracking-wider text-amber-400/90 font-mono block truncate px-0.5 pb-1 border-b border-stone-800/70">
+                    {category.shortTitle || category.title.split(' ')[0]}
+                  </span>
+                </div>
+              )}
 
-        {/* Mobile close button */}
-        {isMobileOpen && (
-          <button
-            type="button"
-            onClick={onToggleMobile}
-            className="lg:hidden p-1 rounded text-stone-400 hover:text-white hover:bg-stone-800"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        )}
-      </div>
-
-      {/* 2. Search / Quick Command Palette Launcher */}
-      {onOpenSearch && (
-        <div className="px-3 pt-3 pb-1">
-          <button
-            type="button"
-            onClick={onOpenSearch}
-            className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 bg-stone-950/60 hover:bg-stone-800/80 border border-stone-800 rounded-lg text-xs text-stone-400 hover:text-stone-200 transition-colors cursor-pointer ${
-              effectiveCollapsed ? 'justify-center px-2' : ''
-            }`}
-            title="Search documents, clients, receipts (Cmd+K)"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              {!effectiveCollapsed && <span className="truncate">Quick Search...</span>}
-            </div>
-            {!effectiveCollapsed && (
-              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-stone-400 bg-stone-900 rounded border border-stone-700">
-                ⌘K
-              </kbd>
-            )}
-          </button>
-        </div>
-      )}
-
-      {/* 3. Connection Status & Sync Pill */}
-      <div className={`px-3 py-2 border-b border-stone-800/60 bg-stone-950/40 ${effectiveCollapsed ? 'text-center' : ''}`}>
-        {!effectiveCollapsed ? (
-          <div className="flex items-center justify-between gap-2">
-            <div
-              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium border ${
-                isOnline
-                  ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800/80'
-                  : 'bg-rose-950/70 text-rose-300 border-rose-800/80'
-              }`}
-              title={isOnline ? 'Online: Automated Cloud sync active' : 'Offline: Local IndexedDB persistence active'}
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
-                }`}
-              />
-              <span>{isOnline ? 'Online Sync' : 'Offline Cache'}</span>
-            </div>
-
-            {/* Quick sync trigger button */}
-            <button
-              type="button"
-              onClick={onTriggerSync}
-              disabled={isSyncing}
-              title={
-                pendingSyncCount > 0
-                  ? `${pendingSyncCount} item(s) pending sync to Google Workspace. Click to sync now.`
-                  : 'All records synced with Google Workspace. Click to refresh.'
-              }
-              className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border transition-colors ${
-                pendingSyncCount > 0
-                  ? 'bg-amber-950/80 text-amber-300 border-amber-700/80 hover:bg-amber-900'
-                  : 'text-stone-400 border-stone-800 hover:text-stone-200 hover:bg-stone-800'
-              }`}
-            >
-              <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
-              <span>{pendingSyncCount > 0 ? `${pendingSyncCount} queued` : 'Synced'}</span>
-            </button>
-          </div>
-        ) : (
-          <div className="flex justify-center" title={isOnline ? 'Online' : 'Offline'}>
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                isOnline ? 'bg-emerald-400' : 'bg-rose-500'
-              }`}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* 4. Categorized Navigation Links */}
-      <nav className="flex-1 px-2.5 py-3 space-y-4 overflow-y-auto custom-scrollbar">
-        {navCategories.map((category) => (
-          <div key={category.title} className="space-y-1">
-            {!effectiveCollapsed && (
-              <div className="px-3 pt-2 pb-1 text-[10.5px] font-bold tracking-widest text-amber-400/90 uppercase select-none flex items-center justify-between">
-                <span>{category.title}</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-stone-700/60" />
-              </div>
-            )}
-            {effectiveCollapsed && (
-              <div className="w-6 h-px bg-stone-800 mx-auto my-2" />
-            )}
-
-            <div className="space-y-0.5">
-              {category.items.map((item) => {
-                const Icon = item.icon;
-                const isActive = currentModule === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleNavClick(item.id)}
-                    title={effectiveCollapsed ? item.label : undefined}
-                    className={`group w-full flex items-center justify-between rounded-lg transition-all text-xs font-semibold ${
-                      effectiveCollapsed ? 'px-2 py-2.5 justify-center' : 'px-3 py-2.5'
-                    } ${
-                      isActive
-                        ? 'bg-stone-800 text-amber-400 shadow-xs border-l-3 border-amber-400'
-                        : 'text-stone-300 hover:text-white hover:bg-stone-800/70'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <Icon
-                        className={`w-4 h-4 shrink-0 transition-colors ${
-                          isActive ? 'text-amber-400' : 'text-stone-400 group-hover:text-amber-300'
+              {/* Module Navigation Buttons */}
+              <div className="space-y-1">
+                {category.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = currentModule === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleNavClick(item.id)}
+                      title={`${item.label} — ${item.subtitle}`}
+                      className={`group w-full flex rounded-xl transition-all cursor-pointer ${
+                        effectiveCollapsed
+                          ? 'flex-col items-center justify-center px-1.5 py-2.5 text-center'
+                          : 'items-center justify-between px-3 py-2 text-[13.5px]'
+                      } ${
+                        isActive
+                          ? 'bg-amber-500/15 text-amber-300 shadow-xs border-l-4 border-amber-400 ring-1 ring-amber-500/30'
+                          : 'text-stone-200 hover:text-white hover:bg-stone-800/90 border-l-4 border-transparent'
+                      }`}
+                    >
+                      <div
+                        className={`flex ${
+                          effectiveCollapsed
+                            ? 'flex-col items-center gap-1 w-full text-center'
+                            : 'items-center gap-3 min-w-0 flex-1'
                         }`}
-                      />
-                      {!effectiveCollapsed && (
-                        <span className="truncate tracking-tight font-medium text-[12.5px] text-stone-100 group-hover:text-white">
-                          {item.label}
-                        </span>
-                      )}
-                    </div>
+                      >
+                        <div className="relative shrink-0 flex items-center justify-center">
+                          <div
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              isActive
+                                ? 'bg-amber-500/25 text-amber-300'
+                                : 'bg-stone-800/60 text-stone-300 group-hover:text-amber-300 group-hover:bg-stone-800'
+                            }`}
+                          >
+                            <Icon
+                              className={`shrink-0 transition-colors ${
+                                effectiveCollapsed ? 'w-5 h-5' : 'w-4.5 h-4.5'
+                              } ${isActive ? 'text-amber-300' : 'text-stone-300 group-hover:text-amber-300'}`}
+                            />
+                          </div>
+                          {effectiveCollapsed && item.badge !== null && (
+                            <span className="absolute -top-1 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-amber-500 text-stone-950 text-[9px] font-extrabold flex items-center justify-center shadow-xs">
+                              {typeof item.badge === 'number' ? item.badge : '•'}
+                            </span>
+                          )}
+                        </div>
 
-                    {!effectiveCollapsed && (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {item.badge !== null && (
+                        {/* ALWAYS SHOW NAVIGATION MODULE NAME - HIGHLY LEGIBLE, READABLE & VISIBLE */}
+                        {!effectiveCollapsed ? (
+                          <div className="flex flex-col min-w-0 text-left">
+                            <span
+                              className={`text-[13.5px] leading-tight tracking-tight truncate ${
+                                isActive ? 'font-bold text-amber-300' : 'font-semibold text-stone-100 group-hover:text-white'
+                              }`}
+                            >
+                              {item.label}
+                            </span>
+                            <span className="text-[11px] text-stone-400 group-hover:text-stone-300 truncate mt-0.5 font-normal">
+                              {item.subtitle}
+                            </span>
+                          </div>
+                        ) : (
                           <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold leading-none shadow-2xs ${item.badgeColor}`}
+                            className={`text-[11px] leading-tight text-center max-w-full px-0.5 tracking-tight ${
+                              isActive ? 'text-amber-300 font-bold' : 'text-stone-200 group-hover:text-white font-semibold'
+                            }`}
                           >
-                            {item.badge}
-                          </span>
-                        )}
-                        {(item.id === 'quotations' || item.id === 'proformas' || item.id === 'invoices' || item.id === 'receipts') && (
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (item.id === 'quotations') onNewQuotation?.();
-                              else if (item.id === 'proformas') onNewProforma?.();
-                              else if (item.id === 'invoices') onNewInvoice?.();
-                              else if (item.id === 'receipts') onRecordPayment?.();
-                            }}
-                            title={`New ${item.label}`}
-                            className="p-0.5 rounded text-stone-400 hover:text-amber-300 hover:bg-stone-700 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                            {item.shortLabel || item.label}
                           </span>
                         )}
                       </div>
-                    )}
 
-                    {effectiveCollapsed && item.badge !== null && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    )}
-                  </button>
-                );
-              })}
+                      {/* Expanded Badges & Quick Action Triggers */}
+                      {!effectiveCollapsed && (
+                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                          {item.badge !== null && (
+                            <span
+                              className={`text-[11px] px-2 py-0.5 rounded-full font-bold leading-none shadow-2xs ${item.badgeColor}`}
+                            >
+                              {item.badge}
+                            </span>
+                          )}
+                          {(item.id === 'quotations' || item.id === 'proformas' || item.id === 'invoices' || item.id === 'receipts') && (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (item.id === 'quotations') onNewQuotation?.();
+                                else if (item.id === 'proformas') onNewProforma?.();
+                                else if (item.id === 'invoices') onNewInvoice?.();
+                                else if (item.id === 'receipts') onRecordPayment?.();
+                              }}
+                              title={`Create New ${item.label}`}
+                              className="p-1 rounded text-stone-400 hover:text-amber-300 hover:bg-stone-700 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
-      </nav>
+          ))}
+        </nav>
 
-      {/* 5. Action shortcut & Collapse controls */}
-      <div className="p-3 border-t border-stone-800/80 space-y-2 bg-stone-950/20">
-        {!effectiveCollapsed ? (
-          <button
-            type="button"
-            onClick={onQuickNewDoc}
-            className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs py-2 px-3 rounded-md flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5 stroke-[3]" />
-            <span>Create Document</span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={onQuickNewDoc}
-            title="Create New Document"
-            className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 p-2 rounded-md flex items-center justify-center shadow-xs cursor-pointer"
-          >
-            <Plus className="w-4 h-4 stroke-[3]" />
-          </button>
-        )}
-
-        {/* Desktop Collapse / Expand Toggle Button */}
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-          className="hidden lg:flex w-full items-center justify-center gap-2 py-1.5 text-stone-400 hover:text-stone-200 hover:bg-stone-800/60 rounded text-[11px] font-medium transition-colors cursor-pointer"
-        >
-          {isCollapsed ? (
-            <>
-              <ChevronRight className="w-4 h-4 text-amber-400" />
-              {!effectiveCollapsed && <span>Expand Sidebar</span>}
-            </>
+        {/* 5. Action shortcut & Collapse controls */}
+        <div className="p-3 border-t border-stone-800/80 space-y-2 bg-stone-950/30">
+          {!effectiveCollapsed ? (
+            <button
+              type="button"
+              onClick={onQuickNewDoc}
+              className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm py-2.5 px-3 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+              <span>Create New Document</span>
+            </button>
           ) : (
-            <>
-              <ChevronLeft className="w-4 h-4 text-amber-400" />
-              <span>Collapse Sidebar</span>
-            </>
+            <button
+              type="button"
+              onClick={onQuickNewDoc}
+              title="Create New Document"
+              className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 py-2 px-1 rounded-md flex flex-col items-center justify-center shadow-xs cursor-pointer gap-0.5"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+              <span className="text-[10px] font-bold tracking-tight">Create</span>
+            </button>
           )}
-        </button>
+
+          {/* Desktop Collapse / Expand Toggle Button */}
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            title={isCollapsed ? 'Expand Navigation Menu' : 'Collapse Navigation Menu'}
+            className={`hidden lg:flex w-full items-center justify-center rounded-lg font-semibold transition-colors cursor-pointer ${
+              effectiveCollapsed
+                ? 'flex-col py-2 text-stone-300 hover:text-white hover:bg-stone-800/80 gap-0.5 text-[10.5px] border border-stone-800/60'
+                : 'gap-2 py-2 text-stone-300 hover:text-white hover:bg-stone-800/80 border border-stone-800 text-xs'
+            }`}
+          >
+            {isCollapsed ? (
+              <>
+                <ChevronRight className="w-4 h-4 text-amber-400" />
+                <span className="text-[10.5px] text-stone-200 font-semibold">Expand Menu</span>
+              </>
+            ) : (
+              <>
+                <ChevronLeft className="w-4 h-4 text-amber-400" />
+                <span>Collapse Sidebar</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <>
@@ -557,21 +677,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         className={`hidden lg:block shrink-0 transition-all duration-300 ease-in-out h-screen sticky top-0 z-30 ${
-          isCollapsed ? 'w-20' : 'w-64'
+          isCollapsed ? 'w-26' : 'w-80'
         }`}
       >
         <div
           className={`h-full transition-all duration-200 ${
             isCollapsed && isHovered
-              ? 'absolute top-0 left-0 w-64 shadow-2xl z-50'
+              ? 'absolute top-0 left-0 w-80 shadow-2xl z-50'
               : 'w-full'
           }`}
         >
-          {sidebarContent}
+          {renderSidebarContent(false)}
         </div>
       </aside>
 
-      {/* Mobile Off-canvas Drawer (< lg screens) */}
+      {/* Mobile Off-canvas Drawer (< lg screens) - ALWAYS FULLY EXPANDED WITH VISIBLE TITLES & LABELS */}
       {isMobileOpen && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
           {/* Backdrop overlay */}
@@ -580,9 +700,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={onToggleMobile}
           />
 
-          {/* Drawer Panel */}
-          <div className="relative flex-1 flex flex-col max-w-xs w-full bg-stone-900 shadow-2xl z-10 animate-slide-in">
-            {sidebarContent}
+          {/* Drawer Panel - Always Expanded */}
+          <div className="relative flex-1 flex flex-col w-84 max-w-[88vw] bg-stone-900 shadow-2xl z-10 animate-slide-in">
+            {renderSidebarContent(true)}
           </div>
         </div>
       )}

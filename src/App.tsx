@@ -40,6 +40,23 @@ import {
   WORKBOOK_FILENAME,
 } from './services/excelEngine';
 
+export const MODULE_DISPLAY_NAMES: Record<MainNavModule, string> = {
+  dashboard: 'Executive Dashboard',
+  quotations: 'Quotations',
+  proformas: 'Proforma Invoices',
+  invoices: 'Tax Invoices',
+  receipts: 'Payment Receipts',
+  statements: 'Statement of Accounts',
+  reservations: 'Room & Hall Folios',
+  pos: 'Restaurant & Bar POS',
+  nightaudit: 'Night Audit & Reports',
+  vault: 'Google Drive Vault',
+  sync: 'Google Sync Engine',
+  excel: 'Excel Master Suite (.xlsm)',
+  clients: 'Client Directory',
+  settings: 'Hotel Settings',
+};
+
 // Helper to detect if user has active data input in progress that requires preserving active page across reloads
 export function hasActiveDataInputInProgress(): boolean {
   if (typeof window === 'undefined' || !window.localStorage) return false;
@@ -1114,12 +1131,18 @@ export default function App() {
             >
               <HotelLogo logoBase64={profile.logoBase64} size={30} className="shrink-0" />
               <div className="min-w-0">
-                <span className="font-bold text-xs uppercase tracking-wider text-white font-serif truncate block max-w-[160px] sm:max-w-[220px]">
-                  {profile.name || profile.hotelName || 'HOTEL DAMVIEW'}
-                </span>
-                <span className="text-[10px] text-stone-300 font-medium truncate block max-w-[160px] sm:max-w-[220px]">
-                  {profile.tagline || profile.physicalLocation || profile.postalAddress || 'Machakos, Kenya'}
-                </span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="font-bold text-xs uppercase tracking-wider text-white font-serif truncate block max-w-[130px] sm:max-w-[200px]">
+                    {profile.name || profile.hotelName || 'HOTEL DAMVIEW'}
+                  </span>
+                </div>
+                {/* ALWAYS SHOW ACTIVE NAVIGATION MODULE NAME ON MOBILE */}
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider font-sans bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/35 truncate inline-flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                    {MODULE_DISPLAY_NAMES[currentModule] || currentModule}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -1190,36 +1213,11 @@ export default function App() {
 
             <div className="h-5 w-px bg-stone-800 shrink-0 mx-1" />
 
-            {/* Active Module Title / Breadcrumb (High Contrast) */}
+            {/* Active Module Title / Breadcrumb (Always visible, High Contrast) */}
             <div className="flex items-center gap-2 shrink-0">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider font-serif bg-stone-950/80 px-2.5 py-1 rounded border border-amber-500/30 shadow-2xs">
-                {currentModule === 'dashboard'
-                  ? 'Executive Dashboard'
-                  : currentModule === 'invoices'
-                  ? 'Tax Invoices'
-                  : currentModule === 'quotations'
-                  ? 'Quotations'
-                  : currentModule === 'proformas'
-                  ? 'Proforma Invoices'
-                  : currentModule === 'receipts'
-                  ? 'Payment Receipts'
-                  : currentModule === 'statements'
-                  ? 'Statement of Accounts'
-                  : currentModule === 'reservations'
-                  ? 'Room & Hall Folios'
-                  : currentModule === 'pos'
-                  ? 'Restaurant POS'
-                  : currentModule === 'nightaudit'
-                  ? 'Night Audit'
-                  : currentModule === 'vault'
-                  ? 'Google Drive Vault'
-                  : currentModule === 'sync'
-                  ? 'Google Sync Engine'
-                  : currentModule === 'excel'
-                  ? 'Excel Master Suite'
-                  : currentModule === 'clients'
-                  ? 'Client Directory'
-                  : 'Hotel Settings'}
+              <span className="text-xs font-bold text-amber-300 uppercase tracking-wider font-sans bg-amber-500/15 px-3 py-1 rounded-lg border border-amber-500/35 shadow-xs flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                {MODULE_DISPLAY_NAMES[currentModule] || currentModule}
               </span>
             </div>
           </div>
