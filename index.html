@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hotel Damview Billing & Invoicing</title>
+    <meta name="description" content="Offline-first billing, invoicing, and quotation management application for Hotel Damview with dynamic A4 PDF preview, client ledgers, and background Google Workspace sync." />
+    <meta property="og:title" content="Hotel Damview Billing & Invoicing" />
+    <meta property="og:description" content="Offline-first billing, invoicing, and quotation management application for Hotel Damview with dynamic A4 PDF preview, client ledgers, and background Google Workspace sync." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    
+    <!-- Anti-Cache Directives for Instant GitHub Deployment Propagation -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
+    <!-- PWA Primary & iOS Safari Meta Tags -->
+    <meta name="theme-color" content="#1c1917" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Damview ERP" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="alternate icon" href="./favicon.ico" />
+
+    <!-- High-Contrast Production Typography Fonts (Inter & JetBrains Mono) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      // 1. Critical GitHub Pages Trailing Slash Fix:
+      // When opened as https://user.github.io/repo without trailing slash, relative paths (./assets/...)
+      // resolve incorrectly to https://user.github.io/assets/... which produces a 404 error!
+      (function(w) {
+        var l = w.location;
+        if (l.hostname.endsWith('github.io')) {
+          var p = l.pathname.split('/').filter(Boolean);
+          if (p.length === 1 && !l.pathname.endsWith('/')) {
+            l.replace(l.protocol + '//' + l.host + '/' + p[0] + '/' + l.search + l.hash);
+            return;
+          }
+        }
+      })(window);
+
+      // 2. Decode SPA redirect params if redirected from 404.html on GitHub Pages
+      (function(l) {
+        if (l.search[1] === '/' ) {
+          var decoded = l.search.slice(1).split('&').map(function(s) { 
+            return s.replace(/~and~/g, '&')
+          }).join('?');
+          window.history.replaceState(null, null,
+              l.pathname.slice(0, -1) + decoded + l.hash
+          );
+        } else if (l.search.indexOf('?p=/') === 0 || l.search.indexOf('&p=/') !== -1 || l.search.indexOf('p=/') !== -1) {
+          var params = new URLSearchParams(l.search);
+          var p = params.get('p') || '';
+          var q = params.get('q') || '';
+          if (p) {
+            var newSearch = q ? '?' + q.replace(/~and~/g, '&') : '';
+            var targetPath = (l.pathname.replace(/\/+$/, '') + p).replace(/\/+/g, '/');
+            window.history.replaceState(null, null, targetPath + newSearch + l.hash);
+          }
+        }
+      }(window.location));
+    </script>
+    <script>
+      // Permanently neutralize Vite HMR & WebSocket connections
+      (function() {
+        try {
+          function NoopWebSocket(url, protocols) {
+            this.url = url || '';
+            this.protocol = Array.isArray(protocols) ? protocols[0] : (protocols || '');
+            this.readyState = 1; // Mark as OPEN so clients never attempt reconnect loops
+            this.bufferedAmount = 0;
+            this.extensions = '';
+            this.binaryType = 'blob';
+            this.onopen = null;
+            this.onclose = null;
+            this.onerror = null;
+            this.onmessage = null;
+
+            var self = this;
+            setTimeout(function() {
+              if (typeof self.onopen === 'function') {
+                try { self.onopen(new Event('open')); } catch(e) {}
+              }
+            }, 0);
+          }
+
+          NoopWebSocket.CONNECTING = 0;
+          NoopWebSocket.OPEN = 1;
+          NoopWebSocket.CLOSING = 2;
+          NoopWebSocket.CLOSED = 3;
+          NoopWebSocket.prototype.CONNECTING = 0;
+          NoopWebSocket.prototype.OPEN = 1;
+          NoopWebSocket.prototype.CLOSING = 2;
+          NoopWebSocket.prototype.CLOSED = 3;
+          NoopWebSocket.prototype.send = function() {};
+          NoopWebSocket.prototype.close = function() { this.readyState = 3; };
+          NoopWebSocket.prototype.addEventListener = function(event, handler) {
+            if (event === 'open' && typeof handler === 'function') {
+              setTimeout(function() {
+                try { handler(new Event('open')); } catch(e) {}
+              }, 0);
+            }
+          };
+          NoopWebSocket.prototype.removeEventListener = function() {};
+          NoopWebSocket.prototype.dispatchEvent = function() { return false; };
+
+          window.WebSocket = NoopWebSocket;
+        } catch(e) {}
+
+        var isWsOrViteNoise = function(str) {
+          if (!str || typeof str !== 'string') return false;
+          var s = str.toLowerCase();
+          return s.indexOf('websocket') !== -1 ||
+                 s.indexOf('ws://') !== -1 ||
+                 s.indexOf('wss://') !== -1 ||
+                 s.indexOf('[vite]') !== -1 ||
+                 s.indexOf('vite:') !== -1;
+        };
+
+        var origErr = console.error.bind(console);
+        var origWarn = console.warn.bind(console);
+        var origLog = console.log.bind(console);
+        var origDebug = console.debug.bind(console);
+        var origInfo = console.info.bind(console);
+
+        console.error = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origErr.apply(console, arguments);
+        };
+        console.warn = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origWarn.apply(console, arguments);
+        };
+        console.log = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origLog.apply(console, arguments);
+        };
+        console.debug = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origDebug.apply(console, arguments);
+        };
+        console.info = function() {
+          for (var i = 0; i < arguments.length; i++) {
+            if (isWsOrViteNoise(String(arguments[i]))) return;
+          }
+          origInfo.apply(console, arguments);
+        };
+      })();
+    </script>
+    <script type="module" crossorigin src="/Hotel-Damview-Billing-Invoicing/assets/index-BC4pPE4e.js"></script>
+    <link rel="stylesheet" crossorigin href="/Hotel-Damview-Billing-Invoicing/assets/index-Do4NxTYX.css">
+  <link rel="manifest" href="/Hotel-Damview-Billing-Invoicing/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/Hotel-Damview-Billing-Invoicing/registerSW.js"></script></head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+

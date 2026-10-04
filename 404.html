@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hotel Damview Billing & Invoicing</title>
+    <script>
+      // Universal Single Page App redirect for GitHub Pages & custom hosting
+      (function(l) {
+        var isGithubIo = l.hostname.endsWith('github.io');
+        var pathSegments = l.pathname.split('/').filter(Boolean);
+        var repoPrefix = (isGithubIo && pathSegments.length > 0) ? '/' + pathSegments[0] + '/' : '/';
+        var appPath = isGithubIo ? pathSegments.slice(1).join('/') : pathSegments.join('/');
+
+        // 1. Missing trailing slash on repository base: e.g. /my-repo -> /my-repo/
+        if (isGithubIo && pathSegments.length === 1 && !l.pathname.endsWith('/')) {
+          l.replace(l.protocol + '//' + l.host + '/' + pathSegments[0] + '/' + l.search + l.hash);
+          return;
+        }
+
+        // 2. Already at root or no deep path: redirect directly to repoPrefix
+        if (!appPath || appPath === 'index.html') {
+          l.replace(l.protocol + '//' + l.host + repoPrefix + l.search + l.hash);
+          return;
+        }
+
+        // 3. Deep SPA path: encode into query parameter ?p=
+        var search = l.search ? '&q=' + l.search.slice(1).replace(/&/g, '~and~') : '';
+        l.replace(
+          l.protocol + '//' + l.host +
+          repoPrefix +
+          '?p=/' + appPath.replace(/&/g, '~and~') +
+          search +
+          l.hash
+        );
+      }(window.location));
+    </script>
+    <style>
+      body {
+        margin: 0;
+        padding: 40px 20px;
+        background-color: #0c0a09;
+        color: #f5f5f4;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 80vh;
+        text-align: center;
+      }
+      .card {
+        background-color: #1c1917;
+        border: 1px solid #292524;
+        border-radius: 12px;
+        padding: 32px;
+        max-width: 440px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+      }
+      .title {
+        color: #fbbf24;
+        font-size: 18px;
+        font-weight: 700;
+        margin-bottom: 8px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+      .desc {
+        color: #a8a29e;
+        font-size: 13px;
+        margin-bottom: 24px;
+        line-height: 1.5;
+      }
+      .btn {
+        display: inline-block;
+        background-color: #f59e0b;
+        color: #0c0a09;
+        font-weight: 700;
+        font-size: 13px;
+        padding: 10px 20px;
+        border-radius: 6px;
+        text-decoration: none;
+        transition: background-color 0.15s;
+      }
+      .btn:hover {
+        background-color: #fbbf24;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="title">Hotel Damview Suite</div>
+      <p class="desc">Redirecting to application workspace...</p>
+      <a href="./" class="btn" id="reloadBtn">Enter Application</a>
+    </div>
+    <script>
+      (function() {
+        var btn = document.getElementById('reloadBtn');
+        if (btn) {
+          var isGithubIo = window.location.hostname.endsWith('github.io');
+          var parts = window.location.pathname.split('/').filter(Boolean);
+          var prefix = (isGithubIo && parts.length > 0) ? '/' + parts[0] + '/' : '/';
+          btn.href = prefix + window.location.hash;
+        }
+      })();
+    </script>
+  </body>
+</html>

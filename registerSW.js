@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/Hotel-Damview-Billing-Invoicing/sw.js', { scope: '/Hotel-Damview-Billing-Invoicing/' })})}
