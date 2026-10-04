@@ -138,8 +138,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   }, []);
 
-  // Always show labels on menu items
-  const effectiveCollapsed = false;
+  // When collapsed: hovering auto-expands the sidebar menu smoothly (auto-hide behavior)
+  const effectiveCollapsed = isCollapsed && !isHovered;
 
   const navCategories: NavCategory[] = [
     {
@@ -279,9 +279,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (isMobileOpen) {
       onToggleMobile();
     }
-    // Auto hide menu / collapse sidebar on selection to maximize workspace
-    if (!isCollapsed && onToggleCollapse) {
-      onToggleCollapse();
+    // If in collapsed/auto-hide mode, close the hover panel immediately on selection
+    if (isCollapsed) {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+      setIsHovered(false);
     }
   };
 
@@ -319,6 +320,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
         </div>
+
+        {/* Desktop Collapse / Expand Toggle Button in Header */}
+        {!effectiveCollapsed && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+            className="hidden lg:flex p-1.5 rounded text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer shrink-0 ml-1"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        )}
 
         {/* Mobile close button */}
         {isMobileOpen && (
@@ -408,12 +421,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* 4. Categorized Navigation Links */}
-      <nav className="flex-1 px-2 py-3 space-y-4 overflow-y-auto">
+      <nav className="flex-1 px-2.5 py-3 space-y-4 overflow-y-auto custom-scrollbar">
         {navCategories.map((category) => (
           <div key={category.title} className="space-y-1">
             {!effectiveCollapsed && (
-              <div className="px-3 py-1 text-[10px] font-bold tracking-wider text-stone-400 uppercase">
-                {category.title}
+              <div className="px-3 pt-2 pb-1 text-[10.5px] font-bold tracking-widest text-amber-400/90 uppercase select-none flex items-center justify-between">
+                <span>{category.title}</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-stone-700/60" />
               </div>
             )}
             {effectiveCollapsed && (
@@ -431,27 +445,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onClick={() => handleNavClick(item.id)}
                     title={effectiveCollapsed ? item.label : undefined}
                     className={`group w-full flex items-center justify-between rounded-lg transition-all text-xs font-semibold ${
-                      effectiveCollapsed ? 'px-2 py-2.5 justify-center' : 'px-3 py-2'
+                      effectiveCollapsed ? 'px-2 py-2.5 justify-center' : 'px-3 py-2.5'
                     } ${
                       isActive
                         ? 'bg-stone-800 text-amber-400 shadow-xs border-l-3 border-amber-400'
-                        : 'text-stone-300 hover:text-white hover:bg-stone-800/60'
+                        : 'text-stone-300 hover:text-white hover:bg-stone-800/70'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <Icon
-                        className={`w-4 h-4 shrink-0 ${
-                          isActive ? 'text-amber-400' : 'text-stone-400'
+                        className={`w-4 h-4 shrink-0 transition-colors ${
+                          isActive ? 'text-amber-400' : 'text-stone-400 group-hover:text-amber-300'
                         }`}
                       />
-                      {!effectiveCollapsed && <span className="truncate">{item.label}</span>}
+                      {!effectiveCollapsed && (
+                        <span className="truncate tracking-tight font-medium text-[12.5px] text-stone-100 group-hover:text-white">
+                          {item.label}
+                        </span>
+                      )}
                     </div>
 
                     {!effectiveCollapsed && (
                       <div className="flex items-center gap-1.5 shrink-0">
                         {item.badge !== null && (
                           <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold leading-none ${item.badgeColor}`}
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold leading-none shadow-2xs ${item.badgeColor}`}
                           >
                             {item.badge}
                           </span>
@@ -468,9 +486,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               else if (item.id === 'receipts') onRecordPayment?.();
                             }}
                             title={`New ${item.label}`}
-                            className="p-0.5 rounded text-stone-400 hover:text-amber-300 hover:bg-stone-700 transition-colors opacity-0 group-hover:opacity-100"
+                            className="p-0.5 rounded text-stone-400 hover:text-amber-300 hover:bg-stone-700 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
                           >
-                            <Plus className="w-3 h-3 stroke-[2.5]" />
+                            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                           </span>
                         )}
                       </div>
@@ -517,10 +535,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="hidden lg:flex w-full items-center justify-center gap-2 py-1.5 text-stone-400 hover:text-stone-200 hover:bg-stone-800/60 rounded text-[11px] font-medium transition-colors cursor-pointer"
         >
           {isCollapsed ? (
-            <ChevronRight className="w-4 h-4" />
+            <>
+              <ChevronRight className="w-4 h-4 text-amber-400" />
+              {!effectiveCollapsed && <span>Expand Sidebar</span>}
+            </>
           ) : (
             <>
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4 text-amber-400" />
               <span>Collapse Sidebar</span>
             </>
           )}
@@ -536,10 +557,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         className={`hidden lg:block shrink-0 transition-all duration-300 ease-in-out h-screen sticky top-0 z-30 ${
-          effectiveCollapsed ? 'w-20' : 'w-64'
+          isCollapsed ? 'w-20' : 'w-64'
         }`}
       >
-        {sidebarContent}
+        <div
+          className={`h-full transition-all duration-200 ${
+            isCollapsed && isHovered
+              ? 'absolute top-0 left-0 w-64 shadow-2xl z-50'
+              : 'w-full'
+          }`}
+        >
+          {sidebarContent}
+        </div>
       </aside>
 
       {/* Mobile Off-canvas Drawer (< lg screens) */}

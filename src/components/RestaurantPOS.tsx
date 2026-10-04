@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { POSOrder, POSOrderItem, HotelProfile, Client, BillingDocument, LineItem } from '../types';
 import { dbService, STANDARD_POS_MENU } from '../services/db';
+import { HotelLogo } from './HotelLogo';
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { formatDate } from '../utils/formatters';
 import { calculateTotals, calculateBalanceDue } from '../utils/financial';
@@ -415,9 +416,9 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({
     <div className="space-y-6">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-lg border border-stone-200 shadow-xs">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 bg-amber-500/10 text-amber-700 rounded-lg">
-            <Utensils className="w-5 h-5" />
+        <div className="flex items-center gap-3">
+          <div className="shrink-0">
+            <HotelLogo logoBase64={profile.logoBase64} size={40} />
           </div>
           <div>
             <h2 className="text-lg font-bold text-stone-900">Restaurant & POS Quick-Billing</h2>
@@ -1130,8 +1131,11 @@ export const RestaurantPOS: React.FC<RestaurantPOSProps> = ({
       {successOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/70 backdrop-blur-xs p-4">
           <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-stone-200 overflow-hidden text-xs">
-            <div className="bg-stone-900 text-white p-4 text-center space-y-1">
-              <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+            <div className="bg-stone-900 text-white p-4 text-center space-y-2">
+              <div className="flex justify-center">
+                <HotelLogo logoBase64={profile.logoBase64} size={36} />
+              </div>
+              <CheckCircle2 className="w-7 h-7 text-emerald-400 mx-auto" />
               <h3 className="font-bold text-base">Order Settled Successfully</h3>
               <p className="text-stone-300 text-xs font-mono">
                 Order #{successOrder.orderNumber}

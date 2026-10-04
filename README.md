@@ -81,6 +81,21 @@ npm run start
 
 ---
 
+## 🌐 Deploying to GitHub Pages (Preventing 404 Errors)
+
+To publish this application on GitHub Pages without "404 Not Found" errors:
+
+1. In your GitHub repository, navigate to **Settings > Pages**.
+2. Under **Build and deployment > Source**:
+   - **Recommended (Zero Config)**: Select **GitHub Actions**. Every commit pushed to `main` or `master` will automatically trigger `.github/workflows/deploy.yml` and publish your live app.
+   - **Alternative (Branch Mode)**: If you prefer branch deployment, select **Deploy from a branch**, choose the `gh-pages` branch, and select `/ (root)` folder.
+3. Once configured, your ERP suite is accessible at:
+   `https://<your-username>.github.io/<your-repository>/`
+
+*Note: The built bundle includes automatic `.nojekyll`, `404.html` SPA deep-linking, and `200.html` fallbacks to ensure client-side routing and relative assets resolve immediately on GitHub Pages.*
+
+---
+
 ## 📄 Deploying Google Apps Script (`Code.gs`)
 
 1. Open your Google Sheet named **Hotel Damview ERP**.

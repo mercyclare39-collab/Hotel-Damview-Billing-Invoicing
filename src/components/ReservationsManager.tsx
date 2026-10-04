@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { Reservation, HotelProfile, Client, BillingDocument } from '../types';
 import { dbService } from '../services/db';
+import { HotelLogo } from './HotelLogo';
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { formatDate } from '../utils/formatters';
 import { calculateTotals, calculateBalanceDue } from '../utils/financial';
@@ -379,9 +380,9 @@ export const ReservationsManager: React.FC<ReservationsManagerProps> = ({
       {/* Top Header & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-lg border border-stone-200 shadow-xs">
         <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-amber-500/10 text-amber-700 rounded-lg">
-              <Bed className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            <div className="shrink-0">
+              <HotelLogo logoBase64={profile.logoBase64} size={40} />
             </div>
             <div>
               <h2 className="text-lg font-bold text-stone-900">Room & Conference Hall Folios</h2>

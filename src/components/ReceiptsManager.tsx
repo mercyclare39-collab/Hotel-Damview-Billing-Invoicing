@@ -466,7 +466,22 @@ export const ReceiptsManager: React.FC<ReceiptsManagerProps> = ({
                           {payment.documentNumber && (
                             <div className="text-[10px] text-stone-500 font-mono flex items-center gap-1">
                               <span>For:</span>
-                              <span className="text-amber-800 font-semibold">{payment.documentNumber}</span>
+                              <span
+                                className="text-amber-800 font-semibold hover:underline cursor-pointer inline-flex items-center gap-0.5"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (payment.documentId) {
+                                    onViewDocument?.(payment.documentId);
+                                  } else {
+                                    const matched = documents.find((d) => d.documentNumber === payment.documentNumber);
+                                    if (matched) onViewDocument?.(matched.id);
+                                  }
+                                }}
+                                title="Direct access: Open referenced document in editor"
+                              >
+                                {payment.documentNumber}
+                                <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+                              </span>
                             </div>
                           )}
                         </td>

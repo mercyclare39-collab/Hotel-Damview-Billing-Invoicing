@@ -16,6 +16,7 @@ import {
   SyncActionType,
 } from '../types';
 import { computeDocumentStatus } from '../utils/documentLifecycle';
+import { DEFAULT_COMPANY_LOGO_BASE64 } from './defaultLogo';
 
 const DB_NAME = 'HotelDamviewDB';
 const DB_VERSION = 6;
@@ -52,7 +53,7 @@ export const DEFAULT_HOTEL_PROFILE: HotelProfile = {
   phone: '+254 725 242 620',
   physicalLocation: 'MARIAKANI',
   postalAddress: 'P.O. BOX 42491-80100, Mombasa, Kenya',
-  logoBase64: '',
+  logoBase64: DEFAULT_COMPANY_LOGO_BASE64,
   bankName: '',
   bankBranch: '',
   accountHolder: '',
@@ -730,7 +731,12 @@ class StorageEngine {
       phone: (raw.phone && String(raw.phone).trim()) ? String(raw.phone).trim() : DEFAULT_HOTEL_PROFILE.phone,
       physicalLocation: (raw.physicalLocation && String(raw.physicalLocation).trim()) ? String(raw.physicalLocation).trim() : DEFAULT_HOTEL_PROFILE.physicalLocation,
       postalAddress: (raw.postalAddress && String(raw.postalAddress).trim()) ? String(raw.postalAddress).trim() : DEFAULT_HOTEL_PROFILE.postalAddress,
-      logoBase64: raw.logoBase64 !== undefined ? raw.logoBase64 : DEFAULT_HOTEL_PROFILE.logoBase64,
+      logoBase64:
+        raw.logoBase64 !== undefined && String(raw.logoBase64).trim() !== ''
+          ? String(raw.logoBase64).trim()
+          : typeof window !== 'undefined' && window.localStorage
+          ? localStorage.getItem('damview_company_logo') || DEFAULT_HOTEL_PROFILE.logoBase64
+          : DEFAULT_HOTEL_PROFILE.logoBase64,
       bankName: cleanBankName,
       bankBranch: cleanBankBranch,
       accountHolder: cleanAccountHolder,
@@ -963,10 +969,15 @@ class StorageEngine {
     // 1. Instant L1 in-memory update
     this.l1Profile = merged;
 
-    // 2. Synchronous localStorage mirror
+    // 2. Synchronous localStorage mirror & dedicated company logo persistence
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         localStorage.setItem('damview_profile', JSON.stringify(merged));
+        if (merged.logoBase64 && merged.logoBase64.trim()) {
+          localStorage.setItem('damview_company_logo', merged.logoBase64.trim());
+        } else if (profile.logoBase64 === '') {
+          localStorage.removeItem('damview_company_logo');
+        }
       } catch {}
     }
 

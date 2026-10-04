@@ -24,8 +24,27 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="alternate icon" href="./favicon.ico" />
+
+    <!-- High-Contrast Production Typography Fonts (Inter & JetBrains Mono) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script>
-      // Decode SPA redirect params if redirected from 404.html on GitHub Pages
+      // 1. Critical GitHub Pages Trailing Slash Fix:
+      // When opened as https://user.github.io/repo without trailing slash, relative paths (./assets/...)
+      // resolve incorrectly to https://user.github.io/assets/... which produces a 404 error!
+      (function(w) {
+        var l = w.location;
+        if (l.hostname.endsWith('github.io')) {
+          var p = l.pathname.split('/').filter(Boolean);
+          if (p.length === 1 && !l.pathname.endsWith('/')) {
+            l.replace(l.protocol + '//' + l.host + '/' + p[0] + '/' + l.search + l.hash);
+            return;
+          }
+        }
+      })(window);
+
+      // 2. Decode SPA redirect params if redirected from 404.html on GitHub Pages
       (function(l) {
         if (l.search[1] === '/' ) {
           var decoded = l.search.slice(1).split('&').map(function(s) { 
@@ -40,9 +59,8 @@
           var q = params.get('q') || '';
           if (p) {
             var newSearch = q ? '?' + q.replace(/~and~/g, '&') : '';
-            window.history.replaceState(null, null,
-              l.pathname.replace(/\/+$/, '') + p + newSearch + l.hash
-            );
+            var targetPath = (l.pathname.replace(/\/+$/, '') + p).replace(/\/+/g, '/');
+            window.history.replaceState(null, null, targetPath + newSearch + l.hash);
           }
         }
       }(window.location));

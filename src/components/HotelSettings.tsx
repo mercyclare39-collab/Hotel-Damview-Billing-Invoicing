@@ -39,6 +39,7 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  Globe,
 } from 'lucide-react';
 import { HotelProfile, SyncQueueItem, CatalogueItem } from '../types';
 import {
@@ -212,6 +213,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     folderName?: string;
   } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [logoSaveFeedback, setLogoSaveFeedback] = useState<string | null>(null);
 
   // Local Machine Filesystem Backup States
   const [localTargetPath, setLocalTargetPath] = useState<string>(localBackupService.getTargetDirectoryPath());
@@ -429,10 +431,44 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64 = event.target?.result as string;
-        handleInputChange('logoBase64', base64);
+        if (base64) {
+          // 1. Update form data
+          setFormData((prev) => ({ ...prev, logoBase64: base64 }));
+          // 2. Persist directly to dedicated localStorage key so it's NEVER lost across any app/refresh
+          try {
+            localStorage.setItem('damview_company_logo', base64);
+          } catch {}
+          // 3. Immediately persist profile across all apps without requiring form submission
+          const updatedProfile = { ...formData, logoBase64: base64 };
+          onSaveProfile(updatedProfile);
+          // 4. Dispatch custom event for real-time multi-tab and app-wide update
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('damview:logo-changed', { detail: { logoBase64: base64 } })
+            );
+          }
+          setLogoSaveFeedback('Company logo updated and persisted across all applications & documents!');
+          setTimeout(() => setLogoSaveFeedback(null), 4000);
+        }
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleResetLogo = () => {
+    setFormData((prev) => ({ ...prev, logoBase64: '' }));
+    try {
+      localStorage.removeItem('damview_company_logo');
+    } catch {}
+    const updatedProfile = { ...formData, logoBase64: '' };
+    onSaveProfile(updatedProfile);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('damview:logo-changed', { detail: { logoBase64: '' } })
+      );
+    }
+    setLogoSaveFeedback('Reset to default crest logo throughout all apps.');
+    setTimeout(() => setLogoSaveFeedback(null), 3500);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -897,34 +933,42 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
       {/* TAB 1: HOTEL IDENTITY & KRA */}
       {activeTab === 'profile' && (
         <form onSubmit={handleSubmit} className="bg-white border border-stone-200 rounded-lg p-6 shadow-xs space-y-5 text-xs">
-          <fieldset disabled={!isUnlocked} className="space-y-5 disabled:opacity-80">
-            {/* Logo upload and preview */}
-            <div className="flex items-center gap-6 p-4 bg-stone-50 border border-stone-200 rounded">
+          {/* Logo upload and preview - always accessible for instant company branding */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-stone-50 border border-stone-200 rounded-lg">
+            <div className="shrink-0">
               <HotelLogo logoBase64={formData.logoBase64} size={90} />
-              <div className="space-y-1.5">
-                <label className="block font-bold text-stone-800">Hotel Damview Logo</label>
-                <p className="text-[11px] text-stone-500">
-                  Uploaded logo appears on all generated PDF quotations, proformas, invoices, and statements.
-                </p>
-                <div className="flex items-center gap-2 pt-1">
-                  <label className={`px-3 py-1.5 bg-white border border-stone-300 rounded text-stone-700 font-semibold flex items-center gap-1 ${!isUnlocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-stone-50'}`}>
-                    <Upload className="w-3.5 h-3.5" />
-                    Upload Custom Image
-                    <input type="file" accept="image/*" disabled={!isUnlocked} onChange={handleLogoUpload} className="hidden" />
-                  </label>
-                  {formData.logoBase64 && (
-                    <button
-                      type="button"
-                      disabled={!isUnlocked}
-                      onClick={() => handleInputChange('logoBase64', '')}
-                      className="text-rose-600 hover:underline text-[11px] disabled:opacity-50"
-                    >
-                      Reset to Default Crest
-                    </button>
-                  )}
-                </div>
-              </div>
             </div>
+            <div className="space-y-1.5 min-w-0 flex-1">
+              <label className="block font-bold text-stone-800 text-sm">Hotel Damview Company Logo</label>
+              <p className="text-[11px] text-stone-500">
+                Uploaded logo automatically persists across all applications, documents, receipts, statements, and live PDF exports.
+              </p>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <label className="px-3 py-1.5 bg-white border border-stone-300 rounded text-stone-700 font-semibold flex items-center gap-1.5 cursor-pointer hover:bg-stone-50 transition-colors shadow-2xs">
+                  <Upload className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Upload Custom Image</span>
+                  <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                </label>
+                {formData.logoBase64 && (
+                  <button
+                    type="button"
+                    onClick={handleResetLogo}
+                    className="text-rose-600 hover:text-rose-700 hover:underline text-[11px] font-medium cursor-pointer"
+                  >
+                    Reset to Default Crest
+                  </button>
+                )}
+              </div>
+              {logoSaveFeedback && (
+                <div className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1.5 mt-1 animate-fade-in">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>{logoSaveFeedback}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <fieldset disabled={!isUnlocked} className="space-y-5 disabled:opacity-80">
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -2075,6 +2119,31 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                 <Trash2 className="w-3.5 h-3.5 text-rose-400" />
                 <span>{isForceReloading ? 'Wiping Cache...' : 'Permanent Force Clear Cache & Reload'}</span>
               </button>
+            </div>
+          </div>
+
+          {/* GitHub Pages 404 Resolution & Verification Guide */}
+          <div className="p-4 bg-stone-900 text-white rounded-lg border border-amber-500/40 space-y-3 shadow-md">
+            <div className="flex items-center gap-2">
+              <Globe className="w-5 h-5 text-amber-400" />
+              <h4 className="font-bold text-sm text-white">GitHub Pages Live Setup &amp; 404 Resolution Guide</h4>
+            </div>
+            <p className="text-stone-300 text-xs leading-relaxed">
+              If GitHub displays <span className="font-mono text-rose-300 bg-stone-950 px-1.5 py-0.5 rounded border border-rose-900/60 font-semibold">404: There isn&apos;t a GitHub Pages site here</span>, activate hosting in your repository with these 3 steps:
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs">
+              <div className="p-3 bg-stone-950/80 rounded border border-stone-800 space-y-1">
+                <span className="font-bold text-amber-400 block">Step 1: Open Settings</span>
+                <span className="text-stone-300 block">In your GitHub repository, click the <strong className="text-white">Settings</strong> tab at the top.</span>
+              </div>
+              <div className="p-3 bg-stone-950/80 rounded border border-stone-800 space-y-1">
+                <span className="font-bold text-amber-400 block">Step 2: Enable Pages</span>
+                <span className="text-stone-300 block">In the left sidebar, click <strong className="text-white">Pages</strong>. Under <em>Build and deployment &rarr; Source</em>, select <strong className="text-amber-300">GitHub Actions</strong> (or branch <strong className="text-white">gh-pages</strong>).</span>
+              </div>
+              <div className="p-3 bg-stone-950/80 rounded border border-stone-800 space-y-1">
+                <span className="font-bold text-amber-400 block">Step 3: Verification</span>
+                <span className="text-stone-300 block">Click the <strong className="text-white">Actions</strong> tab to verify the deployment. Your site goes live without 404 errors!</span>
+              </div>
             </div>
           </div>
 

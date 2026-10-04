@@ -27,7 +27,11 @@ interface DashboardProps {
   onNavigateToNewDoc: (type: 'QUOTATION' | 'PROFORMA' | 'INVOICE') => void;
   onNavigateToClients: () => void;
   onNavigateToJournal: () => void;
+  onNavigateToQuotationsJournal?: () => void;
+  onNavigateToInvoicesJournal?: () => void;
+  onNavigateToReceipts?: () => void;
   onNavigateToStatement: () => void;
+  onSelectClient?: (clientId: string) => void;
   onRecordPayment: () => void;
   onEditDocument?: (doc: BillingDocument) => void;
 }
@@ -40,7 +44,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onNavigateToNewDoc,
   onNavigateToClients,
   onNavigateToJournal,
+  onNavigateToQuotationsJournal,
+  onNavigateToInvoicesJournal,
+  onNavigateToReceipts,
   onNavigateToStatement,
+  onSelectClient,
   onRecordPayment,
   onEditDocument,
 }) => {
@@ -108,11 +116,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const totalInvoicedAll = Object.values(clientRevenueMap).reduce((a, b) => a + b, 0) || 1;
   const topClients = Object.entries(clientRevenueMap)
-    .map(([name, amount]) => ({
-      name,
-      amount,
-      percentage: Math.round((amount / totalInvoicedAll) * 100),
-    }))
+    .map(([name, amount]) => {
+      const matched = clients.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
+      return {
+        id: matched?.id || '',
+        name,
+        amount,
+        percentage: Math.round((amount / totalInvoicedAll) * 100),
+      };
+    })
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 4);
 
@@ -215,7 +227,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="flex items-center justify-between mt-2 text-xs text-stone-500">
             <span>{activeQuotations.length} quotes pending client LPO</span>
-            <span className="text-amber-700 font-semibold cursor-pointer" onClick={onNavigateToJournal}>
+            <span
+              className="text-amber-700 font-semibold cursor-pointer hover:underline hover:text-amber-800"
+              onClick={onNavigateToQuotationsJournal || onNavigateToJournal}
+              title="Direct access to Quotations register"
+            >
               View &rarr;
             </span>
           </div>
@@ -234,7 +250,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="flex items-center justify-between mt-2 text-xs text-stone-500">
             <span>{pendingInvoices.length} invoices ({overdueInvoices.length} overdue)</span>
-            <span className="text-rose-700 font-semibold cursor-pointer" onClick={onNavigateToJournal}>
+            <span
+              className="text-rose-700 font-semibold cursor-pointer hover:underline hover:text-rose-800"
+              onClick={onNavigateToInvoicesJournal || onNavigateToJournal}
+              title="Direct access to Invoices collection register"
+            >
               Collect &rarr;
             </span>
           </div>
@@ -253,8 +273,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="flex items-center justify-between mt-2 text-xs text-stone-500">
             <span>Month-to-Date receipts</span>
-            <span className="text-emerald-700 font-semibold cursor-pointer" onClick={onNavigateToStatement}>
-              Statements &rarr;
+            <span
+              className="text-emerald-700 font-semibold cursor-pointer hover:underline hover:text-emerald-800"
+              onClick={onNavigateToReceipts || onNavigateToStatement}
+              title="Direct access to Payment Receipts ledger"
+            >
+              Receipts &rarr;
             </span>
           </div>
         </div>
@@ -272,7 +296,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="flex items-center justify-between mt-2 text-xs text-stone-500">
             <span>Year {currentYearStr} Total collections</span>
-            <span className="font-semibold text-stone-700">{clients.length} Clients</span>
+            <span
+              className="font-semibold text-stone-700 cursor-pointer hover:text-amber-800 hover:underline"
+              onClick={onNavigateToClients}
+              title="Direct access to Client Directory"
+            >
+              {clients.length} Clients &rarr;
+            </span>
           </div>
         </div>
       </div>
@@ -382,13 +412,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {/* Legend */}
             <div className="flex-1 space-y-2 text-xs">
               {topClients.map((c, i) => (
-                <div key={i} className="flex items-center justify-between">
+                <div
+                  key={i}
+                  onClick={() => {
+                    if (c.id && onSelectClient) {
+                      onSelectClient(c.id);
+                    } else {
+                      onNavigateToClients();
+                    }
+                  }}
+                  className="flex items-center justify-between p-1 rounded hover:bg-stone-100 cursor-pointer transition-colors group"
+                  title="Direct access to client ledger statement"
+                >
                   <div className="flex items-center gap-2 truncate pr-2">
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0"
                       style={{ backgroundColor: donutColors[i % donutColors.length] }}
                     ></span>
-                    <span className="text-stone-700 truncate font-medium">{c.name}</span>
+                    <span className="text-stone-700 group-hover:text-amber-800 font-medium truncate group-hover:underline">
+                      {c.name}
+                    </span>
                   </div>
                   <span className="font-bold text-stone-900 shrink-0">{c.percentage}%</span>
                 </div>

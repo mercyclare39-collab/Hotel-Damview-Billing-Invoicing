@@ -30,6 +30,7 @@ import {
   HotelProfile,
   Client,
 } from '../types';
+import { HotelLogo } from './HotelLogo';
 import { dbService } from '../services/db';
 
 interface NightAuditReportsProps {
@@ -186,9 +187,9 @@ export const NightAuditReports: React.FC<NightAuditReportsProps> = ({
     <div className="space-y-6">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-lg border border-stone-200 shadow-xs">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 bg-amber-500/10 text-amber-700 rounded-lg">
-            <TrendingUp className="w-5 h-5" />
+        <div className="flex items-center gap-3">
+          <div className="shrink-0">
+            <HotelLogo logoBase64={profile.logoBase64} size={40} />
           </div>
           <div>
             <h2 className="text-lg font-bold text-stone-900">Night Audit & Financial Intelligence</h2>

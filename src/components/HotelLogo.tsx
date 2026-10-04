@@ -1,4 +1,5 @@
 import React from 'react';
+import { DEFAULT_COMPANY_LOGO_BASE64 } from '../services/defaultLogo';
 
 interface HotelLogoProps {
   logoBase64?: string;
@@ -6,16 +7,52 @@ interface HotelLogoProps {
   size?: number;
   height?: number | string;
   style?: React.CSSProperties;
+  hotelName?: string;
 }
 
-export const HotelLogo: React.FC<HotelLogoProps> = ({ logoBase64, className = '', size = 80, height, style }) => {
+export const HotelLogo: React.FC<HotelLogoProps> = ({
+  logoBase64: propLogo,
+  className = '',
+  size = 80,
+  height,
+  style,
+}) => {
   const finalHeight = height !== undefined ? (typeof height === 'number' ? `${height}px` : height) : `${size}px`;
   const finalWidth = height !== undefined ? 'auto' : `${size}px`;
 
-  if (logoBase64 && logoBase64.startsWith('data:image')) {
+  // Fallback to persisted company logo from localStorage or default app company logo
+  const effectiveLogo =
+    (propLogo && propLogo.trim()) ||
+    (typeof window !== 'undefined' && window.localStorage
+      ? localStorage.getItem('damview_company_logo') || DEFAULT_COMPANY_LOGO_BASE64
+      : DEFAULT_COMPANY_LOGO_BASE64);
+
+  const hasImage = Boolean(
+    effectiveLogo &&
+      (effectiveLogo.startsWith('data:image') ||
+        effectiveLogo.startsWith('http://') ||
+        effectiveLogo.startsWith('https://') ||
+        effectiveLogo.startsWith('blob:') ||
+        effectiveLogo.startsWith('/') ||
+        effectiveLogo.startsWith('./') ||
+        effectiveLogo.length > 50)
+  );
+
+  const imgSrc = hasImage
+    ? effectiveLogo.startsWith('data:image') ||
+      effectiveLogo.startsWith('http://') ||
+      effectiveLogo.startsWith('https://') ||
+      effectiveLogo.startsWith('blob:') ||
+      effectiveLogo.startsWith('/') ||
+      effectiveLogo.startsWith('./')
+      ? effectiveLogo
+      : `data:image/png;base64,${effectiveLogo}`
+    : null;
+
+  if (imgSrc) {
     return (
       <img
-        src={logoBase64}
+        src={imgSrc}
         alt="Hotel Damview Logo"
         style={{
           height: finalHeight,
@@ -24,7 +61,7 @@ export const HotelLogo: React.FC<HotelLogoProps> = ({ logoBase64, className = ''
           objectFit: 'contain',
           ...style,
         }}
-        className={`rounded-sm ${className}`}
+        className={`rounded-xs ${className}`}
       />
     );
   }

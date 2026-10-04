@@ -16,6 +16,7 @@ import {
 import { BillingDocument, Client, PaymentRecord, HotelProfile } from '../types';
 import { formatKsh, formatDate } from '../utils/formatters';
 import { dbService } from '../services/db';
+import { HotelLogo } from './HotelLogo';
 import { A4ReceiptPreview } from './A4ReceiptPreview';
 import { AutoScalingA4Container } from './AutoScalingA4Container';
 import {
@@ -309,8 +310,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         {/* HEADER BAR WITH ACTION TRIGGERS */}
         <div className="flex flex-wrap items-center justify-between px-5 py-3.5 bg-stone-900 text-white shrink-0 gap-3 border-b border-stone-800">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-950 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-              <CreditCard className="w-4 h-4" />
+            <div className="shrink-0">
+              <HotelLogo logoBase64={profile.logoBase64} size={32} />
             </div>
             <div>
               <h3 className="font-bold text-sm tracking-wide text-white flex items-center gap-2">

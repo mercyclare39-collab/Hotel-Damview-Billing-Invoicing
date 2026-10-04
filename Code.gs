@@ -1,5 +1,5 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v6.0.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v6.2.0)
  * High-Concurrency Multi-Tier Lock Isolation, Decoupled Instant Drive Archival & Universal ERP Sync Engine
  * Single Source of Truth Binary Archival & 100% Visual and Structural Parity Pipeline
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Fail-Safe Architecture
@@ -81,6 +81,8 @@
  * 7. Click "Deploy", authorize permissions, and verify the Web App URL in Hotel Damview App Settings.
  */
 
+var CURRENT_SCRIPT_VERSION = "v6.2.0";
+
 // ============================================================================
 // 1. CANONICAL FIELD DEFINITIONS & ALIASES FOR DYNAMIC HEADER MAPPING
 // ============================================================================
@@ -90,8 +92,11 @@ var CANONICAL_SCHEMAS = {
     { key: "documentNumber", type: "code", aliases: ["invoicenum", "invoice", "invoicenumber", "docnum", "number", "invoiceno", "invoiceno."] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "invoicedate", "billdate", "createddate"] },
     { key: "dueDate", type: "date", aliases: ["duedate", "validuntil", "paymentdue", "expirydate", "paymentduedate"] },
+    { key: "clientId", type: "code", aliases: ["clientid", "customerid", "clientref", "clientuid"] },
     { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "customername", "client", "customer", "companyguestname"] },
     { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin", "clientpin", "vatpin"] },
+    { key: "clientPhone", type: "code", aliases: ["clientphone", "phone", "telephone", "mobile", "phonenumber", "clienttel", "contactphone"] },
+    { key: "clientEmail", type: "text", aliases: ["clientemail", "email", "clientemailaddress", "emailaddress"] },
     { key: "clientAddress", type: "text", aliases: ["clientaddress", "address", "physicalpostaladdress", "physicaladdress", "postaladdress", "location"] },
     { key: "grossSubtotal", type: "currency", aliases: ["grosssubtotalksh", "grosssubtotal", "subtotalgross", "grossamount"] },
     { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount", "totaldiscount"] },
@@ -103,6 +108,8 @@ var CANONICAL_SCHEMAS = {
     { key: "status", type: "text", aliases: ["status", "paymentstatus", "docstatus", "state"] },
     { key: "notes", type: "text", aliases: ["notes", "notesinstructions", "specialnotes", "specialinstructions", "instructions", "remarks", "memo"] },
     { key: "terms", type: "text", aliases: ["terms", "termsconditions", "termsandconditions", "conditions", "paymentterms", "termsandinstructions"] },
+    { key: "relatedDocNumber", type: "code", aliases: ["relateddocnumber", "relateddoc", "originatingdoc", "quotationref", "proformaref", "originatingdocument"] },
+    { key: "relatedDocId", type: "code", aliases: ["relateddocid", "originatingdocid"] },
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "documentlink", "pdflink", "webviewlink", "drivepdfarchive"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
@@ -112,8 +119,11 @@ var CANONICAL_SCHEMAS = {
     { key: "documentNumber", type: "code", aliases: ["quotationnum", "quotation", "quotationnumber", "docnum", "number", "quotationno", "quotationno."] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "quotationdate", "createddate"] },
     { key: "dueDate", type: "date", aliases: ["validuntil", "duedate", "validity", "expirydate", "validtodate"] },
+    { key: "clientId", type: "code", aliases: ["clientid", "customerid", "clientref", "clientuid"] },
     { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "customername", "client", "customer"] },
     { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin", "clientpin"] },
+    { key: "clientPhone", type: "code", aliases: ["clientphone", "phone", "telephone", "mobile", "phonenumber", "clienttel", "contactphone"] },
+    { key: "clientEmail", type: "text", aliases: ["clientemail", "email", "clientemailaddress", "emailaddress"] },
     { key: "clientAddress", type: "text", aliases: ["clientaddress", "address", "physicalpostaladdress", "physicaladdress", "postaladdress", "location"] },
     { key: "grossSubtotal", type: "currency", aliases: ["grosssubtotalksh", "grosssubtotal", "subtotalgross", "grossamount"] },
     { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount", "totaldiscount"] },
@@ -123,6 +133,8 @@ var CANONICAL_SCHEMAS = {
     { key: "status", type: "text", aliases: ["status", "docstatus", "state"] },
     { key: "notes", type: "text", aliases: ["notes", "notesinstructions", "specialnotes", "specialinstructions", "instructions", "remarks", "memo"] },
     { key: "terms", type: "text", aliases: ["terms", "termsconditions", "termsandconditions", "conditions", "paymentterms", "termsandinstructions"] },
+    { key: "relatedDocNumber", type: "code", aliases: ["relateddocnumber", "relateddoc", "originatingdoc", "quotationref", "proformaref", "originatingdocument"] },
+    { key: "relatedDocId", type: "code", aliases: ["relateddocid", "originatingdocid"] },
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink", "webviewlink", "drivepdfarchive"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
@@ -132,8 +144,11 @@ var CANONICAL_SCHEMAS = {
     { key: "documentNumber", type: "code", aliases: ["proformanum", "proforma", "proformanumber", "docnum", "number", "proformano", "proformano."] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "proformadate", "createddate"] },
     { key: "dueDate", type: "date", aliases: ["duedate", "validuntil", "validity", "expirydate", "paymentdue"] },
+    { key: "clientId", type: "code", aliases: ["clientid", "customerid", "clientref", "clientuid"] },
     { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "customername", "client", "customer"] },
     { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin", "clientpin"] },
+    { key: "clientPhone", type: "code", aliases: ["clientphone", "phone", "telephone", "mobile", "phonenumber", "clienttel", "contactphone"] },
+    { key: "clientEmail", type: "text", aliases: ["clientemail", "email", "clientemailaddress", "emailaddress"] },
     { key: "clientAddress", type: "text", aliases: ["clientaddress", "address", "physicalpostaladdress", "physicaladdress", "postaladdress", "location"] },
     { key: "grossSubtotal", type: "currency", aliases: ["grosssubtotalksh", "grosssubtotal", "subtotalgross", "grossamount"] },
     { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount", "totaldiscount"] },
@@ -143,6 +158,8 @@ var CANONICAL_SCHEMAS = {
     { key: "status", type: "text", aliases: ["status", "docstatus", "state"] },
     { key: "notes", type: "text", aliases: ["notes", "notesinstructions", "specialnotes", "specialinstructions", "instructions", "remarks", "memo"] },
     { key: "terms", type: "text", aliases: ["terms", "termsconditions", "termsandconditions", "conditions", "paymentterms", "termsandinstructions"] },
+    { key: "relatedDocNumber", type: "code", aliases: ["relateddocnumber", "relateddoc", "originatingdoc", "quotationref", "proformaref", "originatingdocument"] },
+    { key: "relatedDocId", type: "code", aliases: ["relateddocid", "originatingdocid"] },
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink", "webviewlink", "drivepdfarchive"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
@@ -263,7 +280,7 @@ var CANONICAL_SCHEMAS = {
 // ============================================================================
 
 function doOptions(e) {
-  return responseJSON({ success: true, status: "OK", version: "v5.9.0" });
+  return responseJSON({ success: true, status: "OK", version: CURRENT_SCRIPT_VERSION });
 }
 
 function doGet(e) {
@@ -274,9 +291,9 @@ function doGet(e) {
     if (action === "PING" || action === "HEALTHCHECK" || action === "VERSION" || action === "GET_VERSION") {
       return responseJSON({
         success: true,
-        version: "v5.9.0",
+        version: CURRENT_SCRIPT_VERSION,
         action: action || "PING",
-        message: "Hotel Damview Google Apps Script Central Backend v5.9.0 is active and ready.",
+        message: "Hotel Damview Google Apps Script Central Backend " + CURRENT_SCRIPT_VERSION + " is active and ready.",
         sheetName: ss ? ss.getName() : "Spreadsheet",
         sheetUrl: ss ? ss.getUrl() : "",
         tabs: ss ? getDiscoveredSheets(ss) : [],
@@ -288,7 +305,7 @@ function doGet(e) {
       var fullData = getFullSpreadsheetData(ss);
       return responseJSON({
         success: true,
-        version: "v5.9.0",
+        version: CURRENT_SCRIPT_VERSION,
         action: "GET_SHEET_DATA",
         data: fullData,
         timestamp: new Date().toISOString()
@@ -297,8 +314,8 @@ function doGet(e) {
 
     return responseJSON({
       success: true,
-      version: "v5.9.0",
-      message: "Hotel Damview Google Apps Script Central Backend v5.9.0 is active and ready.",
+      version: CURRENT_SCRIPT_VERSION,
+      message: "Hotel Damview Google Apps Script Central Backend " + CURRENT_SCRIPT_VERSION + " is active and ready.",
       sheetName: ss ? ss.getName() : "Spreadsheet",
       sheetUrl: ss ? ss.getUrl() : "",
       timestamp: new Date().toISOString()
@@ -306,8 +323,8 @@ function doGet(e) {
   } catch (err) {
     return responseJSON({
       success: true,
-      version: "v5.9.0",
-      message: "Hotel Damview Google Apps Script Backend v5.9.0 is online.",
+      version: CURRENT_SCRIPT_VERSION,
+      message: "Hotel Damview Google Apps Script Backend " + CURRENT_SCRIPT_VERSION + " is online.",
       error: err.toString(),
       timestamp: new Date().toISOString()
     });
@@ -382,8 +399,8 @@ function doPost(e) {
     return responseJSON({
       success: true,
       action: "PING",
-      version: "v6.0.0",
-      message: "Hotel Damview Google Apps Script Central Backend v6.0.0 is active and connected.",
+      version: CURRENT_SCRIPT_VERSION,
+      message: "Hotel Damview Google Apps Script Central Backend " + CURRENT_SCRIPT_VERSION + " is active and connected.",
       sheetName: ss.getName(),
       sheetUrl: ss.getUrl(),
       tabs: sheetList,
@@ -396,7 +413,7 @@ function doPost(e) {
     return responseJSON({
       success: true,
       action: "GET_SHEET_DATA",
-      version: "v6.0.0",
+      version: CURRENT_SCRIPT_VERSION,
       data: fullData,
       timestamp: new Date().toISOString()
     });

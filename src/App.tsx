@@ -8,6 +8,7 @@ import {
   SyncQueueItem,
 } from './types';
 import { dbService, DEFAULT_HOTEL_PROFILE } from './services/db';
+import { DEFAULT_COMPANY_LOGO_BASE64 } from './services/defaultLogo';
 import { syncManager } from './services/sync';
 import { Sidebar, MainNavModule } from './components/Sidebar';
 import { DocumentModule } from './components/DocumentModule';
@@ -39,10 +40,57 @@ import {
   WORKBOOK_FILENAME,
 } from './services/excelEngine';
 
+// Helper to detect if user has active data input in progress that requires preserving active page across reloads
+export function hasActiveDataInputInProgress(): boolean {
+  if (typeof window === 'undefined' || !window.localStorage) return false;
+  try {
+    // 1. Check new document editor draft
+    const newDraftRaw = localStorage.getItem('damview_draft_document_editor');
+    if (newDraftRaw) {
+      const d = JSON.parse(newDraftRaw);
+      const hasContent = Boolean(
+        d.clientName?.trim() ||
+        d.clientPhone?.trim() ||
+        d.clientKraPin?.trim() ||
+        d.notes?.trim() ||
+        (Array.isArray(d.lineItems) && d.lineItems.some((li: any) => li.particulars?.trim() || Number(li.rate) > 0))
+      );
+      if (hasContent) return true;
+    }
+
+    // 2. Check active editing document draft
+    const lastEditingDocId = localStorage.getItem('damview_last_editing_doc_id');
+    if (lastEditingDocId) {
+      const editDraftRaw = localStorage.getItem(`damview_edit_draft_${lastEditingDocId}`);
+      if (editDraftRaw) {
+        const ed = JSON.parse(editDraftRaw);
+        const hasContent = Boolean(
+          ed.clientName?.trim() ||
+          ed.clientPhone?.trim() ||
+          ed.notes?.trim() ||
+          (Array.isArray(ed.lineItems) && ed.lineItems.some((li: any) => li.particulars?.trim() || Number(li.rate) > 0))
+        );
+        if (hasContent) return true;
+      }
+    }
+
+    // 3. Check active POS cart
+    const posCartRaw = localStorage.getItem('damview_pos_active_cart');
+    if (posCartRaw) {
+      const cart = JSON.parse(posCartRaw);
+      if (Array.isArray(cart) && cart.length > 0) return true;
+    }
+  } catch {}
+  return false;
+}
+
 export default function App() {
   const [currentModule, setCurrentModuleState] = useState<MainNavModule>(() => {
-    if (typeof window !== 'undefined') {
-      // 1. Check URL Hash (e.g. #invoices, #receipts, #statements)
+    // When reloading/refreshing, return to normal default app module page ('dashboard')
+    // unless user is actually in process of inputting data or an active transaction
+    const hasInput = hasActiveDataInputInProgress();
+
+    if (hasInput && typeof window !== 'undefined') {
       const hash = window.location.hash.replace('#', '').toLowerCase() as MainNavModule;
       const validModules: MainNavModule[] = [
         'dashboard',
@@ -64,12 +112,25 @@ export default function App() {
         return hash;
       }
 
-      // 2. Check localStorage
       if (window.localStorage) {
         const saved = localStorage.getItem('damview_active_module') as MainNavModule;
         if (saved && validModules.includes(saved)) {
           return saved;
         }
+      }
+    }
+
+    // Reset non-default hash and active module on clean reload to return to normal default app module
+    if (typeof window !== 'undefined') {
+      if (window.location.hash && window.location.hash !== '#dashboard') {
+        try {
+          window.history.replaceState(null, '', '#dashboard');
+        } catch {}
+      }
+      if (window.localStorage) {
+        try {
+          localStorage.removeItem('damview_active_module');
+        } catch {}
       }
     }
     return 'dashboard';
@@ -89,8 +150,17 @@ export default function App() {
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         const stored = localStorage.getItem('damview_profile');
+        const customLogo = (localStorage.getItem('damview_company_logo') || '').trim() || DEFAULT_COMPANY_LOGO_BASE64;
+        // Seed dedicated localStorage key so it's always available across tabs and components
+        if (!localStorage.getItem('damview_company_logo')) {
+          try {
+            localStorage.setItem('damview_company_logo', DEFAULT_COMPANY_LOGO_BASE64);
+          } catch {}
+        }
         if (stored) {
           const parsed = JSON.parse(stored);
+          // Always ensure the active company logo is applied
+          parsed.logoBase64 = customLogo;
           const legacyTaglines = [
             'premier hospitality, accommodation & dining',
             'luxury & serenity by the dam',
@@ -137,6 +207,8 @@ export default function App() {
             localStorage.setItem('damview_profile', JSON.stringify(parsed));
           } catch {}
           return parsed;
+        } else if (customLogo) {
+          return { ...DEFAULT_HOTEL_PROFILE, logoBase64: customLogo };
         }
       } catch {}
     }
@@ -154,7 +226,8 @@ export default function App() {
 
   // Active document being created or edited
   const [editingDoc, setEditingDocState] = useState<BillingDocument | null>(() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
+    // Only restore active editing document on reload if user is actively in process of inputting data
+    if (hasActiveDataInputInProgress() && typeof window !== 'undefined' && window.localStorage) {
       try {
         const saved = localStorage.getItem('damview_active_editing_doc');
         if (saved) return JSON.parse(saved);
@@ -175,9 +248,10 @@ export default function App() {
   };
 
   const [docModuleSubTab, setDocModuleSubTabState] = useState<'new' | 'journal'>(() => {
-    if (typeof window !== 'undefined' && window.localStorage) {
+    // Only restore 'new' editor subtab if user is actively inputting data in progress
+    if (hasActiveDataInputInProgress() && typeof window !== 'undefined' && window.localStorage) {
       const saved = localStorage.getItem('damview_doc_subtab');
-      if (saved === 'new' || saved === 'journal') return saved;
+      if (saved === 'new') return 'new';
     }
     return 'journal';
   });
@@ -369,13 +443,46 @@ export default function App() {
       }
     };
 
+    const handleNavigateClient = (e: any) => {
+      const clientId = e?.detail?.clientId || e?.detail;
+      if (clientId && typeof clientId === 'string') {
+        handleViewClientLedger(clientId);
+      }
+    };
+
     window.addEventListener('damview:data-changed', handleRemoteDataChanged);
     window.addEventListener('damview-sync-completed', handleRemoteDataChanged);
     window.addEventListener('damview-renumbered', handleRemoteDataChanged);
     window.addEventListener('damview:sync-warning', handleSyncWarning);
     window.addEventListener('damview:navigate-module', handleNavigateModule);
     window.addEventListener('damview:navigate-journal', handleNavigateJournal);
+    window.addEventListener('damview:navigate-client', handleNavigateClient);
     window.addEventListener('damview:gas-version-mismatch', handleGasVersionMismatch);
+
+    // Cross-module & cross-tab company logo synchronization listener
+    const handleLogoChanged = (e: any) => {
+      const newLogo =
+        e.detail?.logoBase64 ??
+        (typeof window !== 'undefined' && window.localStorage
+          ? localStorage.getItem('damview_company_logo')
+          : null);
+      if (newLogo !== null) {
+        setProfile((prev) => ({ ...prev, logoBase64: newLogo }));
+      }
+    };
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'damview_company_logo') {
+        const newLogo = e.newValue || '';
+        setProfile((prev) => ({ ...prev, logoBase64: newLogo }));
+      } else if (e.key === 'damview_profile' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          setProfile((prev) => ({ ...prev, ...parsed }));
+        } catch {}
+      }
+    };
+    window.addEventListener('damview:logo-changed', handleLogoChanged);
+    window.addEventListener('storage', handleStorageChange);
 
     // Handle browser hash changes (Back/Forward buttons)
     const handleHashChange = () => {
@@ -482,7 +589,10 @@ export default function App() {
       window.removeEventListener('damview:sync-warning', handleSyncWarning);
       window.removeEventListener('damview:navigate-module', handleNavigateModule);
       window.removeEventListener('damview:navigate-journal', handleNavigateJournal);
+      window.removeEventListener('damview:navigate-client', handleNavigateClient);
       window.removeEventListener('damview:gas-version-mismatch', handleGasVersionMismatch);
+      window.removeEventListener('damview:logo-changed', handleLogoChanged);
+      window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('hashchange', handleHashChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('focus', handleWindowFocus);
@@ -545,11 +655,61 @@ export default function App() {
   // Convert Document Lifecycle
   const handleConvertDocument = async (sourceDoc: BillingDocument, targetType: DocumentType) => {
     const nextNum = await dbService.getNextDocumentNumber(targetType);
+
+    // Propagate latest registered client credentials if available (ID, PIN, Phone, Email, Name)
+    let matchedClient = clients.find((c) => c.id === sourceDoc.clientId);
+    if (!matchedClient && sourceDoc.clientKraPin) {
+      const cleanPin = sourceDoc.clientKraPin.trim().toUpperCase();
+      if (cleanPin.length >= 8) {
+        matchedClient = clients.find((c) => c.kraPin && c.kraPin.trim().toUpperCase() === cleanPin);
+      }
+    }
+    if (!matchedClient && sourceDoc.clientPhone) {
+      const cleanPhone = sourceDoc.clientPhone.replace(/[^0-9]/g, '');
+      if (cleanPhone.length >= 9) {
+        matchedClient = clients.find(
+          (c) => c.phone && c.phone.replace(/[^0-9]/g, '').slice(-9) === cleanPhone.slice(-9)
+        );
+      }
+    }
+    if (!matchedClient && sourceDoc.clientEmail) {
+      const cleanEmail = sourceDoc.clientEmail.trim().toLowerCase();
+      matchedClient = clients.find((c) => c.email && c.email.trim().toLowerCase() === cleanEmail);
+    }
+    if (!matchedClient && sourceDoc.clientName) {
+      const searchName = sourceDoc.clientName.trim().toLowerCase();
+      matchedClient = clients.find(
+        (c) =>
+          c.name.trim().toLowerCase() === searchName ||
+          (c.contactPerson && c.contactPerson.trim().toLowerCase() === searchName)
+      );
+      if (!matchedClient) {
+        const norm = (s: string) => s.toLowerCase().replace(/\b(ltd|limited|plc|co|inc|corporation|group)\b/g, '').replace(/[^a-z0-9]/g, '');
+        const targetNorm = norm(searchName);
+        if (targetNorm.length >= 4) {
+          matchedClient = clients.find((c) => {
+            const cNorm = norm(c.name);
+            return cNorm === targetNorm || (cNorm.length >= 4 && (cNorm.includes(targetNorm) || targetNorm.includes(cNorm)));
+          });
+        }
+      }
+    }
+
+    const resolvedClientId = matchedClient
+      ? matchedClient.id
+      : (sourceDoc.clientId || (sourceDoc.clientName ? 'prop-client-' + Date.now() : ''));
+
     const converted: BillingDocument = {
       ...sourceDoc,
       id: 'doc-conv-' + Date.now(),
       documentType: targetType,
       documentNumber: nextNum,
+      clientId: resolvedClientId,
+      clientName: matchedClient ? matchedClient.name : sourceDoc.clientName,
+      clientKraPin: matchedClient?.kraPin || sourceDoc.clientKraPin || '',
+      clientAddress: matchedClient?.address || sourceDoc.clientAddress || '',
+      clientPhone: matchedClient?.phone || sourceDoc.clientPhone || '',
+      clientEmail: matchedClient?.email || sourceDoc.clientEmail || '',
       relatedDocNumber: sourceDoc.documentNumber,
       relatedDocId: sourceDoc.id,
       status: 'Draft',
@@ -569,16 +729,60 @@ export default function App() {
 
   const handleConvertFolioToInvoice = async (docData: Partial<BillingDocument>) => {
     const nextNum = await dbService.getNextDocumentNumber('INVOICE');
+
+    // Automatically resolve registered client credentials during data propagation
+    let matchedClient = clients.find((c) => c.id === docData.clientId);
+    if (!matchedClient && docData.clientKraPin) {
+      const cleanPin = docData.clientKraPin.trim().toUpperCase();
+      if (cleanPin.length >= 8) {
+        matchedClient = clients.find((c) => c.kraPin && c.kraPin.trim().toUpperCase() === cleanPin);
+      }
+    }
+    if (!matchedClient && docData.clientPhone) {
+      const cleanPhone = docData.clientPhone.replace(/[^0-9]/g, '');
+      if (cleanPhone.length >= 9) {
+        matchedClient = clients.find(
+          (c) => c.phone && c.phone.replace(/[^0-9]/g, '').slice(-9) === cleanPhone.slice(-9)
+        );
+      }
+    }
+    if (!matchedClient && docData.clientEmail) {
+      const cleanEmail = docData.clientEmail.trim().toLowerCase();
+      matchedClient = clients.find((c) => c.email && c.email.trim().toLowerCase() === cleanEmail);
+    }
+    if (!matchedClient && docData.clientName) {
+      const searchName = docData.clientName.trim().toLowerCase();
+      matchedClient = clients.find(
+        (c) =>
+          c.name.trim().toLowerCase() === searchName ||
+          (c.contactPerson && c.contactPerson.trim().toLowerCase() === searchName)
+      );
+      if (!matchedClient) {
+        const norm = (s: string) => s.toLowerCase().replace(/\b(ltd|limited|plc|co|inc|corporation|group)\b/g, '').replace(/[^a-z0-9]/g, '');
+        const targetNorm = norm(searchName);
+        if (targetNorm.length >= 4) {
+          matchedClient = clients.find((c) => {
+            const cNorm = norm(c.name);
+            return cNorm === targetNorm || (cNorm.length >= 4 && (cNorm.includes(targetNorm) || targetNorm.includes(cNorm)));
+          });
+        }
+      }
+    }
+
+    const resolvedClientId = matchedClient
+      ? matchedClient.id
+      : (docData.clientId || (docData.clientName ? 'prop-client-' + Date.now() : ''));
+
     const fullDoc: BillingDocument = {
       id: 'doc-inv-' + Date.now(),
       documentType: 'INVOICE',
       documentNumber: nextNum,
-      clientId: docData.clientId || 'cli-001',
-      clientName: docData.clientName || 'Valued Guest',
-      clientKraPin: docData.clientKraPin || '',
-      clientAddress: docData.clientAddress || profile.physicalLocation,
-      clientPhone: docData.clientPhone || '',
-      clientEmail: docData.clientEmail || '',
+      clientId: resolvedClientId,
+      clientName: matchedClient ? matchedClient.name : (docData.clientName || 'Valued Guest'),
+      clientKraPin: matchedClient?.kraPin || docData.clientKraPin || '',
+      clientAddress: matchedClient?.address || docData.clientAddress || profile.physicalLocation || '',
+      clientPhone: matchedClient?.phone || docData.clientPhone || '',
+      clientEmail: matchedClient?.email || docData.clientEmail || '',
       issueDate: docData.issueDate || new Date().toISOString().split('T')[0],
       validityDays: docData.validityDays || 14,
       dueDate: docData.dueDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
@@ -801,6 +1005,8 @@ export default function App() {
         updatedAt: new Date().toISOString().split('T')[0],
       };
       setEditingDoc(newDoc);
+      setDocModuleSubTab('new');
+      setDocModuleKey((prev) => prev + 1);
       setCurrentModule('invoices');
     });
   };
@@ -822,6 +1028,13 @@ export default function App() {
   };
   const handleSaveProfile = async (newProfile: HotelProfile) => {
     setProfile(newProfile);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      if (newProfile.logoBase64 && newProfile.logoBase64.trim()) {
+        localStorage.setItem('damview_company_logo', newProfile.logoBase64.trim());
+      } else if (newProfile.logoBase64 === '') {
+        localStorage.removeItem('damview_company_logo');
+      }
+    }
     await dbService.saveHotelProfile(newProfile);
     await syncManager.syncProfile(newProfile);
   };
@@ -884,52 +1097,156 @@ export default function App() {
       {/* 2. MAIN APPLICATION CONTENT VIEWPORT */}
       <div className="flex-1 flex flex-col min-w-0 h-[100dvh] overflow-hidden">
         {/* Mobile Top App Bar (< lg screens) */}
-        <header className="lg:hidden no-print bg-stone-900 text-white px-4 py-3 flex items-center justify-between border-b border-stone-800 shrink-0">
-          <div className="flex items-center gap-2.5">
+        <header className="lg:hidden no-print bg-stone-900 text-white px-4 py-3 flex items-center justify-between border-b border-stone-800 shrink-0 shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
               onClick={() => setIsMobileOpen(true)}
-              className="p-1.5 rounded text-stone-300 hover:text-white hover:bg-stone-800 cursor-pointer"
-              title="Open Navigation Menu"
+              className="p-1.5 rounded-md text-stone-200 hover:text-white hover:bg-stone-800 cursor-pointer shrink-0 transition-colors"
+              title="Toggle Navigation"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-5 h-5 text-amber-400" />
             </button>
             <div
               className="flex items-center gap-2 cursor-pointer min-w-0"
               onClick={() => setCurrentModule('dashboard')}
+              title="Return to Executive Dashboard"
             >
-              <HotelLogo logoBase64={profile.logoBase64} size={28} />
+              <HotelLogo logoBase64={profile.logoBase64} size={30} className="shrink-0" />
               <div className="min-w-0">
-                <span className="font-bold text-xs uppercase tracking-wider text-amber-400 font-serif truncate block max-w-[130px]">
-                  {profile.name || 'HOTEL DAMVIEW'}
+                <span className="font-bold text-xs uppercase tracking-wider text-white font-serif truncate block max-w-[160px] sm:max-w-[220px]">
+                  {profile.name || profile.hotelName || 'HOTEL DAMVIEW'}
                 </span>
-                <span className="text-[9px] text-stone-400 truncate block max-w-[130px]">
-                  {profile.physicalLocation || profile.postalAddress || 'Machakos'}
+                <span className="text-[10px] text-stone-300 font-medium truncate block max-w-[160px] sm:max-w-[220px]">
+                  {profile.tagline || profile.physicalLocation || profile.postalAddress || 'Machakos, Kenya'}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             {/* Spotlight Search Icon Button */}
             <button
               type="button"
               onClick={() => setIsCommandPaletteOpen(true)}
-              className="p-1.5 bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white rounded-md border border-stone-700 cursor-pointer"
+              className="p-1.5 bg-stone-950/80 hover:bg-stone-800 text-stone-200 hover:text-white rounded-md border border-stone-700 cursor-pointer shadow-2xs"
               title="Search ERP (Cmd+K)"
             >
-              <Search className="w-3.5 h-3.5 text-amber-400" />
+              <Search className="w-4 h-4 text-amber-400" />
             </button>
 
             <div
-              className={`px-2 py-0.5 rounded-full text-[10px] font-medium flex items-center gap-1 border ${
+              className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border shadow-2xs ${
                 isOnline
-                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
-                  : 'bg-rose-950/80 text-rose-300 border-rose-800'
+                  ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/80'
+                  : 'bg-rose-950/90 text-rose-300 border-rose-700/80'
               }`}
             >
-              {isOnline ? <Wifi className="w-2.5 h-2.5" /> : <WifiOff className="w-2.5 h-2.5" />}
+              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
               <span>{isOnline ? 'Online' : 'Offline'}</span>
+            </div>
+          </div>
+        </header>
+
+        {/* Desktop Top Workspace Header Block (Always visible throughout all modules) */}
+        <header className="hidden lg:flex no-print bg-stone-900 text-white px-4 py-2.5 items-center justify-between border-b border-stone-800 shrink-0 shadow-xs">
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Sidebar Collapse Toggle Button (Icon only) */}
+            <button
+              type="button"
+              onClick={handleToggleCollapse}
+              className="p-1.5 rounded-md text-stone-300 hover:text-white hover:bg-stone-800 cursor-pointer transition-colors flex items-center justify-center border border-stone-800 bg-stone-950/60 shrink-0"
+              title="Toggle Sidebar"
+            >
+              <Menu className="w-4 h-4 text-amber-400" />
+            </button>
+
+            {/* Permanent App Brand Block (Logo, Title & Location Details - Always visible throughout all modules) */}
+            <div
+              className="flex items-center gap-2.5 cursor-pointer select-none group min-w-0 shrink-0"
+              onClick={() => setCurrentModule('dashboard')}
+              title="Return to Executive Dashboard"
+            >
+              <HotelLogo
+                logoBase64={profile.logoBase64}
+                hotelName={profile.name || profile.hotelName || 'HOTEL DAMVIEW'}
+                size={34}
+                className="w-8 h-8 rounded p-0.5 bg-stone-950 border border-stone-800 group-hover:border-amber-500/60 transition-colors shrink-0 object-contain"
+              />
+              <div className="flex flex-col min-w-0 leading-tight">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="font-bold text-sm tracking-wide text-white group-hover:text-amber-300 transition-colors uppercase font-serif truncate">
+                    {profile.name || profile.hotelName || 'HOTEL DAMVIEW'}
+                  </span>
+                  <span className="inline-block text-[10px] text-amber-400 font-bold px-1.5 py-0.2 rounded bg-amber-400/10 border border-amber-400/30 uppercase tracking-wider shrink-0">
+                    ERP
+                  </span>
+                </div>
+                <span className="text-[10px] text-stone-300 font-medium truncate max-w-[240px] xl:max-w-[360px]">
+                  {profile.tagline || profile.physicalLocation || profile.postalAddress || 'Machakos, Kenya'}
+                </span>
+              </div>
+            </div>
+
+            <div className="h-5 w-px bg-stone-800 shrink-0 mx-1" />
+
+            {/* Active Module Title / Breadcrumb (High Contrast) */}
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider font-serif bg-stone-950/80 px-2.5 py-1 rounded border border-amber-500/30 shadow-2xs">
+                {currentModule === 'dashboard'
+                  ? 'Executive Dashboard'
+                  : currentModule === 'invoices'
+                  ? 'Tax Invoices'
+                  : currentModule === 'quotations'
+                  ? 'Quotations'
+                  : currentModule === 'proformas'
+                  ? 'Proforma Invoices'
+                  : currentModule === 'receipts'
+                  ? 'Payment Receipts'
+                  : currentModule === 'statements'
+                  ? 'Statement of Accounts'
+                  : currentModule === 'reservations'
+                  ? 'Room & Hall Folios'
+                  : currentModule === 'pos'
+                  ? 'Restaurant POS'
+                  : currentModule === 'nightaudit'
+                  ? 'Night Audit'
+                  : currentModule === 'vault'
+                  ? 'Google Drive Vault'
+                  : currentModule === 'sync'
+                  ? 'Google Sync Engine'
+                  : currentModule === 'excel'
+                  ? 'Excel Master Suite'
+                  : currentModule === 'clients'
+                  ? 'Client Directory'
+                  : 'Hotel Settings'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsCommandPaletteOpen(true)}
+              className="flex items-center gap-2 px-2.5 py-1 bg-stone-950/80 hover:bg-stone-800 border border-stone-700/80 rounded-md text-stone-200 hover:text-white text-xs font-medium transition-colors cursor-pointer shadow-2xs"
+              title="Search ERP (Cmd+K)"
+            >
+              <Search className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[11px] font-medium text-stone-200">Quick Search...</span>
+              <kbd className="px-1.5 py-0.5 text-[9px] font-mono bg-stone-900 border border-stone-700 rounded text-stone-300 font-bold">
+                ⌘K
+              </kbd>
+            </button>
+
+            <div
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1.5 border shadow-2xs ${
+                isOnline
+                  ? 'bg-emerald-950/90 text-emerald-300 border-emerald-700/80'
+                  : 'bg-rose-950/90 text-rose-300 border-rose-700/80'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+              <span>{isOnline ? 'Online Sync' : 'Offline Mode'}</span>
             </div>
           </div>
         </header>
@@ -1047,7 +1364,17 @@ export default function App() {
                 setDocModuleSubTab('journal');
                 setCurrentModule('invoices');
               }}
+              onNavigateToQuotationsJournal={() => {
+                setDocModuleSubTab('journal');
+                setCurrentModule('quotations');
+              }}
+              onNavigateToInvoicesJournal={() => {
+                setDocModuleSubTab('journal');
+                setCurrentModule('invoices');
+              }}
+              onNavigateToReceipts={() => setCurrentModule('receipts')}
               onNavigateToStatement={() => setCurrentModule('statements')}
+              onSelectClient={handleViewClientLedger}
               onRecordPayment={() => handleOpenPaymentModal()}
               onEditDocument={handleEditDocument}
             />
@@ -1239,6 +1566,7 @@ export default function App() {
                 else if (doc.documentType === 'QUOTATION') setCurrentModule('quotations');
                 else setCurrentModule('proformas');
               }}
+              onNavigateToClient={handleViewClientLedger}
             />
           )}
 
@@ -1280,6 +1608,10 @@ export default function App() {
         }}
         onSelectClient={(clientId) => {
           handleViewClientLedger(clientId);
+        }}
+        onSelectPayment={(paymentId) => {
+          setHighlightedDocId(paymentId);
+          setCurrentModule('receipts');
         }}
         onNavigateToNewDoc={(type) => {
           handleOpenNewDocument(type);

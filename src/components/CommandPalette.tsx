@@ -25,6 +25,7 @@ interface CommandPaletteProps {
   payments: PaymentRecord[];
   onSelectDocument: (doc: BillingDocument) => void;
   onSelectClient: (clientId: string) => void;
+  onSelectPayment?: (paymentId: string) => void;
   onNavigateToNewDoc: (type: DocumentType) => void;
   onNavigateToModule: (module: any) => void;
   onTriggerSync: () => void;
@@ -39,6 +40,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   payments,
   onSelectDocument,
   onSelectClient,
+  onSelectPayment,
   onNavigateToNewDoc,
   onNavigateToModule,
   onTriggerSync,
@@ -352,7 +354,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
           category: 'Receipts',
           action: () => {
-            onNavigateToModule('receipts');
+            if (onSelectPayment) {
+              onSelectPayment(payment.id);
+            } else {
+              onNavigateToModule('receipts');
+            }
             onClose();
           },
         });
@@ -360,7 +366,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     });
 
     return items;
-  }, [query, documents, clients, payments, onNavigateToNewDoc, onNavigateToModule, onSelectDocument, onSelectClient, onTriggerSync, onOpenPaymentModal, onClose]);
+  }, [query, documents, clients, payments, onNavigateToNewDoc, onNavigateToModule, onSelectDocument, onSelectClient, onSelectPayment, onTriggerSync, onOpenPaymentModal, onClose]);
 
   // Keyboard listener for navigation (ArrowUp, ArrowDown, Enter, Esc)
   useEffect(() => {

@@ -65,8 +65,21 @@ function syncAppsScriptPlugin(): Plugin {
 }
 
 export default defineConfig(() => {
-  const basePath = process.env.VITE_BASE_PATH || './';
-  const pwaScope = process.env.VITE_BASE_PATH || '/';
+  let basePath = process.env.VITE_BASE_PATH;
+  if (!basePath && process.env.GITHUB_REPOSITORY) {
+    const repoName = process.env.GITHUB_REPOSITORY.split('/')[1];
+    basePath = `/${repoName}/`;
+  }
+  if (!basePath) {
+    basePath = './';
+  }
+  if (basePath.startsWith('/') && !basePath.endsWith('/')) {
+    basePath += '/';
+  }
+  if (basePath.startsWith('/')) {
+    basePath = basePath.replace(/\/+/g, '/');
+  }
+  const pwaScope = basePath.startsWith('/') ? basePath : './';
   const buildTime = new Date().toISOString();
   const version = process.env.npm_package_version || '5.0.0';
 

@@ -26,6 +26,7 @@ export interface Client {
 
 export interface HotelProfile {
   name: string;
+  hotelName?: string;
   tagline?: string;
   kraPin: string;
   email: string;

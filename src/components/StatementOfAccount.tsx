@@ -143,6 +143,17 @@ export const StatementOfAccount: React.FC<StatementOfAccountProps> = ({
   );
 
   useEffect(() => {
+    if (initialClientId && clients.some((c) => c.id === initialClientId)) {
+      setSelectedClientIdState(initialClientId);
+      setActiveViewState("ledger");
+      try {
+        localStorage.setItem("damview_soa_client_id", initialClientId);
+        localStorage.setItem("damview_soa_active_view", "ledger");
+      } catch {}
+    }
+  }, [initialClientId, clients]);
+
+  useEffect(() => {
     if (highlightedItemId) {
       setLocalHighlightedItemId(highlightedItemId);
       setActiveView("journal");

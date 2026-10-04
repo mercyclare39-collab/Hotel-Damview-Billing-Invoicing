@@ -1,5 +1,5 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v5.7.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v6.2.0)
  * High-Concurrency Multi-Tier Lock Isolation, Decoupled Instant Drive Archival & Universal ERP Sync Engine
  * Single Source of Truth Binary Archival & 100% Visual and Structural Parity Pipeline
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Fail-Safe Architecture
@@ -12,12 +12,18 @@
  *    - Decodes Base64 payloads directly into native PDF blobs via Utilities.newBlob and creates files in DriveApp.
  *    - Preserves exact vector styles, fonts, margins, subtle faded gridlines, and symmetrical parallel row heights.
  *
- * 2. Clean Data Propagation Without Artificial Fields:
+ * 2. Decoupled Multi-Tier Concurrency & Lock Isolation:
+ *    - Completely isolates heavy Base64 PDF decoding, folder lookup, deduplication, and Google Drive file
+ *      creation from spreadsheet write locks, preventing lock contention and execution timeouts.
+ *    - High-speed read-only queries (PING, HEALTHCHECK, VERSION, GET_SHEET_DATA) execute instantly with zero locks.
+ *    - Granular script write locks with randomized backoff and jitter for atomic updates across multi-device POS/front-desk terminals.
+ *
+ * 3. Clean Data Propagation Without Artificial Fields:
  *    - All document data fields (including Notes, Terms & Conditions, and Particulars) strictly preserve
  *      their authentic values without synthesizing, inventing, or appending artificial fallback text.
  *    - Empty or omitted fields remain pristine empty strings or exact source values across inbound/outbound sync.
  *
- * 2. Resilient Dynamic Header-Index Lookup & Row-Parsing Engine:
+ * 4. Resilient Dynamic Header-Index Lookup & Row-Parsing Engine:
  *    - Scans Row 1 headers dynamically and constructs bidirectional index-to-key resolution maps.
  *    - Maps incoming JSON keys (camelCase, snake_case, raw header names, and aliases) directly to
  *      their exact column index in Google Sheets.
@@ -25,7 +31,7 @@
  *    - Non-destructive to Custom Columns: user-added columns (e.g., Accountant Notes, Department)
  *      are preserved during updates.
  *
- * 3. Absolute Data Integrity & Type Coercion Prevention:
+ * 5. Absolute Data Integrity & Type Coercion Prevention:
  *    - Leading Zeros & Code Integrity: Phone numbers (+254..., 07...), reference codes, and KRA PINs
  *      are stored with forced text escape (apostrophe prefix) and '@' number format, preventing
  *      truncation of leading zeros or distortion to scientific notation (e.g., 2.54E+11).
@@ -36,19 +42,19 @@
  *    - Multiline Text & Special Characters: Preserves line breaks in address and service particulars,
  *      escapes formula injection characters (=, +, @, -), and prevents cell splitting across columns.
  *
- * 4. Universal Google Drive PDF Archival Pipeline:
- *    - Fully decodes Base64 PDF documents, receipts, and account statements.
+ * 6. Universal Google Drive PDF Archival Pipeline:
+ *    - Fully decodes Base64 PDF documents (QT-, PI-, INV-), receipts (REC-), and account statements (SOA-).
  *    - Verifies byte size and binary integrity before writing to designated folder.
  *    - Deduplicates identical file names in destination folder by moving older versions to Trash.
  *    - Enforces public view permissions (ANYONE_WITH_LINK, VIEW) and returns persistent webViewLink and driveUrl.
  *
- * 5. Atomic Two-Way Deletion & Tombstone Purge:
+ * 7. Atomic Two-Way Deletion & Tombstone Purge:
  *    - Fully supports CASCADE_DELETE_DOCUMENT, CASCADE_DELETE_CLIENT, CASCADE_DELETE_PAYMENT,
  *      and PURGE_TOMBSTONES actions.
  *    - Synchronously removes rows from Google Sheets, line item breakdowns, and trashes corresponding
  *      PDF archives from Google Drive to maintain zero orphaned files.
  *
- * 6. 15 Automated ERP Tabs:
+ * 8. 15 Automated ERP Tabs:
  *    1. Summary_Dashboard (Executive KPI Cards with Dynamic Column-Letter Formula References)
  *    2. Invoices (Master Invoice Register with Paid & Balance Due)
  *    3. Quotations (Master Quotations Register)
@@ -75,6 +81,8 @@
  * 7. Click "Deploy", authorize permissions, and verify the Web App URL in Hotel Damview App Settings.
  */
 
+var CURRENT_SCRIPT_VERSION = "v6.2.0";
+
 // ============================================================================
 // 1. CANONICAL FIELD DEFINITIONS & ALIASES FOR DYNAMIC HEADER MAPPING
 // ============================================================================
@@ -84,8 +92,11 @@ var CANONICAL_SCHEMAS = {
     { key: "documentNumber", type: "code", aliases: ["invoicenum", "invoice", "invoicenumber", "docnum", "number", "invoiceno", "invoiceno."] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "invoicedate", "billdate", "createddate"] },
     { key: "dueDate", type: "date", aliases: ["duedate", "validuntil", "paymentdue", "expirydate", "paymentduedate"] },
+    { key: "clientId", type: "code", aliases: ["clientid", "customerid", "clientref", "clientuid"] },
     { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "customername", "client", "customer", "companyguestname"] },
     { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin", "clientpin", "vatpin"] },
+    { key: "clientPhone", type: "code", aliases: ["clientphone", "phone", "telephone", "mobile", "phonenumber", "clienttel", "contactphone"] },
+    { key: "clientEmail", type: "text", aliases: ["clientemail", "email", "clientemailaddress", "emailaddress"] },
     { key: "clientAddress", type: "text", aliases: ["clientaddress", "address", "physicalpostaladdress", "physicaladdress", "postaladdress", "location"] },
     { key: "grossSubtotal", type: "currency", aliases: ["grosssubtotalksh", "grosssubtotal", "subtotalgross", "grossamount"] },
     { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount", "totaldiscount"] },
@@ -97,6 +108,8 @@ var CANONICAL_SCHEMAS = {
     { key: "status", type: "text", aliases: ["status", "paymentstatus", "docstatus", "state"] },
     { key: "notes", type: "text", aliases: ["notes", "notesinstructions", "specialnotes", "specialinstructions", "instructions", "remarks", "memo"] },
     { key: "terms", type: "text", aliases: ["terms", "termsconditions", "termsandconditions", "conditions", "paymentterms", "termsandinstructions"] },
+    { key: "relatedDocNumber", type: "code", aliases: ["relateddocnumber", "relateddoc", "originatingdoc", "quotationref", "proformaref", "originatingdocument"] },
+    { key: "relatedDocId", type: "code", aliases: ["relateddocid", "originatingdocid"] },
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "documentlink", "pdflink", "webviewlink", "drivepdfarchive"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
@@ -106,8 +119,11 @@ var CANONICAL_SCHEMAS = {
     { key: "documentNumber", type: "code", aliases: ["quotationnum", "quotation", "quotationnumber", "docnum", "number", "quotationno", "quotationno."] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "quotationdate", "createddate"] },
     { key: "dueDate", type: "date", aliases: ["validuntil", "duedate", "validity", "expirydate", "validtodate"] },
+    { key: "clientId", type: "code", aliases: ["clientid", "customerid", "clientref", "clientuid"] },
     { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "customername", "client", "customer"] },
     { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin", "clientpin"] },
+    { key: "clientPhone", type: "code", aliases: ["clientphone", "phone", "telephone", "mobile", "phonenumber", "clienttel", "contactphone"] },
+    { key: "clientEmail", type: "text", aliases: ["clientemail", "email", "clientemailaddress", "emailaddress"] },
     { key: "clientAddress", type: "text", aliases: ["clientaddress", "address", "physicalpostaladdress", "physicaladdress", "postaladdress", "location"] },
     { key: "grossSubtotal", type: "currency", aliases: ["grosssubtotalksh", "grosssubtotal", "subtotalgross", "grossamount"] },
     { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount", "totaldiscount"] },
@@ -117,6 +133,8 @@ var CANONICAL_SCHEMAS = {
     { key: "status", type: "text", aliases: ["status", "docstatus", "state"] },
     { key: "notes", type: "text", aliases: ["notes", "notesinstructions", "specialnotes", "specialinstructions", "instructions", "remarks", "memo"] },
     { key: "terms", type: "text", aliases: ["terms", "termsconditions", "termsandconditions", "conditions", "paymentterms", "termsandinstructions"] },
+    { key: "relatedDocNumber", type: "code", aliases: ["relateddocnumber", "relateddoc", "originatingdoc", "quotationref", "proformaref", "originatingdocument"] },
+    { key: "relatedDocId", type: "code", aliases: ["relateddocid", "originatingdocid"] },
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink", "webviewlink", "drivepdfarchive"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
@@ -126,8 +144,11 @@ var CANONICAL_SCHEMAS = {
     { key: "documentNumber", type: "code", aliases: ["proformanum", "proforma", "proformanumber", "docnum", "number", "proformano", "proformano."] },
     { key: "issueDate", type: "date", aliases: ["issuedate", "date", "proformadate", "createddate"] },
     { key: "dueDate", type: "date", aliases: ["duedate", "validuntil", "validity", "expirydate", "paymentdue"] },
+    { key: "clientId", type: "code", aliases: ["clientid", "customerid", "clientref", "clientuid"] },
     { key: "clientName", type: "text", aliases: ["clientname", "companyname", "guestname", "customername", "client", "customer"] },
     { key: "clientKraPin", type: "code", aliases: ["krapin", "pin", "taxpin", "clientkrapin", "clientpin"] },
+    { key: "clientPhone", type: "code", aliases: ["clientphone", "phone", "telephone", "mobile", "phonenumber", "clienttel", "contactphone"] },
+    { key: "clientEmail", type: "text", aliases: ["clientemail", "email", "clientemailaddress", "emailaddress"] },
     { key: "clientAddress", type: "text", aliases: ["clientaddress", "address", "physicalpostaladdress", "physicaladdress", "postaladdress", "location"] },
     { key: "grossSubtotal", type: "currency", aliases: ["grosssubtotalksh", "grosssubtotal", "subtotalgross", "grossamount"] },
     { key: "discount", type: "currency", aliases: ["discountksh", "discount", "discountamount", "lessdiscount", "totaldiscount"] },
@@ -137,6 +158,8 @@ var CANONICAL_SCHEMAS = {
     { key: "status", type: "text", aliases: ["status", "docstatus", "state"] },
     { key: "notes", type: "text", aliases: ["notes", "notesinstructions", "specialnotes", "specialinstructions", "instructions", "remarks", "memo"] },
     { key: "terms", type: "text", aliases: ["terms", "termsconditions", "termsandconditions", "conditions", "paymentterms", "termsandinstructions"] },
+    { key: "relatedDocNumber", type: "code", aliases: ["relateddocnumber", "relateddoc", "originatingdoc", "quotationref", "proformaref", "originatingdocument"] },
+    { key: "relatedDocId", type: "code", aliases: ["relateddocid", "originatingdocid"] },
     { key: "driveFileUrl", type: "text", aliases: ["drivepdflink", "drivefileurl", "driveurl", "pdfurl", "drivelink", "pdflink", "webviewlink", "drivepdfarchive"] },
     { key: "driveFileId", type: "code", aliases: ["drivefileid", "fileid", "gdrivefileid"] },
     { key: "updatedAt", type: "datetime", aliases: ["lastupdated", "updatedat", "modifiedat", "timestamp"] },
@@ -257,16 +280,42 @@ var CANONICAL_SCHEMAS = {
 // ============================================================================
 
 function doOptions(e) {
-  return responseJSON({ success: true, status: "OK" });
+  return responseJSON({ success: true, status: "OK", version: CURRENT_SCRIPT_VERSION });
 }
 
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var action = (e && e.parameter && e.parameter.action ? e.parameter.action : "").toString().toUpperCase().trim();
+
+    if (action === "PING" || action === "HEALTHCHECK" || action === "VERSION" || action === "GET_VERSION") {
+      return responseJSON({
+        success: true,
+        version: CURRENT_SCRIPT_VERSION,
+        action: action || "PING",
+        message: "Hotel Damview Google Apps Script Central Backend " + CURRENT_SCRIPT_VERSION + " is active and ready.",
+        sheetName: ss ? ss.getName() : "Spreadsheet",
+        sheetUrl: ss ? ss.getUrl() : "",
+        tabs: ss ? getDiscoveredSheets(ss) : [],
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (action === "GET_SHEET_DATA" || action === "PULL_ALL_DATA") {
+      var fullData = getFullSpreadsheetData(ss);
+      return responseJSON({
+        success: true,
+        version: CURRENT_SCRIPT_VERSION,
+        action: "GET_SHEET_DATA",
+        data: fullData,
+        timestamp: new Date().toISOString()
+      });
+    }
+
     return responseJSON({
       success: true,
-      version: "v5.7.0",
-      message: "Hotel Damview Google Apps Script Central Backend v5.7.0 is active and ready.",
+      version: CURRENT_SCRIPT_VERSION,
+      message: "Hotel Damview Google Apps Script Central Backend " + CURRENT_SCRIPT_VERSION + " is active and ready.",
       sheetName: ss ? ss.getName() : "Spreadsheet",
       sheetUrl: ss ? ss.getUrl() : "",
       timestamp: new Date().toISOString()
@@ -274,8 +323,8 @@ function doGet(e) {
   } catch (err) {
     return responseJSON({
       success: true,
-      version: "v5.7.0",
-      message: "Hotel Damview Google Apps Script Backend v5.7.0 is online.",
+      version: CURRENT_SCRIPT_VERSION,
+      message: "Hotel Damview Google Apps Script Backend " + CURRENT_SCRIPT_VERSION + " is online.",
       error: err.toString(),
       timestamp: new Date().toISOString()
     });
@@ -283,24 +332,39 @@ function doGet(e) {
 }
 
 function doPost(e) {
-  var contents = "";
-  if (e && e.postData && e.postData.contents) {
-    contents = e.postData.contents;
-  } else if (e && e.parameter && (e.parameter.payload || e.parameter.data)) {
-    contents = e.parameter.payload || e.parameter.data;
-  } else {
-    contents = "{}";
+  var payload = {};
+  var rawContents = "";
+
+  if (e && e.parameter && (e.parameter.payload || e.parameter.data)) {
+    rawContents = e.parameter.payload || e.parameter.data;
+  } else if (e && e.postData && e.postData.contents) {
+    rawContents = e.postData.contents;
   }
 
-  var payload;
-  try {
-    payload = JSON.parse(contents);
-  } catch (parseErr) {
-    return responseJSON({
-      success: false,
-      error: "Invalid JSON payload: " + parseErr.message,
-      timestamp: new Date().toISOString()
-    });
+  if (rawContents) {
+    try {
+      payload = JSON.parse(rawContents);
+    } catch (parseErr) {
+      payload = {};
+    }
+  }
+
+  // Merge direct e.parameter fields from multipart/form-data or URL-encoded form submissions
+  if (e && e.parameter) {
+    for (var k in e.parameter) {
+      if (k !== "payload" && k !== "data" && e.parameter[k] !== undefined && e.parameter[k] !== "") {
+        payload[k] = e.parameter[k];
+      }
+    }
+  }
+
+  // Support binary file field parameters from multipart/form-data
+  if (e && e.parameter) {
+    if (e.parameter.pdfBase64 && !payload.pdfBase64) {
+      payload.pdfBase64 = e.parameter.pdfBase64;
+    } else if ((e.parameter.file || e.parameter.pdfFile || e.parameter.pdf) && !payload.pdfBase64) {
+      payload.pdfBase64 = e.parameter.file || e.parameter.pdfFile || e.parameter.pdf;
+    }
   }
 
   var action = (payload.action || payload.type || "").toString().trim();
@@ -329,14 +393,14 @@ function doPost(e) {
   // --------------------------------------------------------------------------
   // 1. HIGH-SPEED READ-ONLY OPERATIONS (Zero Lock Contention)
   // --------------------------------------------------------------------------
-  if (action === "PING" || action === "HEALTHCHECK") {
+  if (action === "PING" || action === "HEALTHCHECK" || action === "GET_VERSION" || action === "VERSION") {
     ensureSheetTabs(ss);
     var sheetList = getDiscoveredSheets(ss);
     return responseJSON({
       success: true,
       action: "PING",
-      version: "v5.7.0",
-      message: "Hotel Damview Google Apps Script Central Backend v5.7.0 is active and connected.",
+      version: CURRENT_SCRIPT_VERSION,
+      message: "Hotel Damview Google Apps Script Central Backend " + CURRENT_SCRIPT_VERSION + " is active and connected.",
       sheetName: ss.getName(),
       sheetUrl: ss.getUrl(),
       tabs: sheetList,
@@ -349,7 +413,7 @@ function doPost(e) {
     return responseJSON({
       success: true,
       action: "GET_SHEET_DATA",
-      version: "v5.7.0",
+      version: CURRENT_SCRIPT_VERSION,
       data: fullData,
       timestamp: new Date().toISOString()
     });
@@ -359,13 +423,54 @@ function doPost(e) {
   // 2. ISOLATED HEAVY PDF INGESTION (Decoupled from Tabular Spreadsheet Locks)
   // --------------------------------------------------------------------------
   var externalPdfArchive = null;
-  if ((action === "ARCHIVE_PDF" || action === "UPLOAD_PDF" || action === "ARCHIVE_STATEMENT_PDF" || action === "ARCHIVE_RECEIPT_PDF") && data.pdfBase64) {
+  var isArchivePdfAction = action === "ARCHIVE_PDF" || 
+                           action === "UPLOAD_PDF" || 
+                           action === "ARCHIVE_DOCUMENT_PDF" || 
+                           action === "ARCHIVE_RECEIPT_PDF" || 
+                           action === "ARCHIVE_PAYMENT_PDF" || 
+                           action === "ARCHIVE_STATEMENT_PDF" ||
+                           action.indexOf("ARCHIVE_") === 0;
+
+  if (isArchivePdfAction && data.pdfBase64) {
     try {
       var targetFolder = data.folderName || "Hotel Damview Archives";
       var fileName = data.fileName || ("Document_" + new Date().toISOString().split("T")[0] + ".pdf");
       externalPdfArchive = archiveGenericPdfToDrive(data.pdfBase64, targetFolder, fileName);
       if (externalPdfArchive && externalPdfArchive.url) {
-        logAudit(ss, "ARCHIVE_PDF", "Archived " + fileName + " (" + externalPdfArchive.byteLength + " bytes)", "SUCCESS", externalPdfArchive.url, externalPdfArchive.fileId);
+        logAudit(ss, action, "Archived " + fileName + " (" + externalPdfArchive.byteLength + " bytes)", "SUCCESS", externalPdfArchive.url, externalPdfArchive.fileId);
+
+        // Update corresponding sheet row if document/payment/statement identifiers are present
+        if (data.document || data.documentNumber) {
+          var targetDoc = data.document || { documentNumber: data.documentNumber };
+          targetDoc.driveFileUrl = externalPdfArchive.url;
+          targetDoc.driveFileId = externalPdfArchive.fileId;
+          try {
+            upsertDocument(ss, targetDoc);
+          } catch(docUpdateErr) {
+            Logger.log("Document row update note: " + docUpdateErr.toString());
+          }
+        }
+        if (data.payment || data.receiptNumber) {
+          var targetPay = data.payment || { receiptNumber: data.receiptNumber };
+          targetPay.driveFileUrl = externalPdfArchive.url;
+          targetPay.driveFileId = externalPdfArchive.fileId;
+          try {
+            recordPayment(ss, targetPay);
+          } catch(payUpdateErr) {
+            Logger.log("Payment row update note: " + payUpdateErr.toString());
+          }
+        }
+        if (data.statement || data.statementNumber) {
+          var targetStmt = data.statement || { statementNumber: data.statementNumber };
+          targetStmt.driveFileUrl = externalPdfArchive.url;
+          targetStmt.driveFileId = externalPdfArchive.fileId;
+          try {
+            upsertStatement(ss, targetStmt);
+          } catch(stmtUpdateErr) {
+            Logger.log("Statement row update note: " + stmtUpdateErr.toString());
+          }
+        }
+
         return responseJSON({
           success: true,
           action: action,
@@ -381,12 +486,12 @@ function doPost(e) {
         throw new Error(externalPdfArchive && externalPdfArchive.error ? externalPdfArchive.error : "Failed to archive PDF to Google Drive");
       }
     } catch (archErr) {
-      logAudit(ss, "ARCHIVE_PDF", "PDF Archiving failed: " + archErr.toString(), "FAILURE", "", "");
+      logAudit(ss, action, "PDF Archiving failed: " + archErr.toString(), "FAILURE", "", "");
       return responseJSON({ success: false, action: action, error: archErr.toString(), timestamp: new Date().toISOString() });
     }
   }
 
-  // Pre-process Google Drive PDF ingestion for document/payment upserts BEFORE locking the sheet
+  // Pre-process Google Drive PDF ingestion for document/payment/statement upserts BEFORE locking the sheet
   if (data.pdfBase64) {
     if (action === "UPSERT_DOCUMENT" && data.document) {
       try {
@@ -408,6 +513,17 @@ function doPost(e) {
       } catch (recPdfErr) {
         Logger.log("Isolated receipt PDF ingestion note: " + recPdfErr.toString());
       }
+    } else if ((action === "UPSERT_STATEMENT" || action === "RECORD_STATEMENT") && (data.statement || data.document)) {
+      try {
+        var stmtTarget = data.statement || data.document;
+        externalPdfArchive = archiveStatementPdfToDrive(stmtTarget, data.pdfBase64, data.folderName, data.fileName);
+        if (externalPdfArchive && externalPdfArchive.url) {
+          stmtTarget.driveFileUrl = externalPdfArchive.url;
+          stmtTarget.driveFileId = externalPdfArchive.fileId || "";
+        }
+      } catch (stmtPdfErr) {
+        Logger.log("Isolated statement PDF ingestion note: " + stmtPdfErr.toString());
+      }
     }
   }
 
@@ -419,7 +535,7 @@ function doPost(e) {
 
   try {
     for (var lockAttempt = 0; lockAttempt < 5; lockAttempt++) {
-      lockAcquired = lock.tryLock(15000);
+      lockAcquired = lock.tryLock(20000);
       if (lockAcquired) break;
       if (lockAttempt < 4) Utilities.sleep(300 + Math.floor(Math.random() * 400));
     }
@@ -2648,26 +2764,77 @@ function purgeTombstoneList(ss, tombstones, folderName) {
 // 12. GOOGLE DRIVE ARCHIVING UTILITIES
 // ============================================================================
 
+function getOrCreateDriveFolder(folderNameOrId) {
+  var target = (folderNameOrId || "").trim();
+  if (!target || target === "Hotel Damview Archives") {
+    var defaultFolders = DriveApp.getFoldersByName("Hotel Damview Archives");
+    return defaultFolders.hasNext() ? defaultFolders.next() : DriveApp.createFolder("Hotel Damview Archives");
+  }
+
+  // 1. Check if target is a Google Drive folder URL (e.g., https://drive.google.com/drive/folders/1abc123...)
+  var urlMatch = target.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (urlMatch && urlMatch[1]) {
+    try {
+      return DriveApp.getFolderById(urlMatch[1]);
+    } catch (e) {
+      Logger.log("Could not open folder by URL ID: " + e.toString());
+    }
+  }
+
+  // 2. Check if target is a raw Folder ID (20+ alphanumeric characters without spaces/slashes)
+  if (/^[a-zA-Z0-9_-]{20,60}$/.test(target) && target.indexOf(" ") === -1 && target.indexOf("/") === -1) {
+    try {
+      return DriveApp.getFolderById(target);
+    } catch (e) {
+      Logger.log("Could not open folder by raw ID: " + e.toString());
+    }
+  }
+
+  // 3. Match folder by Name
+  var folders = DriveApp.getFoldersByName(target);
+  if (folders.hasNext()) {
+    return folders.next();
+  }
+
+  // 4. Create new folder with the name
+  return DriveApp.createFolder(target);
+}
+
+function sanitizeBase64Pdf(rawBase64) {
+  if (!rawBase64) return "";
+  var clean = String(rawBase64).trim();
+  if (clean.indexOf("%") >= 0) {
+    try {
+      clean = decodeURIComponent(clean);
+    } catch (e) {}
+  }
+  var commaIdx = clean.indexOf(",");
+  if (clean.toLowerCase().indexOf("data:") === 0 && commaIdx >= 0) {
+    clean = clean.substring(commaIdx + 1).trim();
+  }
+  // Strip whitespace, tabs, and newlines
+  clean = clean.replace(/\s+/g, "").replace(/[\r\n\t]/g, "");
+  // Support URL-safe base64 (- and _)
+  clean = clean.replace(/-/g, "+").replace(/_/g, "/");
+  while (clean.length % 4 !== 0) {
+    clean += "=";
+  }
+  return clean;
+}
+
 function archivePdfToDrive(doc, pdfBase64, folderName, customFileName) {
   try {
     if (!pdfBase64) return { error: "No PDF base64 provided", status: "VALIDATION_FAILED" };
 
-    var targetFolderName = folderName || "Hotel Damview Archives";
-    var folders = DriveApp.getFoldersByName(targetFolderName);
-    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(targetFolderName);
+    var folder = getOrCreateDriveFolder(folderName);
+    var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
-    var cleanBase64 = String(pdfBase64).trim();
-    var commaIdx = cleanBase64.indexOf(",");
-    if (cleanBase64.indexOf("data:") === 0 && commaIdx >= 0) {
-      cleanBase64 = cleanBase64.substring(commaIdx + 1).trim();
-    }
-
-    if (cleanBase64.length < 500) {
-      return { error: "Corrupt or truncated base64 PDF stream (length < 500)", status: "VALIDATION_FAILED" };
+    if (cleanBase64.length < 50) {
+      return { error: "Corrupt or truncated base64 PDF stream", status: "VALIDATION_FAILED" };
     }
 
     var decodedBytes = Utilities.base64Decode(cleanBase64);
-    if (!decodedBytes || decodedBytes.length < 1000) {
+    if (!decodedBytes || decodedBytes.length < 50) {
       return { error: "Corrupted PDF binary: decoded byte length is undersized (" + (decodedBytes ? decodedBytes.length : 0) + " bytes)", status: "VALIDATION_FAILED" };
     }
 
@@ -2698,13 +2865,16 @@ function archivePdfToDrive(doc, pdfBase64, folderName, customFileName) {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (shareErr) {}
 
+    var fileUrl = file.getUrl();
+    var fileId = file.getId();
+
     return {
       success: true,
-      fileId: file.getId(),
-      url: file.getUrl(),
-      webViewLink: file.getUrl(),
-      driveUrl: file.getUrl(),
-      driveFileId: file.getId(),
+      fileId: fileId,
+      url: fileUrl,
+      webViewLink: fileUrl,
+      driveUrl: fileUrl,
+      driveFileId: fileId,
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,
@@ -2720,22 +2890,15 @@ function archiveReceiptPdfToDrive(payment, pdfBase64, folderName, customFileName
   try {
     if (!pdfBase64) return { error: "No PDF base64 provided", status: "VALIDATION_FAILED" };
 
-    var targetFolderName = folderName || "Hotel Damview Archives";
-    var folders = DriveApp.getFoldersByName(targetFolderName);
-    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(targetFolderName);
+    var folder = getOrCreateDriveFolder(folderName);
+    var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
-    var cleanBase64 = String(pdfBase64).trim();
-    var commaIdx = cleanBase64.indexOf(",");
-    if (cleanBase64.indexOf("data:") === 0 && commaIdx >= 0) {
-      cleanBase64 = cleanBase64.substring(commaIdx + 1).trim();
-    }
-
-    if (cleanBase64.length < 500) {
+    if (cleanBase64.length < 50) {
       return { error: "Corrupt or truncated base64 Receipt PDF stream", status: "VALIDATION_FAILED" };
     }
 
     var decodedBytes = Utilities.base64Decode(cleanBase64);
-    if (!decodedBytes || decodedBytes.length < 1000) {
+    if (!decodedBytes || decodedBytes.length < 50) {
       return { error: "Corrupted Receipt PDF binary: decoded byte length is undersized", status: "VALIDATION_FAILED" };
     }
 
@@ -2766,13 +2929,16 @@ function archiveReceiptPdfToDrive(payment, pdfBase64, folderName, customFileName
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (shareErr) {}
 
+    var fileUrl = file.getUrl();
+    var fileId = file.getId();
+
     return {
       success: true,
-      fileId: file.getId(),
-      url: file.getUrl(),
-      webViewLink: file.getUrl(),
-      driveUrl: file.getUrl(),
-      driveFileId: file.getId(),
+      fileId: fileId,
+      url: fileUrl,
+      webViewLink: fileUrl,
+      driveUrl: fileUrl,
+      driveFileId: fileId,
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,
@@ -2784,26 +2950,83 @@ function archiveReceiptPdfToDrive(payment, pdfBase64, folderName, customFileName
   }
 }
 
+function archiveStatementPdfToDrive(statement, pdfBase64, folderName, customFileName) {
+  try {
+    if (!pdfBase64) return { error: "No PDF base64 provided", status: "VALIDATION_FAILED" };
+
+    var folder = getOrCreateDriveFolder(folderName);
+    var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
+
+    if (cleanBase64.length < 50) {
+      return { error: "Corrupt or truncated base64 Statement PDF stream", status: "VALIDATION_FAILED" };
+    }
+
+    var decodedBytes = Utilities.base64Decode(cleanBase64);
+    if (!decodedBytes || decodedBytes.length < 50) {
+      return { error: "Corrupted Statement PDF binary: decoded byte length is undersized", status: "VALIDATION_FAILED" };
+    }
+
+    var fileName = customFileName;
+    if (!fileName) {
+      var sanitizedClient = (statement.clientName || "Client").replace(/[^a-zA-Z0-9]/g, "_");
+      var stmtNum = (statement.statementNumber || "SOA").replace(/[^a-zA-Z0-9_\\-]/g, "");
+      fileName = stmtNum + "_" + sanitizedClient + "_" + (statement.issueDate || statement.endDate || new Date().toISOString().split("T")[0]) + ".pdf";
+    }
+
+    var blob = Utilities.newBlob(decodedBytes, "application/pdf", fileName);
+
+    var existingFiles = folder.getFilesByName(fileName);
+    var trashedCount = 0;
+    while (existingFiles.hasNext()) {
+      var oldFile = existingFiles.next();
+      try {
+        oldFile.setTrashed(true);
+        trashedCount++;
+      } catch (trashErr) {
+        Logger.log("Could not trash duplicate statement file: " + trashErr.toString());
+      }
+    }
+
+    var file = folder.createFile(blob);
+
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareErr) {}
+
+    var fileUrl = file.getUrl();
+    var fileId = file.getId();
+
+    return {
+      success: true,
+      fileId: fileId,
+      url: fileUrl,
+      webViewLink: fileUrl,
+      driveUrl: fileUrl,
+      driveFileId: fileId,
+      fileName: fileName,
+      byteLength: decodedBytes.length,
+      deduplicatedCount: trashedCount,
+      status: "ARCHIVED"
+    };
+  } catch (err) {
+    Logger.log("archiveStatementPdfToDrive error: " + err.toString());
+    return { error: err.toString(), status: "FAILED" };
+  }
+}
+
 function archiveGenericPdfToDrive(pdfBase64, folderName, customFileName) {
   try {
     if (!pdfBase64) return { error: "No PDF base64 provided", status: "VALIDATION_FAILED" };
 
-    var targetFolderName = folderName || "Hotel Damview Archives";
-    var folders = DriveApp.getFoldersByName(targetFolderName);
-    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(targetFolderName);
+    var folder = getOrCreateDriveFolder(folderName);
+    var cleanBase64 = sanitizeBase64Pdf(pdfBase64);
 
-    var cleanBase64 = String(pdfBase64).trim();
-    var commaIdx = cleanBase64.indexOf(",");
-    if (cleanBase64.indexOf("data:") === 0 && commaIdx >= 0) {
-      cleanBase64 = cleanBase64.substring(commaIdx + 1).trim();
-    }
-
-    if (cleanBase64.length < 500) {
-      return { error: "Corrupt or truncated base64 PDF stream (length < 500)", status: "VALIDATION_FAILED" };
+    if (cleanBase64.length < 50) {
+      return { error: "Corrupt or truncated base64 PDF stream (length < 50)", status: "VALIDATION_FAILED" };
     }
 
     var decodedBytes = Utilities.base64Decode(cleanBase64);
-    if (!decodedBytes || decodedBytes.length < 1000) {
+    if (!decodedBytes || decodedBytes.length < 50) {
       return { error: "Corrupted PDF binary: decoded byte length is undersized (" + (decodedBytes ? decodedBytes.length : 0) + " bytes)", status: "VALIDATION_FAILED" };
     }
 
@@ -2828,11 +3051,16 @@ function archiveGenericPdfToDrive(pdfBase64, folderName, customFileName) {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (shareErr) {}
 
+    var fileUrl = file.getUrl();
+    var fileId = file.getId();
+
     return {
       success: true,
-      fileId: file.getId(),
-      url: file.getUrl(),
-      webViewLink: file.getUrl(),
+      fileId: fileId,
+      url: fileUrl,
+      webViewLink: fileUrl,
+      driveUrl: fileUrl,
+      driveFileId: fileId,
       fileName: fileName,
       byteLength: decodedBytes.length,
       deduplicatedCount: trashedCount,

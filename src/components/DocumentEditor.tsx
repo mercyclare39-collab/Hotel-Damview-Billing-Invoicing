@@ -277,6 +277,182 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
+  // Find matching client from registered clients registry by ID, exact name, KRA PIN, phone, or email
+  const findMatchingClient = useCallback(
+    (id?: string, name?: string, kraPin?: string, phone?: string, email?: string): Client | undefined => {
+      if (!clients || clients.length === 0) return undefined;
+      // 1. Match by ID
+      if (id) {
+        const found = clients.find((c) => c.id === id);
+        if (found) return found;
+      }
+      // 2. Match by KRA PIN (high confidence)
+      if (kraPin && kraPin.trim()) {
+        const cleanPin = kraPin.trim().toUpperCase();
+        if (cleanPin.length >= 8) {
+          const found = clients.find((c) => c.kraPin && c.kraPin.trim().toUpperCase() === cleanPin);
+          if (found) return found;
+        }
+      }
+      // 3. Match by Phone Number (last 9 digits - high confidence)
+      if (phone && phone.trim()) {
+        const cleanPhone = phone.replace(/[^0-9]/g, '');
+        if (cleanPhone.length >= 9) {
+          const found = clients.find(
+            (c) => c.phone && c.phone.replace(/[^0-9]/g, '').slice(-9) === cleanPhone.slice(-9)
+          );
+          if (found) return found;
+        }
+      }
+      // 4. Match by Email (high confidence)
+      if (email && email.trim()) {
+        const cleanEmail = email.trim().toLowerCase();
+        const found = clients.find((c) => c.email && c.email.trim().toLowerCase() === cleanEmail);
+        if (found) return found;
+      }
+      // 5. Match by Exact Name or Contact Person (trimmed, case-insensitive)
+      if (name && name.trim()) {
+        const trimmedName = name.trim().toLowerCase();
+        const found = clients.find(
+          (c) =>
+            c.name.trim().toLowerCase() === trimmedName ||
+            (c.contactPerson && c.contactPerson.trim().toLowerCase() === trimmedName)
+        );
+        if (found) return found;
+
+        // 6. Normalized Name match (stripping corporation, ltd, plc, punctuation)
+        const normalizeOrgName = (s: string) =>
+          s.toLowerCase().replace(/\b(ltd|limited|plc|co|inc|corporation|group|hotel|lodge|camp)\b/g, '').replace(/[^a-z0-9]/g, '');
+        const normTarget = normalizeOrgName(name);
+        if (normTarget.length >= 4) {
+          const normFound = clients.find((c) => {
+            const normC = normalizeOrgName(c.name);
+            return normC === normTarget || (normC.length >= 4 && (normC.includes(normTarget) || normTarget.includes(normC)));
+          });
+          if (normFound) return normFound;
+        }
+      }
+      return undefined;
+    },
+    [clients]
+  );
+
+  // Automatically synchronize select client dropdown and populate credentials when data propagates or clients load
+  useEffect(() => {
+    if (!clients || clients.length === 0) return;
+
+    // Check if the current client credentials match a registered client
+    const targetId = selectedClientId || initialDocument?.clientId;
+    const targetName = clientName || initialDocument?.clientName;
+    const targetPin = clientKraPin || initialDocument?.clientKraPin;
+    const targetPhone = clientPhone || initialDocument?.clientPhone;
+    const targetEmail = clientEmail || initialDocument?.clientEmail;
+
+    if (!targetId && !targetName && !targetPin && !targetPhone && !targetEmail) return;
+
+    const matched = findMatchingClient(targetId, targetName, targetPin, targetPhone, targetEmail);
+
+    if (matched) {
+      if (selectedClientId !== matched.id) {
+        setSelectedClientId(matched.id);
+      }
+      if (
+        clientName !== matched.name ||
+        clientKraPin !== (matched.kraPin || '') ||
+        clientAddress !== (matched.address || '') ||
+        clientPhone !== (matched.phone || '') ||
+        clientEmail !== (matched.email || '')
+      ) {
+        setClientName(matched.name);
+        setClientKraPin(matched.kraPin || '');
+        setClientAddress(matched.address || '');
+        setClientPhone(matched.phone || '');
+        setClientEmail(matched.email || '');
+        setIsClientLocked(true);
+      }
+    } else if (targetName && targetName.trim()) {
+      // If unregistered client credentials propagated, ensure selectedClientId is set to a dedicated client identifier
+      const isCurrentIdInClients = clients.some((c) => c.id === selectedClientId);
+      if (!selectedClientId || isCurrentIdInClients) {
+        const propId = initialDocument?.clientId || `prop-client-${encodeURIComponent(targetName.trim().slice(0, 20))}`;
+        setSelectedClientId(propId);
+      }
+    }
+  }, [
+    clients,
+    initialDocument,
+    clientName,
+    clientKraPin,
+    clientPhone,
+    clientEmail,
+    findMatchingClient,
+  ]);
+
+  // Synchronize document editor when initialDocument prop changes
+  useEffect(() => {
+    if (!initialDocument) return;
+
+    setDocType(initialDocument.documentType);
+    setNumberSuffix(parseInitialSuffix(initialDocument.documentNumber, initialDocument.documentType));
+
+    // Resolve matching client from propagated document credentials
+    const matched = findMatchingClient(
+      initialDocument.clientId,
+      initialDocument.clientName,
+      initialDocument.clientKraPin,
+      initialDocument.clientPhone,
+      initialDocument.clientEmail
+    );
+
+    if (matched) {
+      setSelectedClientId(matched.id);
+      setClientName(matched.name);
+      setClientKraPin(matched.kraPin || '');
+      setClientAddress(matched.address || '');
+      setClientPhone(matched.phone || '');
+      setClientEmail(matched.email || '');
+      setIsClientLocked(true);
+    } else {
+      const fallbackId = initialDocument.clientId || (initialDocument.clientName ? `prop-client-${initialDocument.id || Date.now()}` : '');
+      setSelectedClientId(fallbackId);
+      setClientName(initialDocument.clientName || '');
+      setClientKraPin(initialDocument.clientKraPin || '');
+      setClientAddress(initialDocument.clientAddress || '');
+      setClientPhone(initialDocument.clientPhone || '');
+      setClientEmail(initialDocument.clientEmail || '');
+      setIsClientLocked(!!fallbackId);
+    }
+
+    setIssueDate(initialDocument.issueDate || formatDate());
+    setValidityDays(initialDocument.validityDays || 14);
+    setDueDate(initialDocument.dueDate || calculateDueDate(initialDocument.issueDate || formatDate(), 14));
+    setStatus(initialDocument.status || 'Draft');
+    setNotes(initialDocument.notes || '');
+    setTerms(initialDocument.terms || '');
+    setDiscount(initialDocument.discount || 0);
+    setRelatedDocNumber(initialDocument.relatedDocNumber || '');
+    setRelatedDocId(initialDocument.relatedDocId || '');
+
+    if (initialDocument.lineItems && initialDocument.lineItems.length > 0) {
+      setLineItems([
+        ...initialDocument.lineItems,
+        ...(initialDocument.lineItems[initialDocument.lineItems.length - 1].particulars?.trim()
+          ? [
+              {
+                id: 'li-new-' + Date.now(),
+                particulars: '',
+                quantity: 1,
+                days: 1,
+                rate: 0,
+                discount: 0,
+                amount: 0,
+              },
+            ]
+          : []),
+      ]);
+    }
+  }, [initialDocument, findMatchingClient]);
+
   // Auto-sync draft document state to prevent data loss across refreshes and app updates
   useEffect(() => {
     if (typeof window === 'undefined' || !window.localStorage) return;
@@ -578,6 +754,37 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
     setDueDate(calculateDueDate(newDate, validityDays));
   };
 
+  // Determine if active client is registered or a propagated credential
+  const isRegisteredClientSelected = useMemo(() => {
+    return Boolean(selectedClientId && clients.some((c) => c.id === selectedClientId));
+  }, [selectedClientId, clients]);
+
+  const hasPropagatedClientCredentials = useMemo(() => {
+    return Boolean(clientName && clientName.trim().length > 0 && !isRegisteredClientSelected);
+  }, [clientName, isRegisteredClientSelected]);
+
+  const propagatedClientId = useMemo(() => {
+    if (selectedClientId && !isRegisteredClientSelected) return selectedClientId;
+    if (initialDocument?.clientId) return initialDocument.clientId;
+    if (clientName && clientName.trim()) {
+      return `prop-client-${encodeURIComponent(clientName.trim().toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30))}`;
+    }
+    return 'propagated-client';
+  }, [selectedClientId, isRegisteredClientSelected, initialDocument?.clientId, clientName]);
+
+  const effectiveSelectedClientId = useMemo(() => {
+    if (selectedClientId) return selectedClientId;
+    if (hasPropagatedClientCredentials) return propagatedClientId;
+    return '';
+  }, [selectedClientId, hasPropagatedClientCredentials, propagatedClientId]);
+
+  // Keep selectedClientId in sync with effectiveSelectedClientId when propagated credentials appear
+  useEffect(() => {
+    if (hasPropagatedClientCredentials && !selectedClientId) {
+      setSelectedClientId(propagatedClientId);
+    }
+  }, [hasPropagatedClientCredentials, selectedClientId, propagatedClientId]);
+
   // Client Selection Handler
   const handleClientSelect = (clientId: string) => {
     setSelectedClientId(clientId);
@@ -589,8 +796,58 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       setClientPhone(client.phone || '');
       setClientEmail(client.email || '');
       setIsClientLocked(true);
+    } else if (
+      clientId &&
+      (clientId === initialDocument?.clientId ||
+        clientId === propagatedClientId ||
+        clientId.startsWith('prop-client-') ||
+        clientId === 'propagated-client')
+    ) {
+      // Re-selected the propagated client option
+      if (initialDocument) {
+        setClientName(initialDocument.clientName || clientName || '');
+        setClientKraPin(initialDocument.clientKraPin || clientKraPin || '');
+        setClientAddress(initialDocument.clientAddress || clientAddress || '');
+        setClientPhone(initialDocument.clientPhone || clientPhone || '');
+        setClientEmail(initialDocument.clientEmail || clientEmail || '');
+      }
+      setIsClientLocked(true);
     } else {
+      setSelectedClientId('');
+      setClientName('');
+      setClientKraPin('');
+      setClientAddress('');
+      setClientPhone('');
+      setClientEmail('');
       setIsClientLocked(false);
+    }
+  };
+
+  const handleSavePropagatedClientToDirectory = async () => {
+    if (!clientName.trim()) return;
+    const newClient: Client = {
+      id: selectedClientId && selectedClientId.startsWith('cli-') && !selectedClientId.startsWith('prop-client-')
+        ? selectedClientId
+        : 'cli-' + Date.now(),
+      name: clientName.trim(),
+      kraPin: clientKraPin.trim(),
+      address: clientAddress.trim(),
+      phone: clientPhone.trim(),
+      email: clientEmail.trim(),
+      contactPerson: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    try {
+      await dbService.saveClient(newClient);
+      syncManager.triggerImmediatePush();
+      setSelectedClientId(newClient.id);
+      setIsClientLocked(true);
+      if (onAddNewClient) {
+        // Notify parent if needed
+      }
+    } catch (err) {
+      console.warn('Could not save propagated client to directory:', err);
     }
   };
 
@@ -1355,6 +1612,27 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         setRelatedDocNumber(saved.documentNumber);
         setRelatedDocId(saved.id);
         setStatus('Draft');
+
+        // Automatically resolve client credential on inline conversion
+        const matched = findMatchingClient(saved.clientId, saved.clientName, saved.clientKraPin, saved.clientPhone, saved.clientEmail);
+        if (matched) {
+          setSelectedClientId(matched.id);
+          setClientName(matched.name);
+          setClientKraPin(matched.kraPin || '');
+          setClientAddress(matched.address || '');
+          setClientPhone(matched.phone || '');
+          setClientEmail(matched.email || '');
+          setIsClientLocked(true);
+        } else {
+          const propId = saved.clientId || ('prop-client-' + saved.id);
+          setSelectedClientId(propId);
+          setClientName(saved.clientName || '');
+          setClientKraPin(saved.clientKraPin || '');
+          setClientAddress(saved.clientAddress || '');
+          setClientPhone(saved.clientPhone || '');
+          setClientEmail(saved.clientEmail || '');
+          setIsClientLocked(true);
+        }
       });
     }
   };
@@ -1787,7 +2065,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                {(selectedClientId || clientName) && (
+                {isRegisteredClientSelected && (
                   <button
                     type="button"
                     onClick={handleOpenEditClientModal}
@@ -1796,6 +2074,17 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   >
                     <Edit3 className="w-3 h-3 text-amber-600" />
                     <span>Edit Selected Client</span>
+                  </button>
+                )}
+                {hasPropagatedClientCredentials && (
+                  <button
+                    type="button"
+                    onClick={handleSavePropagatedClientToDirectory}
+                    className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded transition-colors shadow-2xs cursor-pointer"
+                    title="Permanently save this propagated client into the local client directory and sync to cloud"
+                  >
+                    <CheckCircle2 className="w-3 h-3 text-white" />
+                    <span>Save to Client Directory</span>
                   </button>
                 )}
                 <button
@@ -1812,13 +2101,27 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
               <div className="md:col-span-2">
-                <label className="block text-slate-700 font-semibold mb-1">Select Client</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-700 font-semibold">Select Client</label>
+                  {hasPropagatedClientCredentials && (
+                    <span className="text-[10px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-semibold flex items-center gap-1 shadow-2xs">
+                      <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                      Auto-Selected from Propagated Data
+                    </span>
+                  )}
+                </div>
                 <select
-                  value={selectedClientId}
+                  value={effectiveSelectedClientId}
                   onChange={(e) => handleClientSelect(e.target.value)}
                   className="w-full border border-slate-300 rounded px-2.5 py-1.5 bg-white text-slate-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
                 >
                   <option value="">-- Choose registered corporate client or walk-in guest --</option>
+                  {/* Dynamic Propagated Client Credential Option */}
+                  {hasPropagatedClientCredentials && (
+                    <option value={propagatedClientId}>
+                      📋 {clientName} {clientKraPin ? `(PIN: ${clientKraPin})` : ''} {clientPhone ? `• ${clientPhone}` : ''} [Propagated Client Credential]
+                    </option>
+                  )}
                   {clients.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} {c.kraPin ? `(PIN: ${c.kraPin})` : ''} {c.phone ? `• ${c.phone}` : ''}
