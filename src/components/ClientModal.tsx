@@ -47,19 +47,62 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       setEmail(client.email || '');
       setAddress(client.address || '');
     } else {
-      setName('');
-      setContactPerson('');
-      setKraPin('');
-      setPhone('');
-      setEmail('');
-      setAddress('');
+      // Check for saved draft when creating new client
+      let restored = false;
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          const draft = localStorage.getItem('damview_client_draft');
+          if (draft) {
+            const d = JSON.parse(draft);
+            setName(d.name || '');
+            setContactPerson(d.contactPerson || '');
+            setKraPin(d.kraPin || '');
+            setPhone(d.phone || '');
+            setEmail(d.email || '');
+            setAddress(d.address || '');
+            restored = true;
+          }
+        } catch {}
+      }
+      if (!restored) {
+        setName('');
+        setContactPerson('');
+        setKraPin('');
+        setPhone('');
+        setEmail('');
+        setAddress('');
+      }
     }
     setValidationError(null);
   }, [client, isOpen]);
 
+  // Persist draft while creating new client
+  useEffect(() => {
+    if (!isOpen || client) return;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        if (name.trim() || contactPerson.trim() || kraPin.trim() || phone.trim() || email.trim() || address.trim()) {
+          localStorage.setItem(
+            'damview_client_draft',
+            JSON.stringify({ name, contactPerson, kraPin, phone, email, address })
+          );
+        } else {
+          localStorage.removeItem('damview_client_draft');
+        }
+      } catch {}
+    }
+  }, [name, contactPerson, kraPin, phone, email, address, isOpen, client]);
+
   if (!isOpen) return null;
 
   const kraValidation = validateKraPin(kraPin);
+
+  const handleClose = () => {
+    try {
+      localStorage.removeItem('damview_client_draft');
+    } catch {}
+    onClose();
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,6 +126,9 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       updatedAt: new Date().toISOString(),
     };
 
+    try {
+      localStorage.removeItem('damview_client_draft');
+    } catch {}
     onSaveClient(clientToSave);
     onClose();
   };
@@ -90,7 +136,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="w-full max-w-lg bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden"
@@ -118,7 +164,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
           >
             <X className="w-4 h-4" />
@@ -246,7 +292,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-3.5 py-2 border border-slate-300 rounded-md text-slate-700 font-semibold hover:bg-slate-100 transition-colors"
               >
                 Cancel

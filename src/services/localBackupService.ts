@@ -1,15 +1,13 @@
 /**
- * Hotel Damview Local Machine Filesystem Backup Service
+ * Local Machine Filesystem Backup Service
  * 
- * Provides persistent local filesystem archiving targeted at the designated directory:
- * "C:\Users\mercy\OneDrive\Documents\Mikma & Hotel Damview\Hotel Damview_Template Files\Hotel Damview_Documents Templates\Hotel Damview_Archives"
+ * Provides persistent local filesystem archiving targeted at the user's designated directory.
  * 
  * Uses the modern File System Access API (window.showDirectoryPicker) with IndexedDB
  * handle persistence, automatic silent writes, pre-flight validation, and robust fallback.
  */
 
-export const DEFAULT_DESIGNATED_ARCHIVE_PATH =
-  'C:\\Users\\mercy\\OneDrive\\Documents\\Mikma & Hotel Damview\\Hotel Damview_Template Files\\Hotel Damview_Documents Templates\\Hotel Damview_Archives';
+export const DEFAULT_DESIGNATED_ARCHIVE_PATH = '';
 
 const FS_DB_NAME = 'HotelDamview_LocalFS_DB';
 const FS_STORE_NAME = 'fs_handles';
@@ -66,10 +64,20 @@ class LocalBackupService {
 
   /**
    * Get the designated target filesystem path string (for UI display and reference).
+   * Leaves blank by default on fresh initialization to protect privacy.
    */
   getTargetDirectoryPath(): string {
-    if (typeof window === 'undefined') return DEFAULT_DESIGNATED_ARCHIVE_PATH;
-    return localStorage.getItem(TARGET_PATH_KEY) || DEFAULT_DESIGNATED_ARCHIVE_PATH;
+    if (typeof window === 'undefined') return '';
+    try {
+      const saved = localStorage.getItem(TARGET_PATH_KEY);
+      if (saved && (saved.toLowerCase().includes('mercy') || saved.toLowerCase().includes('mikma') || saved.toLowerCase().includes('hotel damview_archives'))) {
+        localStorage.removeItem(TARGET_PATH_KEY);
+        return '';
+      }
+      return saved || '';
+    } catch {
+      return '';
+    }
   }
 
   /**

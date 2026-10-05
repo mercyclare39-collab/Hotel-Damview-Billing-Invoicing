@@ -263,10 +263,34 @@ export const ClientsManager: React.FC<ClientsManagerProps> = ({
                     </td>
                   </tr>
                 ))
+              ) : clients.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-14 text-center">
+                    <div className="flex flex-col items-center justify-center max-w-md mx-auto text-center px-4">
+                      <div className="w-12 h-12 rounded-full bg-stone-100 flex items-center justify-center text-stone-400 mb-3 border border-stone-200">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <h4 className="text-sm font-bold text-stone-800 mb-1">
+                        No Client Records Found
+                      </h4>
+                      <p className="text-xs text-stone-500 leading-relaxed mb-4">
+                        New applications initialize clean with zero default dummy clients. Once connected to your Google Sheet, client profiles specific to your business will automatically synchronize here in real time.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={openCreateModal}
+                        className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Register First Client Profile</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               ) : (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-stone-400 italic">
-                    No clients match your search query.
+                    No clients match your search query "{searchQuery}".
                   </td>
                 </tr>
               )}

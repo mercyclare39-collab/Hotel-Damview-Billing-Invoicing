@@ -332,36 +332,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return (
       <div className="flex flex-col h-full bg-stone-900 text-stone-100 select-none border-r border-stone-800">
         {/* 1. Header: Branding & Crest */}
-        <div className="p-3.5 border-b border-stone-800 flex items-center justify-between">
+        <div className="p-3 border-b border-stone-800 flex items-center justify-between">
           <div
             onClick={() => handleNavClick('dashboard')}
-            className="flex items-center gap-3 cursor-pointer overflow-hidden min-w-0 flex-1"
-            title="Hotel Damview ERP"
+            className="flex items-center gap-2.5 cursor-pointer overflow-hidden min-w-0 flex-1"
+            title={profile.name || 'HOTEL ERP'}
           >
             <div className="shrink-0 flex flex-col items-center justify-center">
-              <HotelLogo logoBase64={profile.logoBase64} size={effectiveCollapsed ? 34 : 42} />
+              <HotelLogo logoBase64={profile.logoBase64} size={effectiveCollapsed ? 28 : 36} hotelName={profile.name} />
               {effectiveCollapsed && (
-                <span className="text-[9.5px] font-bold text-amber-400 uppercase tracking-widest mt-1 text-center font-serif truncate max-w-full">
-                  DAMVIEW
+                <span className="text-[9px] font-bold text-amber-400 uppercase tracking-widest mt-1 text-center font-serif truncate max-w-full">
+                  {profile.name ? profile.name.slice(0, 8) : 'ERP'}
                 </span>
               )}
             </div>
             {!effectiveCollapsed && (
               <div className="min-w-0 transition-opacity duration-200 pl-0.5">
                 <div
-                  className="font-bold text-base tracking-wider uppercase text-amber-400 font-serif leading-tight truncate"
-                  title={profile.name || 'HOTEL DAMVIEW'}
+                  className="font-bold text-sm tracking-wider uppercase text-amber-400 font-serif leading-tight truncate"
+                  title={profile.name || 'HOTEL ERP'}
                 >
-                  {profile.name || 'HOTEL DAMVIEW'}
+                  {profile.name || 'HOTEL ERP'}
                 </div>
-                <div
-                  className="text-xs text-stone-300 tracking-wide truncate font-medium mt-0.5"
-                  title={`${profile.physicalLocation || ''} • ${profile.postalAddress || ''}`}
-                >
-                  {profile.physicalLocation || profile.postalAddress || profile.tagline || 'Machakos, Kenya'}
-                </div>
+                {(profile.physicalLocation || profile.postalAddress || profile.tagline) && (
+                  <div
+                    className="text-[11px] text-stone-300 tracking-wide truncate font-medium mt-0.5"
+                    title={`${profile.physicalLocation || ''} • ${profile.postalAddress || ''}`}
+                  >
+                    {profile.physicalLocation || profile.postalAddress || profile.tagline}
+                  </div>
+                )}
                 {profile.kraPin && (
-                  <div className="text-[10px] font-mono text-stone-400 truncate mt-0.5 font-semibold">
+                  <div className="text-[9.5px] font-mono text-stone-400 truncate mt-0.5 font-semibold">
                     PIN: {profile.kraPin}
                   </div>
                 )}
@@ -405,23 +407,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* 2. Search / Quick Command Palette Launcher */}
         {onOpenSearch && (
-          <div className="px-3 pt-3 pb-1">
+          <div className="px-2.5 pt-2.5 pb-1">
             <button
               type="button"
               onClick={onOpenSearch}
-              className={`w-full flex items-center justify-between gap-2 px-3 py-2 bg-stone-950/80 hover:bg-stone-800 border border-stone-700/80 rounded-lg text-xs text-stone-300 hover:text-white transition-colors cursor-pointer shadow-xs ${
-                effectiveCollapsed ? 'flex-col items-center justify-center text-center p-2' : ''
+              className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 bg-stone-950/80 hover:bg-stone-800 border border-stone-700/80 rounded-lg text-xs text-stone-300 hover:text-white transition-colors cursor-pointer shadow-xs ${
+                effectiveCollapsed ? 'flex-col items-center justify-center text-center p-1.5' : ''
               }`}
               title="Search documents, clients, receipts (Cmd+K)"
             >
-              <div className={`flex items-center gap-2.5 min-w-0 ${effectiveCollapsed ? 'flex-col items-center gap-0.5' : ''}`}>
-                <Search className="w-4 h-4 text-amber-400 shrink-0" />
-                <span className={effectiveCollapsed ? 'text-[9.5px] font-semibold text-stone-200' : 'text-[12.5px] font-medium text-stone-200'}>
-                  {effectiveCollapsed ? 'Search' : 'Quick Search (Cmd+K)...'}
+              <div className={`flex items-center gap-2 min-w-0 ${effectiveCollapsed ? 'flex-col items-center gap-0.5' : ''}`}>
+                <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className={effectiveCollapsed ? 'text-[9px] font-semibold text-stone-200' : 'text-[12px] font-medium text-stone-200'}>
+                  {effectiveCollapsed ? 'Search' : 'Quick Search...'}
                 </span>
               </div>
               {!effectiveCollapsed && (
-                <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-stone-300 bg-stone-800 rounded border border-stone-700 font-bold">
+                <kbd className="hidden sm:inline-block px-1.5 py-0.2 text-[9.5px] font-mono text-stone-300 bg-stone-800 rounded border border-stone-700 font-bold">
                   ⌘K
                 </kbd>
               )}
@@ -430,11 +432,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {/* 3. Connection Status & Sync Pill */}
-        <div className={`px-3 py-2 border-b border-stone-800/60 bg-stone-950/40 ${effectiveCollapsed ? 'text-center' : ''}`}>
+        <div className={`px-2.5 py-1.5 border-b border-stone-800/60 bg-stone-950/40 ${effectiveCollapsed ? 'text-center' : ''}`}>
           {!effectiveCollapsed ? (
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-1.5">
               <div
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
                   isOnline
                     ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/80'
                     : 'bg-rose-950/80 text-rose-300 border-rose-700/80'
@@ -442,11 +444,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title={isOnline ? 'Online: Automated Cloud sync active' : 'Offline: Local IndexedDB persistence active'}
               >
                 <span
-                  className={`w-2 h-2 rounded-full ${
+                  className={`w-1.5 h-1.5 rounded-full ${
                     isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
                   }`}
                 />
-                <span>{isOnline ? 'Online Sync' : 'Offline Mode'}</span>
+                <span>{isOnline ? 'Online' : 'Offline'}</span>
               </div>
 
               {/* Quick sync trigger button */}
@@ -459,20 +461,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ? `${pendingSyncCount} item(s) pending sync to Google Workspace. Click to sync now.`
                     : 'All records synced with Google Workspace. Click to refresh.'
                 }
-                className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded border transition-colors ${
+                className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded border transition-colors ${
                   pendingSyncCount > 0
                     ? 'bg-amber-950/90 text-amber-300 border-amber-600 hover:bg-amber-900'
                     : 'text-stone-300 border-stone-700 hover:text-white hover:bg-stone-800'
                 }`}
               >
-                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
+                <RefreshCw className={`w-2.5 h-2.5 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
                 <span>{pendingSyncCount > 0 ? `${pendingSyncCount} queued` : 'Synced'}</span>
               </button>
             </div>
           ) : (
             <div className="flex justify-center" title={isOnline ? 'Online' : 'Offline'}>
               <span
-                className={`w-2.5 h-2.5 rounded-full ${
+                className={`w-2 h-2 rounded-full ${
                   isOnline ? 'bg-emerald-400' : 'bg-rose-500'
                 }`}
               />
@@ -481,35 +483,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* 4. Categorized Navigation Links - Highly visible titles and labels */}
-        <nav className="flex-1 px-2.5 py-3 space-y-4 overflow-y-auto custom-scrollbar">
+        <nav className="flex-1 px-2 py-2.5 space-y-3 overflow-y-auto custom-scrollbar">
           {navCategories.map((category) => (
-            <div key={category.title} className="space-y-1">
+            <div key={category.title} className="space-y-0.5">
               {/* Category / Menu Section Header */}
               {!effectiveCollapsed ? (
                 <div
-                  className="px-3 pt-3.5 pb-1.5 flex items-center justify-between border-b border-stone-800/80 mb-1.5 select-none"
+                  className="px-2 pt-2 pb-1 flex items-center justify-between border-b border-stone-800/80 mb-1 select-none"
                   title={category.title}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                    <span className="text-[11.5px] font-bold uppercase tracking-wider text-amber-400 font-mono truncate">
+                    <span className="text-[10.5px] font-bold uppercase tracking-wider text-amber-400 font-mono truncate">
                       {category.title}
                     </span>
                   </div>
-                  <span className="text-[10px] font-mono font-medium text-stone-400 shrink-0 uppercase tracking-wider">
+                  <span className="text-[9px] font-mono font-medium text-stone-400 shrink-0 uppercase tracking-wider">
                     {category.items.length} {category.items.length === 1 ? 'module' : 'modules'}
                   </span>
                 </div>
               ) : (
-                <div className="px-1 pt-2.5 pb-1 text-center select-none" title={category.title}>
-                  <span className="text-[9.5px] font-bold uppercase tracking-wider text-amber-400/90 font-mono block truncate px-0.5 pb-1 border-b border-stone-800/70">
+                <div className="px-0.5 pt-2 pb-0.5 text-center select-none" title={category.title}>
+                  <span className="text-[8.5px] font-bold uppercase tracking-wider text-amber-400/90 font-mono block truncate px-0.5 pb-0.5 border-b border-stone-800/70">
                     {category.shortTitle || category.title.split(' ')[0]}
                   </span>
                 </div>
               )}
 
               {/* Module Navigation Buttons */}
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {category.items.map((item) => {
                   const Icon = item.icon;
                   const isActive = currentModule === item.id;
@@ -519,26 +521,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       type="button"
                       onClick={() => handleNavClick(item.id)}
                       title={`${item.label} — ${item.subtitle}`}
-                      className={`group w-full flex rounded-xl transition-all cursor-pointer ${
+                      className={`group w-full flex rounded-lg transition-all cursor-pointer ${
                         effectiveCollapsed
-                          ? 'flex-col items-center justify-center px-1.5 py-2.5 text-center'
-                          : 'items-center justify-between px-3 py-2 text-[13.5px]'
+                          ? 'flex-col items-center justify-center px-1 py-1.5 text-center'
+                          : 'items-center justify-between px-2 py-1.5 text-[12.5px]'
                       } ${
                         isActive
-                          ? 'bg-amber-500/15 text-amber-300 shadow-xs border-l-4 border-amber-400 ring-1 ring-amber-500/30'
-                          : 'text-stone-200 hover:text-white hover:bg-stone-800/90 border-l-4 border-transparent'
+                          ? 'bg-amber-500/15 text-amber-300 shadow-xs border-l-3 border-amber-400 ring-1 ring-amber-500/30'
+                          : 'text-stone-200 hover:text-white hover:bg-stone-800/90 border-l-3 border-transparent'
                       }`}
                     >
                       <div
                         className={`flex ${
                           effectiveCollapsed
                             ? 'flex-col items-center gap-1 w-full text-center'
-                            : 'items-center gap-3 min-w-0 flex-1'
+                            : 'items-center gap-2 min-w-0 flex-1'
                         }`}
                       >
                         <div className="relative shrink-0 flex items-center justify-center">
                           <div
-                            className={`p-1.5 rounded-lg transition-colors ${
+                            className={`p-1 rounded-md transition-colors ${
                               isActive
                                 ? 'bg-amber-500/25 text-amber-300'
                                 : 'bg-stone-800/60 text-stone-300 group-hover:text-amber-300 group-hover:bg-stone-800'
@@ -546,12 +548,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           >
                             <Icon
                               className={`shrink-0 transition-colors ${
-                                effectiveCollapsed ? 'w-5 h-5' : 'w-4.5 h-4.5'
+                                effectiveCollapsed ? 'w-4 h-4' : 'w-3.5 h-3.5'
                               } ${isActive ? 'text-amber-300' : 'text-stone-300 group-hover:text-amber-300'}`}
                             />
                           </div>
                           {effectiveCollapsed && item.badge !== null && (
-                            <span className="absolute -top-1 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-amber-500 text-stone-950 text-[9px] font-extrabold flex items-center justify-center shadow-xs">
+                            <span className="absolute -top-1 -right-1 min-w-[12px] h-3 px-0.5 rounded-full bg-amber-500 text-stone-950 text-[8px] font-extrabold flex items-center justify-center shadow-xs">
                               {typeof item.badge === 'number' ? item.badge : '•'}
                             </span>
                           )}
@@ -561,19 +563,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {!effectiveCollapsed ? (
                           <div className="flex flex-col min-w-0 text-left">
                             <span
-                              className={`text-[13.5px] leading-tight tracking-tight truncate ${
+                              className={`text-[12.5px] leading-tight tracking-tight truncate ${
                                 isActive ? 'font-bold text-amber-300' : 'font-semibold text-stone-100 group-hover:text-white'
                               }`}
                             >
                               {item.label}
                             </span>
-                            <span className="text-[11px] text-stone-400 group-hover:text-stone-300 truncate mt-0.5 font-normal">
+                            <span className="text-[10px] text-stone-400 group-hover:text-stone-300 truncate mt-0.5 font-normal">
                               {item.subtitle}
                             </span>
                           </div>
                         ) : (
                           <span
-                            className={`text-[11px] leading-tight text-center max-w-full px-0.5 tracking-tight ${
+                            className={`text-[10px] leading-tight text-center max-w-full px-0.5 tracking-tight ${
                               isActive ? 'text-amber-300 font-bold' : 'text-stone-200 group-hover:text-white font-semibold'
                             }`}
                           >
@@ -584,10 +586,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                       {/* Expanded Badges & Quick Action Triggers */}
                       {!effectiveCollapsed && (
-                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        <div className="flex items-center gap-1 shrink-0 ml-1.5">
                           {item.badge !== null && (
                             <span
-                              className={`text-[11px] px-2 py-0.5 rounded-full font-bold leading-none shadow-2xs ${item.badgeColor}`}
+                              className={`text-[9.5px] px-1.5 py-0.2 rounded-full font-bold leading-none shadow-2xs ${item.badgeColor}`}
                             >
                               {item.badge}
                             </span>
@@ -604,7 +606,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 else if (item.id === 'receipts') onRecordPayment?.();
                               }}
                               title={`Create New ${item.label}`}
-                              className="p-1 rounded text-stone-400 hover:text-amber-300 hover:bg-stone-700 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                              className="p-0.5 rounded text-stone-400 hover:text-amber-300 hover:bg-stone-700 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
                             >
                               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                             </span>
@@ -620,14 +622,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
 
         {/* 5. Action shortcut & Collapse controls */}
-        <div className="p-3 border-t border-stone-800/80 space-y-2 bg-stone-950/30">
+        <div className="p-2.5 border-t border-stone-800/80 space-y-1.5 bg-stone-950/30">
           {!effectiveCollapsed ? (
             <button
               type="button"
               onClick={onQuickNewDoc}
-              className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm py-2.5 px-3 rounded-lg flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
+              className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
             >
-              <Plus className="w-4 h-4 stroke-[3]" />
+              <Plus className="w-3.5 h-3.5 stroke-[3]" />
               <span>Create New Document</span>
             </button>
           ) : (
@@ -635,10 +637,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               onClick={onQuickNewDoc}
               title="Create New Document"
-              className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 py-2 px-1 rounded-md flex flex-col items-center justify-center shadow-xs cursor-pointer gap-0.5"
+              className="w-full bg-amber-500 hover:bg-amber-400 text-stone-950 py-1.5 px-1 rounded-md flex flex-col items-center justify-center shadow-xs cursor-pointer gap-0.5"
             >
-              <Plus className="w-4 h-4 stroke-[3]" />
-              <span className="text-[10px] font-bold tracking-tight">Create</span>
+              <Plus className="w-3.5 h-3.5 stroke-[3]" />
+              <span className="text-[9.5px] font-bold tracking-tight">Create</span>
             </button>
           )}
 
@@ -649,18 +651,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={isCollapsed ? 'Expand Navigation Menu' : 'Collapse Navigation Menu'}
             className={`hidden lg:flex w-full items-center justify-center rounded-lg font-semibold transition-colors cursor-pointer ${
               effectiveCollapsed
-                ? 'flex-col py-2 text-stone-300 hover:text-white hover:bg-stone-800/80 gap-0.5 text-[10.5px] border border-stone-800/60'
-                : 'gap-2 py-2 text-stone-300 hover:text-white hover:bg-stone-800/80 border border-stone-800 text-xs'
+                ? 'flex-col py-1.5 text-stone-300 hover:text-white hover:bg-stone-800/80 gap-0.5 text-[9.5px] border border-stone-800/60'
+                : 'gap-1.5 py-1.5 text-stone-300 hover:text-white hover:bg-stone-800/80 border border-stone-800 text-xs'
             }`}
           >
             {isCollapsed ? (
               <>
-                <ChevronRight className="w-4 h-4 text-amber-400" />
-                <span className="text-[10.5px] text-stone-200 font-semibold">Expand Menu</span>
+                <ChevronRight className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-[10px] text-stone-200 font-semibold">Expand Menu</span>
               </>
             ) : (
               <>
-                <ChevronLeft className="w-4 h-4 text-amber-400" />
+                <ChevronLeft className="w-3.5 h-3.5 text-amber-400" />
                 <span>Collapse Sidebar</span>
               </>
             )}
@@ -677,13 +679,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         className={`hidden lg:block shrink-0 transition-all duration-300 ease-in-out h-screen sticky top-0 z-30 ${
-          isCollapsed ? 'w-26' : 'w-80'
+          isCollapsed ? 'w-20' : 'w-[220px]'
         }`}
       >
         <div
           className={`h-full transition-all duration-200 ${
             isCollapsed && isHovered
-              ? 'absolute top-0 left-0 w-80 shadow-2xl z-50'
+              ? 'absolute top-0 left-0 w-[220px] shadow-2xl z-50'
               : 'w-full'
           }`}
         >
@@ -701,7 +703,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
 
           {/* Drawer Panel - Always Expanded */}
-          <div className="relative flex-1 flex flex-col w-84 max-w-[88vw] bg-stone-900 shadow-2xl z-10 animate-slide-in">
+          <div className="relative flex-1 flex flex-col w-[280px] max-w-[85vw] bg-stone-900 shadow-2xl z-10 animate-slide-in">
             {renderSidebarContent(true)}
           </div>
         </div>

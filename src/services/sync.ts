@@ -927,6 +927,35 @@ class GoogleSyncManager {
       }
     });
 
+    // 5. Cross-Tab / Cross-Window Real-time Synchronization Bus (BroadcastChannel + storage event fallback)
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bus = new BroadcastChannel('damview_erp_sync_bus');
+        bus.onmessage = (e) => {
+          if (e?.data?.type === 'DAMVIEW_SYNC_EVENT') {
+            if (typeof dbService?.invalidateCache === 'function') {
+              dbService.invalidateCache();
+            }
+            window.dispatchEvent(new CustomEvent('damview:data-changed', { detail: e.data }));
+            if (e.data.action === 'PROFILE_UPDATED' || e.data.action === 'CREDENTIALS_UPDATED') {
+              window.dispatchEvent(new CustomEvent('damview:profile-updated', { detail: e.data.payload }));
+            }
+          }
+        };
+      }
+    } catch {}
+
+    // 6. Cross-Tab storage event fallback for shared credentials & passcodes
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'damview_admin_passcode' || e.key === 'damview_company_logo' || e.key?.startsWith('damview_')) {
+        if (typeof dbService?.invalidateCache === 'function') {
+          dbService.invalidateCache();
+        }
+        window.dispatchEvent(new CustomEvent('damview:data-changed', { detail: { source: 'storage-event', key: e.key } }));
+        window.dispatchEvent(new CustomEvent('damview:profile-updated'));
+      }
+    });
+
     this.listenersAttached = true;
   }
 
@@ -1308,7 +1337,7 @@ class GoogleSyncManager {
       document: sanitizedDoc,
       pdfBase64: validPdfBase64,
       fileName: canonicalFileName,
-      folderName: profile.googleDriveFolder || 'Hotel Damview Archives',
+      folderName: profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives'),
       timestamp: new Date().toISOString(),
     };
 
@@ -1448,7 +1477,7 @@ class GoogleSyncManager {
   }> {
     const profile = await dbService.getHotelProfile();
     const url = profile.googleWebAppUrl;
-    const targetFolder = options?.folderName || profile.googleDriveFolder || 'Hotel Damview Archives';
+    const targetFolder = options?.folderName || profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives');
 
     if (!url || !url.startsWith('http')) {
       return {
@@ -1469,7 +1498,7 @@ class GoogleSyncManager {
 
       // Generate authentic test PDF
       const testPdf = generateTestPdfDocument({
-        hotelName: profile.name || 'HOTEL DAMVIEW RESORT',
+        hotelName: profile.name || 'HOTEL ERP',
         targetFolder,
       });
 
@@ -1485,7 +1514,7 @@ class GoogleSyncManager {
         validityDays: 30,
         dueDate: testIssueDate,
         clientName: 'Google Drive Cloud Test Verification',
-        clientAddress: 'Hotel Damview System Automation Bench',
+        clientAddress: profile.name ? `${profile.name} System Verification` : 'System Verification Bench',
         clientKraPin: 'P051234567Z',
         discount: 0,
         subtotal: 1000,
@@ -1746,7 +1775,7 @@ class GoogleSyncManager {
       payment: sanitizedPayment,
       pdfBase64: validPdfBase64,
       fileName: canonicalFileName,
-      folderName: profile.googleDriveFolder || 'Hotel Damview Archives',
+      folderName: profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives'),
       timestamp: new Date().toISOString(),
     };
 
@@ -1879,7 +1908,7 @@ class GoogleSyncManager {
       action: 'CASCADE_DELETE_DOCUMENT',
       documentId,
       documentNumber,
-      folderName: folderName || profile.googleDriveFolder || 'Hotel Damview Archives',
+      folderName: folderName || profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives'),
       timestamp: new Date().toISOString(),
     };
 
@@ -2771,7 +2800,7 @@ class GoogleSyncManager {
                 : [
                     {
                       id: `item-${Date.now()}-1`,
-                      particulars: `${type} Services (Hotel Damview Centralized Storage)`,
+                      particulars: `${type} Services (Centralized Storage)`,
                       quantity: 1,
                       days: 1,
                       rate: grossSubtotal || rawGrand || 0,
@@ -2886,20 +2915,162 @@ class GoogleSyncManager {
         }
       }
 
-      // 4. MERGE PROFILE (Defensive: only fill in missing fields if local is unconfigured)
-      if (remoteData.profile && Object.keys(remoteData.profile).length > 0) {
+      // 4. MERGE PROFILE & SETTINGS (Propagate configured settings and credentials from Google Sheets)
+      const rawProfileData: Record<string, any> = { ...(remoteData.profile || {}) };
+
+      // Also discover any settings rows from worksheets named Hotel_Profile, Hotel_Settings, Settings, or Data_Hotel_Settings
+      const profileTabNames = ['Hotel_Profile', 'Hotel_Settings', 'Data_Hotel_Settings', 'Settings'];
+      for (const tabName of profileTabNames) {
+        const tab = remoteData.worksheets?.[tabName];
+        if (tab && Array.isArray(tab.rows)) {
+          for (const row of tab.rows) {
+            if (Array.isArray(row) && row[0]) {
+              const k = String(row[0]).trim();
+              const v = row[1] !== undefined && row[1] !== null ? String(row[1]).trim() : '';
+              if (k && v && rawProfileData[k] === undefined) {
+                rawProfileData[k] = v;
+              }
+            }
+          }
+        }
+      }
+
+      if (Object.keys(rawProfileData).length > 0) {
         const localProfile = await dbService.getHotelProfile();
         const pendingProfileSync = syncQueue.some((q) => q.action === 'UPSERT_PROFILE');
+
         if (!pendingProfileSync) {
-          const rp = remoteData.profile;
           const profileUpdates: Partial<HotelProfile> = {};
-          if (localProfile.name === undefined && rp.name && rp.name.trim()) profileUpdates.name = rp.name.trim();
-          if (localProfile.kraPin === undefined && rp.kraPin && rp.kraPin.trim()) profileUpdates.kraPin = rp.kraPin.trim();
-          if (localProfile.email === undefined && rp.email && rp.email.trim()) profileUpdates.email = rp.email.trim();
-          if (localProfile.phone === undefined && rp.phone && rp.phone.trim()) profileUpdates.phone = rp.phone.trim();
+
+          const nameVal = rawProfileData.name || rawProfileData.hotelName || rawProfileData.HotelName;
+          if (nameVal && nameVal.trim() && localProfile.name !== nameVal.trim()) {
+            profileUpdates.name = nameVal.trim();
+          }
+
+          const taglineVal = rawProfileData.tagline || rawProfileData.Tagline;
+          if (taglineVal !== undefined && taglineVal.trim() && localProfile.tagline !== taglineVal.trim()) {
+            profileUpdates.tagline = taglineVal.trim();
+          }
+
+          const kraPinVal = rawProfileData.kraPin || rawProfileData.KraPin || rawProfileData.kra_pin || rawProfileData.PIN;
+          if (kraPinVal && kraPinVal.trim()) {
+            const cleanKraPin = normalizeKraPin(kraPinVal.trim());
+            if (localProfile.kraPin !== cleanKraPin) {
+              profileUpdates.kraPin = cleanKraPin;
+            }
+          }
+
+          const emailVal = rawProfileData.email || rawProfileData.Email;
+          if (emailVal && emailVal.trim()) {
+            const cleanEmail = emailVal.trim().toLowerCase();
+            if (localProfile.email !== cleanEmail) {
+              profileUpdates.email = cleanEmail;
+            }
+          }
+
+          const phoneVal = rawProfileData.phone || rawProfileData.Phone || rawProfileData.telephone;
+          if (phoneVal && phoneVal.trim()) {
+            const cleanPhone = normalizePhoneNumber(phoneVal.trim());
+            if (localProfile.phone !== cleanPhone) {
+              profileUpdates.phone = cleanPhone;
+            }
+          }
+
+          const locationVal = rawProfileData.physicalLocation || rawProfileData.location || rawProfileData.PhysicalLocation;
+          if (locationVal && locationVal.trim() && localProfile.physicalLocation !== locationVal.trim()) {
+            profileUpdates.physicalLocation = locationVal.trim();
+          }
+
+          const postalVal = rawProfileData.postalAddress || rawProfileData.address || rawProfileData.PostalAddress;
+          if (postalVal && postalVal.trim() && localProfile.postalAddress !== postalVal.trim()) {
+            profileUpdates.postalAddress = postalVal.trim();
+          }
+
+          const bankNameVal = rawProfileData.bankName || rawProfileData.BankName;
+          if (bankNameVal && bankNameVal.trim() && localProfile.bankName !== bankNameVal.trim()) {
+            profileUpdates.bankName = bankNameVal.trim();
+          }
+
+          const bankBranchVal = rawProfileData.bankBranch || rawProfileData.BankBranch;
+          if (bankBranchVal && bankBranchVal.trim() && localProfile.bankBranch !== bankBranchVal.trim()) {
+            profileUpdates.bankBranch = bankBranchVal.trim();
+          }
+
+          const accHolderVal = rawProfileData.accountHolder || rawProfileData.AccountHolder;
+          if (accHolderVal && accHolderVal.trim() && localProfile.accountHolder !== accHolderVal.trim()) {
+            profileUpdates.accountHolder = accHolderVal.trim();
+          }
+
+          const accNumVal = rawProfileData.accountNumber || rawProfileData.AccountNumber;
+          if (accNumVal && accNumVal.trim() && localProfile.accountNumber !== accNumVal.trim()) {
+            profileUpdates.accountNumber = accNumVal.trim();
+          }
+
+          const tillVal = rawProfileData.mpesaTillNumber || rawProfileData.mpesaTill || rawProfileData.tillNumber || rawProfileData.MpesaTill;
+          if (tillVal && tillVal.trim() && localProfile.mpesaTillNumber !== tillVal.trim()) {
+            profileUpdates.mpesaTillNumber = tillVal.trim();
+          }
+
+          if (rawProfileData.vatRate !== undefined && rawProfileData.vatRate !== '') {
+            const parsedVat = parseFloat(rawProfileData.vatRate);
+            if (!isNaN(parsedVat) && parsedVat >= 0 && localProfile.vatRate !== parsedVat) {
+              profileUpdates.vatRate = parsedVat;
+            }
+          }
+
+          const folderVal = rawProfileData.googleDriveFolder || rawProfileData.GoogleDriveFolder;
+          if (folderVal && folderVal.trim() && localProfile.googleDriveFolder !== folderVal.trim()) {
+            profileUpdates.googleDriveFolder = folderVal.trim();
+          }
+
+          const sheetUrlVal = rawProfileData.googleSheetUrl || rawProfileData.sheetUrl || remoteData.sheetUrl;
+          if (sheetUrlVal && sheetUrlVal.trim() && localProfile.googleSheetUrl !== sheetUrlVal.trim()) {
+            profileUpdates.googleSheetUrl = sheetUrlVal.trim();
+          }
+
+          const driveFolderUrlVal = rawProfileData.googleDriveFolderUrl || rawProfileData.driveFolderUrl;
+          if (driveFolderUrlVal && driveFolderUrlVal.trim() && localProfile.googleDriveFolderUrl !== driveFolderUrlVal.trim()) {
+            profileUpdates.googleDriveFolderUrl = driveFolderUrlVal.trim();
+          }
+
+          const sheetEmbedUrlVal = rawProfileData.googleSheetEmbedUrl || rawProfileData.sheetEmbedUrl;
+          if (sheetEmbedUrlVal && sheetEmbedUrlVal.trim() && localProfile.googleSheetEmbedUrl !== sheetEmbedUrlVal.trim()) {
+            profileUpdates.googleSheetEmbedUrl = sheetEmbedUrlVal.trim();
+          }
+
+          // Web App URL propagation if available in Google Sheets
+          const remoteWebAppUrl = rawProfileData.googleWebAppUrl || rawProfileData.webAppUrl;
+          if (remoteWebAppUrl && String(remoteWebAppUrl).trim().startsWith('http') && (!localProfile.googleWebAppUrl || localProfile.googleWebAppUrl.trim() === '')) {
+            profileUpdates.googleWebAppUrl = String(remoteWebAppUrl).trim();
+          }
+
+          if (rawProfileData.logoBase64 && rawProfileData.logoBase64.length > 50 && localProfile.logoBase64 !== rawProfileData.logoBase64) {
+            profileUpdates.logoBase64 = rawProfileData.logoBase64;
+          }
+
+          // Passcode sync across connected apps with identical credentials
+          const passcodeVal = rawProfileData.adminPasscode || rawProfileData.passcode || rawProfileData.admin_passcode;
+          if (passcodeVal && String(passcodeVal).trim()) {
+            const cleanPasscode = String(passcodeVal).trim();
+            const currentPasscode = typeof window !== 'undefined' ? localStorage.getItem('damview_admin_passcode') : null;
+            if (currentPasscode !== cleanPasscode) {
+              try {
+                localStorage.setItem('damview_admin_passcode', cleanPasscode);
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('damview:credentials-updated', { detail: { adminPasscode: cleanPasscode } }));
+                }
+              } catch {}
+            }
+          }
 
           if (Object.keys(profileUpdates).length > 0) {
             await dbService.saveHotelProfile(profileUpdates);
+            pulledCount++;
+
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('damview:profile-updated', { detail: profileUpdates }));
+              window.dispatchEvent(new CustomEvent('damview:data-changed', { detail: { source: 'profile-sync', updates: profileUpdates } }));
+            }
           }
         }
       }
@@ -3131,7 +3302,7 @@ class GoogleSyncManager {
         posOrders,
         reservations,
         expenses,
-        folderName: profile.googleDriveFolder || 'Hotel Damview Archives',
+        folderName: profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives'),
         timestamp: new Date().toISOString(),
       };
 
@@ -3152,7 +3323,7 @@ class GoogleSyncManager {
 
           // 3. Sync Documents
           for (const d of documents) {
-            await this.postToScript(url, { action: 'UPSERT_DOCUMENT', document: d, folderName: profile.googleDriveFolder || 'Hotel Damview Archives' }, 20000);
+            await this.postToScript(url, { action: 'UPSERT_DOCUMENT', document: d, folderName: profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives') }, 20000);
           }
 
           // 4. Sync Payments
@@ -3465,6 +3636,32 @@ export const syncManager = new GoogleSyncManager();
 
 // Wire up atomic cloud sequence coordination to dbService
 dbService.setCloudSequenceResolver(async (type) => syncManager.getCloudSequenceNumber(type));
+
+/**
+ * Universal broadcast function to keep apps with identical credentials connected in real time
+ */
+export function broadcastCrossTabSync(action: string, payload?: any): void {
+  try {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      const bus = new BroadcastChannel('damview_erp_sync_bus');
+      bus.postMessage({
+        type: 'DAMVIEW_SYNC_EVENT',
+        action,
+        payload,
+        timestamp: Date.now(),
+      });
+      bus.close();
+    }
+  } catch {}
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('damview:data-changed', { detail: { action, payload } }));
+      if (action === 'PROFILE_UPDATED' || action === 'CREDENTIALS_UPDATED') {
+        window.dispatchEvent(new CustomEvent('damview:profile-updated', { detail: payload }));
+      }
+    } catch {}
+  }
+}
 
 export { runEndToEndSyncVerification };
 export type { SyncVerificationResult };

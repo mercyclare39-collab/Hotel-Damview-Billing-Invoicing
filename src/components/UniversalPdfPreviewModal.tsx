@@ -437,7 +437,7 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
     await universalSharePdfDocument({
       blob: pdfBlob,
       fileName: targetFileName,
-      title: `${docDescriptor.type} ${docDescriptor.number} - ${profile.name}`,
+      title: `${docDescriptor.type} ${docDescriptor.number}${profile.name ? ` - ${profile.name}` : ''}`,
       summaryText,
       clientPhone: doc?.clientPhone || (statement?.client?.phone ? statement.client.phone : undefined),
       driveUrl: currentDriveUrl || doc?.driveFileUrl || payment?.driveFileUrl || statement?.statementRecord?.driveFileUrl,
@@ -755,19 +755,21 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
         ref={templateContainerRef}
         style={{
           position: 'fixed',
-          left: '-99999px',
+          left: '0',
           top: '0',
-          width: '794px',
-          minHeight: '1123px',
+          zIndex: -99999,
+          opacity: 1,
           visibility: 'visible',
           pointerEvents: 'none',
+          width: '794px',
+          minHeight: '1123px',
           backgroundColor: '#ffffff',
           transform: 'none',
         }}
         aria-hidden="true"
       >
-        {doc && <A4DocumentPreview doc={doc} profile={profile} />}
-        {payment && <A4ReceiptPreview payment={payment} profile={profile} />}
+        {doc && <A4DocumentPreview doc={doc} profile={profile} isPrintVersion={true} />}
+        {payment && <A4ReceiptPreview payment={payment} profile={profile} isPrintVersion={true} />}
         {statement && statement.client && (
           <A4StatementPreview
             client={statement.client}
@@ -780,6 +782,7 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
             totalDebit={statement.summary?.totalInvoiced || 0}
             totalCredit={statement.summary?.totalPaid || 0}
             closingBalance={docDescriptor.total}
+            isPrintVersion={true}
           />
         )}
       </div>

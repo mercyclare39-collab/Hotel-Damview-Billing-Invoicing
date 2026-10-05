@@ -1,5 +1,4 @@
 import React from 'react';
-import { DEFAULT_COMPANY_LOGO_BASE64 } from '../services/defaultLogo';
 
 interface HotelLogoProps {
   logoBase64?: string;
@@ -16,16 +15,17 @@ export const HotelLogo: React.FC<HotelLogoProps> = ({
   size = 80,
   height,
   style,
+  hotelName = 'Hotel Logo',
 }) => {
   const finalHeight = height !== undefined ? (typeof height === 'number' ? `${height}px` : height) : `${size}px`;
   const finalWidth = height !== undefined ? 'auto' : `${size}px`;
 
-  // Fallback to persisted company logo from localStorage or default app company logo
+  // Fallback to persisted company logo from localStorage if uploaded by user
   const effectiveLogo =
     (propLogo && propLogo.trim()) ||
     (typeof window !== 'undefined' && window.localStorage
-      ? localStorage.getItem('damview_company_logo') || DEFAULT_COMPANY_LOGO_BASE64
-      : DEFAULT_COMPANY_LOGO_BASE64);
+      ? localStorage.getItem('damview_company_logo') || ''
+      : '');
 
   const hasImage = Boolean(
     effectiveLogo &&
@@ -53,7 +53,7 @@ export const HotelLogo: React.FC<HotelLogoProps> = ({
     return (
       <img
         src={imgSrc}
-        alt="Hotel Damview Logo"
+        alt={hotelName || "Hotel Logo"}
         style={{
           height: finalHeight,
           width: finalWidth,

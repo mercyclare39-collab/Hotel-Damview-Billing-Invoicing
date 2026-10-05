@@ -15,6 +15,7 @@ import {
   FileText,
   Clock,
   RotateCcw,
+  RefreshCw,
   X,
   ChevronRight,
   HelpCircle,
@@ -55,6 +56,7 @@ import {
 } from '../utils/financial';
 import {
   generatePdfFromElement,
+  generateDocumentPdf,
   universalSharePdfDocument,
   getDocumentOperationalSummary,
   validatePdfBlob,
@@ -729,19 +731,32 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   const [validationGateAlert, setValidationGateAlert] = useState<string | null>(null);
 
-  // Auto-generate document number sequential suffix when creating new
+  // Auto-generate and regenerate sequential document number from previous number
+  const handleRegenerateDocumentNumber = useCallback(async (forcedType?: DocumentType) => {
+    const targetType = forcedType || docType;
+    try {
+      const nextNum = await dbService.getNextDocumentNumber(targetType);
+      const pfx = getEnforcedPrefix(targetType);
+      let suffix = '';
+      if (nextNum.startsWith(pfx)) {
+        suffix = nextNum.slice(pfx.length);
+      } else {
+        suffix = nextNum.replace(/^(QT-|Q-|PI-|INV-)/, '');
+      }
+      setNumberSuffix(suffix);
+      return suffix;
+    } catch {
+      setNumberSuffix(suggestedNextSuffix);
+      return suggestedNextSuffix;
+    }
+  }, [docType, suggestedNextSuffix]);
+
+  // Auto-generate document number sequential suffix when creating new or changing docType
   useEffect(() => {
     if (!initialDocument) {
-      dbService.getNextDocumentNumber(docType).then((num) => {
-        const pfx = getEnforcedPrefix(docType);
-        if (num.startsWith(pfx)) {
-          setNumberSuffix(num.slice(pfx.length));
-        } else {
-          setNumberSuffix(num.replace(/^(QT-|Q-|PI-|INV-)/, ''));
-        }
-      });
+      handleRegenerateDocumentNumber(docType);
     }
-  }, [docType, initialDocument]);
+  }, [docType, initialDocument, handleRegenerateDocumentNumber]);
 
   // Update due date when issueDate or validityDays changes
   const handleValidityChange = (days: number) => {
@@ -1316,53 +1331,44 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
       setModalAutoAction(actionType === 'SAVE' || actionType === 'PREVIEW' ? 'NONE' : actionType);
       setShowFullPreviewModal(true);
 
-      // 4. Resolve Target Element and Generate Vector PDF ONCE with Zero-Byte & Format Validation
-      const targetElement = await resolveTargetElement();
+      // 4. Generate Vector PDF ONCE with Zero-Byte & Format Validation directly from finalized document
       let pdfRes: GeneratePdfResult | null = null;
       let validPdfBase64: string | undefined;
       let pdfFileName: string | undefined;
 
-      if (targetElement) {
-        try {
-          pdfRes = await generatePdfFromElement(
-            targetElement,
-            finalizedDoc.documentNumber,
-            finalizedDoc.clientName,
-            finalizedDoc.issueDate,
-            { download: false }
-          );
+      try {
+        pdfRes = await generateDocumentPdf(finalizedDoc, profile);
 
-          if (pdfRes) {
-            const validation = validatePdfBlob(pdfRes.blob, pdfRes.base64);
-            if (validation.isValid) {
-              validPdfBase64 = pdfRes.base64;
-              pdfFileName = pdfRes.fileName;
+        if (pdfRes) {
+          const validation = validatePdfBlob(pdfRes.blob, pdfRes.base64);
+          if (validation.isValid) {
+            validPdfBase64 = pdfRes.base64;
+            pdfFileName = pdfRes.fileName;
 
-              // Store compiled binary in component state as Single Source of Truth
-              setCompiledPdfBlob(pdfRes.blob);
-              setCompiledPdfBase64(pdfRes.base64);
-              setCompiledPdfFileName(pdfRes.fileName);
-              setCompiledPdfBlobUrl((prev) => {
-                if (prev) revokePdfBlobUrl(prev);
-                return createPdfBlobUrl(pdfRes!.blob);
-              });
+            // Store compiled binary in component state as Single Source of Truth
+            setCompiledPdfBlob(pdfRes.blob);
+            setCompiledPdfBase64(pdfRes.base64);
+            setCompiledPdfFileName(pdfRes.fileName);
+            setCompiledPdfBlobUrl((prev) => {
+              if (prev) revokePdfBlobUrl(prev);
+              return createPdfBlobUrl(pdfRes!.blob);
+            });
 
-              // Dual local workstation filesystem backup
-              localBackupService
-                .mirrorDocumentDualLocalBackup(
-                  pdfRes.blob,
-                  pdfRes.fileName,
-                  finalizedDoc,
-                  finalizedDoc.documentNumber
-                )
-                .catch((bkErr) => console.warn('Local workstation filesystem archival warning:', bkErr));
-            } else {
-              console.warn('PDF pre-upload validation alert:', validation.error);
-            }
+            // Dual local workstation filesystem backup
+            localBackupService
+              .mirrorDocumentDualLocalBackup(
+                pdfRes.blob,
+                pdfRes.fileName,
+                finalizedDoc,
+                finalizedDoc.documentNumber
+              )
+              .catch((bkErr) => console.warn('Local workstation filesystem archival warning:', bkErr));
+          } else {
+            console.warn('PDF pre-upload validation alert:', validation.error);
           }
-        } catch (pdfErr: any) {
-          logSystemIncident('ERROR', `Unified PDF generation caught error: ${pdfErr?.message || String(pdfErr)}`);
         }
+      } catch (pdfErr: any) {
+        logSystemIncident('ERROR', `Unified PDF generation caught error: ${pdfErr?.message || String(pdfErr)}`);
       }
 
       // 5. Execute Primary Intent Immediately using Pre-Generated Binary (Zero UI lag)
@@ -1964,6 +1970,15 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
                       className="px-2 py-1 text-xs font-mono font-bold text-slate-900 bg-white w-24 focus:outline-none focus:bg-amber-50/50"
                     />
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRegenerateDocumentNumber()}
+                    title="Regenerate sequential document number from previous document"
+                    className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 hover:text-stone-900 border border-slate-300 rounded text-xs flex items-center gap-1 font-medium transition-colors cursor-pointer shadow-2xs"
+                  >
+                    <RefreshCw className="w-3 h-3 text-amber-600" />
+                    <span className="hidden sm:inline">Regenerate</span>
+                  </button>
                 </div>
 
                 {/* Real-time Uniqueness / Availability Status Badge */}
@@ -2581,7 +2596,7 @@ export const DocumentEditor: React.FC<DocumentEditorProps> = ({
         isOpen={showFullPreviewModal}
         onClose={handleClosePreviewAndGoToJournal}
         profile={profile}
-        document={currentDoc}
+        document={lastFinalizedDocRef.current || currentDoc}
         precompiledBlob={compiledPdfBlob}
         precompiledBase64={compiledPdfBase64}
         precompiledFileName={compiledPdfFileName}

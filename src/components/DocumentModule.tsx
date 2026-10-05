@@ -42,6 +42,7 @@ import {
 import { exportTableToXlsx } from '../utils/excelExporter';
 import { DocumentEditor } from './DocumentEditor';
 import { A4DocumentPreview } from './A4DocumentPreview';
+import { UniversalPdfPreviewModal } from './UniversalPdfPreviewModal';
 import { usePersistentSort, SortableHeader } from '../hooks/usePersistentSort';
 import { DocumentStatusDropdown } from './DocumentStatusDropdown';
 import { usePropagationVariances } from '../hooks/usePropagationVariances';
@@ -102,6 +103,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | DocumentStatus | 'VARIANCE'>('ALL');
   const [selectedDocForPreview, setSelectedDocForPreview] = useState<BillingDocument | null>(null);
+  const [previewAutoAction, setPreviewAutoAction] = useState<'NONE' | 'PRINT' | 'DOWNLOAD' | 'SHARE'>('NONE');
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isResolvingAll, setIsResolvingAll] = useState(false);
   const [isResolvingDocId, setIsResolvingDocId] = useState<string | null>(null);
@@ -144,6 +146,7 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
       setActiveHighlightedDocId(selectedDocForPreview.id);
     }
     setSelectedDocForPreview(null);
+    setPreviewAutoAction('NONE');
     setActiveSubTab('journal');
     if (typeof window !== 'undefined' && window.history.state?.modal === 'doc-module-preview') {
       window.history.back();
@@ -423,77 +426,22 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
 
   const Icon = config.icon;
 
-  // Quick download helper
-  const handleQuickDownload = async (doc: BillingDocument) => {
+  // Quick download helper with 100% preview parity
+  const handleQuickDownload = (doc: BillingDocument) => {
     setSelectedDocForPreview(doc);
-    setIsGeneratingPdf(true);
-    setTimeout(async () => {
-      const previewEl = document.getElementById(`doc-module-preview-a4`);
-      if (previewEl) {
-        try {
-          await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
-            download: true,
-          });
-        } catch (err: any) {
-          alert('PDF generation error: ' + err.message);
-        }
-      }
-      setIsGeneratingPdf(false);
-    }, 250);
+    setPreviewAutoAction('DOWNLOAD');
   };
 
-  // Quick print helper - Directly generates authentic PDF binary and prints
-  const handleQuickPrint = async (doc: BillingDocument) => {
+  // Quick print helper with 100% preview parity
+  const handleQuickPrint = (doc: BillingDocument) => {
     setSelectedDocForPreview(doc);
-    setIsGeneratingPdf(true);
-    setTimeout(async () => {
-      const previewEl = document.getElementById(`doc-module-preview-a4`);
-      if (previewEl) {
-        try {
-          const res = await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
-            download: false,
-          });
-          await printPdfBlob(res.blob);
-        } catch {
-          window.print();
-        }
-      } else {
-        window.print();
-      }
-      setIsGeneratingPdf(false);
-    }, 250);
+    setPreviewAutoAction('PRINT');
   };
 
-  // Universal document share with direct vector PDF binary attachment and operational summary
-  const handleQuickShare = async (doc: BillingDocument) => {
+  // Universal document share with 100% preview parity
+  const handleQuickShare = (doc: BillingDocument) => {
     setSelectedDocForPreview(doc);
-    setIsGeneratingPdf(true);
-    setTimeout(async () => {
-      const previewEl = document.getElementById(`doc-module-preview-a4`);
-      if (previewEl) {
-        try {
-          const res = await generatePdfFromElement(
-            previewEl,
-            doc.documentNumber,
-            doc.clientName,
-            doc.issueDate,
-            { download: false }
-          );
-          const summaryText = getDocumentOperationalSummary(doc, profile);
-          await universalSharePdfDocument({
-            blob: res.blob,
-            fileName: res.fileName,
-            title: `${doc.documentType} ${doc.documentNumber} - ${profile.name}`,
-            summaryText,
-            clientPhone: doc.clientPhone,
-            driveUrl: doc.driveFileUrl,
-          });
-        } catch (err: any) {
-          console.error('Universal share error:', err);
-        }
-      }
-      setIsGeneratingPdf(false);
-    }, 250);
+    setPreviewAutoAction('SHARE');
   };
 
   const getStatusBadge = (status: DocumentStatus) => {
@@ -1030,88 +978,14 @@ export const DocumentModule: React.FC<DocumentModuleProps> = ({
         </div>
       )}
 
-      {/* QUICK PREVIEW MODAL */}
-      {selectedDocForPreview && (
-        <div
-          className="fixed inset-0 z-50 bg-stone-900/80 backdrop-blur-xs flex flex-col justify-between p-4 overflow-y-auto cursor-pointer"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              handleDismissDocPreviewModal();
-            }
-          }}
-        >
-          <div
-            className="flex items-center justify-between bg-stone-900 text-white px-4 py-3 rounded-t border-b border-stone-800 max-w-4xl mx-auto w-full cursor-default"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center flex-wrap gap-2.5">
-              <h3 className="font-bold text-sm tracking-wide flex items-center gap-2">
-                <Icon className="w-4 h-4 text-amber-400" />
-                {selectedDocForPreview.documentType}: {selectedDocForPreview.documentNumber} - {selectedDocForPreview.clientName}
-              </h3>
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-emerald-950 text-emerald-300 rounded border border-emerald-700 text-[11px] font-semibold">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>100% Binary Parity</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* Universal Share Direct Button */}
-              <button
-                type="button"
-                onClick={() => handleQuickShare(selectedDocForPreview)}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-white font-bold rounded text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                title="Share Document with direct PDF attachment & summary"
-              >
-                <Share2 className="w-3.5 h-3.5 text-amber-400" />
-                <span>{isGeneratingPdf ? 'Preparing...' : 'Share'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickDownload(selectedDocForPreview)}
-                disabled={isGeneratingPdf}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded text-xs flex items-center gap-1 shadow-xs transition-colors cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>{isGeneratingPdf ? 'Generating...' : 'Download PDF'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickPrint(selectedDocForPreview)}
-                className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-white font-medium rounded text-xs flex items-center gap-1 border border-stone-700 transition-colors cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleDismissDocPreviewModal}
-                className="p-1 text-stone-400 hover:text-white rounded hover:bg-stone-800 transition-colors ml-1 cursor-pointer"
-                title="Close Preview & Navigate to Journal (Esc)"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-          <div
-            className="flex-1 flex justify-center py-4 overflow-auto max-w-4xl mx-auto w-full bg-stone-200 cursor-pointer"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) {
-                handleDismissDocPreviewModal();
-              }
-            }}
-          >
-            <div id="doc-module-preview-a4" className="cursor-default" onClick={(e) => e.stopPropagation()}>
-              <A4DocumentPreview
-                document={selectedDocForPreview}
-                profile={profile}
-                scale={0.88}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* UNIVERSAL RESILIENT DOCUMENT PREVIEW MODAL */}
+      <UniversalPdfPreviewModal
+        isOpen={!!selectedDocForPreview}
+        onClose={handleDismissDocPreviewModal}
+        profile={profile}
+        document={selectedDocForPreview}
+        autoAction={previewAutoAction}
+      />
     </div>
   );
 };

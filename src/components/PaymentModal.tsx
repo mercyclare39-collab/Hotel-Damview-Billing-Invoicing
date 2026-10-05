@@ -39,13 +39,13 @@ interface PaymentModalProps {
 }
 
 const DEFAULT_PROFILE: HotelProfile = {
-  name: 'HOTEL DAMVIEW',
+  name: '',
   tagline: '',
-  physicalLocation: 'MARIAKANI',
-  postalAddress: 'P.O. BOX 42491-80100, Mombasa, Kenya',
-  phone: '+25472524262',
-  email: 'hoteldamview@gmail.com',
-  kraPin: 'P051453023Q',
+  physicalLocation: '',
+  postalAddress: '',
+  phone: '',
+  email: '',
+  kraPin: '',
   logoBase64: '',
   bankName: '',
   bankBranch: '',

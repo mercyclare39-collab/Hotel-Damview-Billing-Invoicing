@@ -683,7 +683,7 @@ class EnterpriseSyncManager {
       }
     }
 
-    const targetFolder = folderName || profile?.googleDriveFolder || 'Hotel Damview Archives';
+    const targetFolder = folderName || profile?.googleDriveFolder || (profile?.name ? `${profile.name} Archives` : 'Archives');
 
     let attempt = 0;
     let lastError = 'Upload failed';

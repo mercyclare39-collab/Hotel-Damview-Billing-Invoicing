@@ -28,7 +28,7 @@ export class DriveArchiver {
     pdfBlob?: Blob
   ): Promise<ArchiverResult> {
     const profile = await dbService.getHotelProfile();
-    const targetFolder = folderName || profile.googleDriveFolder || 'Hotel Damview Archives';
+    const targetFolder = folderName || profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives');
 
     // Call central sync manager to execute multipart/form-data PDF upload with retries
     const response = await syncManager.uploadPdfWithMultipartFormData({

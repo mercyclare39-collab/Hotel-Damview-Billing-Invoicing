@@ -46,26 +46,26 @@ export const STANDARD_HOSPITALITY_CATALOGUE: CatalogueItem[] = [];
 export const STANDARD_POS_MENU: POSOrderItem[] = [];
 
 export const DEFAULT_HOTEL_PROFILE: HotelProfile = {
-  name: 'HOTEL DAMVIEW',
+  name: '',
   tagline: '',
-  kraPin: 'P051453023Q',
-  email: 'hoteldamview@gmail.com',
-  phone: '+254 725 242 620',
-  physicalLocation: 'MARIAKANI',
-  postalAddress: 'P.O. BOX 42491-80100, Mombasa, Kenya',
-  logoBase64: DEFAULT_COMPANY_LOGO_BASE64,
+  kraPin: '',
+  email: '',
+  phone: '',
+  physicalLocation: '',
+  postalAddress: '',
+  logoBase64: '',
   bankName: '',
   bankBranch: '',
   accountHolder: '',
   accountNumber: '',
   mpesaTillNumber: '',
   vatRate: 16,
-  googleWebAppUrl: 'https://script.google.com/macros/s/AKfycbydS-5XrObH66rYF6x_pm_zIKkgvwD720IqRR724ndaz3NhTMlFFgSQ9_UBa5nYWnVk/exec',
-  googleDriveFolder: 'Hotel Damview Archives',
+  googleWebAppUrl: '',
+  googleDriveFolder: '',
   googleSheetUrl: '',
-  googleDriveFolderUrl: 'https://drive.google.com/drive/folders/19BU3YmTeQx7NMKwubVCm8N6nISzA8Hzn',
+  googleDriveFolderUrl: '',
   googleSheetEmbedUrl: '',
-  autoSyncEnabled: true,
+  autoSyncEnabled: false,
 };
 
 const SAMPLE_CLIENTS: Client[] = [];
@@ -100,8 +100,28 @@ class StorageEngine {
   private isL1Hydrated = false;
 
   constructor() {
+    this.invalidateCache = this.invalidateCache.bind(this);
     this.hydrateFromLocalStorage();
     this.init();
+  }
+
+  /**
+   * Invalidate and purge L1 in-memory reactive cache to force re-reading from IndexedDB / storage
+   */
+  public invalidateCache(): void {
+    this.l1Profile = null;
+    this.l1Clients.clear();
+    this.l1Documents.clear();
+    this.l1Payments.clear();
+    this.l1Statements.clear();
+    this.l1Reservations.clear();
+    this.l1POSOrders.clear();
+    this.l1Expenses.clear();
+    this.l1Catalogue.clear();
+    this.l1SyncQueue.clear();
+    this.l1Tombstones = null;
+    this.isL1Hydrated = false;
+    this.hydrateFromLocalStorage();
   }
 
   /**
@@ -113,8 +133,8 @@ class StorageEngine {
       return;
     }
     try {
-      if (!localStorage.getItem('damview_admin_passcode') || localStorage.getItem('damview_admin_passcode') === '2025') {
-        localStorage.setItem('damview_admin_passcode', '1000');
+      if (localStorage.getItem('damview_admin_passcode') === '2025' || localStorage.getItem('damview_admin_passcode') === '1000') {
+        localStorage.removeItem('damview_admin_passcode');
       }
 
       const savedProfile = localStorage.getItem('damview_profile');
@@ -661,7 +681,7 @@ class StorageEngine {
     });
   }
 
-  private reconcileProfile(raw?: Partial<HotelProfile> | null): HotelProfile {
+  public reconcileProfile(raw?: Partial<HotelProfile> | null): HotelProfile {
     if (!raw) return { ...DEFAULT_HOTEL_PROFILE };
 
     // Tagline / Subtitle: default to blank always; purge all original/legacy baked demo strings completely
@@ -676,6 +696,55 @@ class StorageEngine {
     ];
     const isLegacyTagline = legacyDemoTaglines.includes(rawTagline.toLowerCase());
     const cleanTagline = isLegacyTagline ? '' : rawTagline;
+
+    // Purge legacy baked KRA PIN
+    const legacyKraPins = ['p051453023q', 'p-051453023q', 'p051982741z', 'p-051982741z'];
+    const rawKraPin = raw.kraPin !== undefined ? String(raw.kraPin).trim() : '';
+    const cleanKraPin = legacyKraPins.includes(rawKraPin.toLowerCase().replace(/[^a-z0-9]/g, '')) ? '' : rawKraPin;
+
+    // Purge legacy baked official email
+    const legacyEmails = ['hoteldamview@gmail.com', 'admin@hoteldamview.com'];
+    const rawEmail = raw.email !== undefined ? String(raw.email).trim() : '';
+    const cleanEmail = legacyEmails.includes(rawEmail.toLowerCase()) ? '' : rawEmail;
+
+    // Purge legacy baked phone
+    const legacyPhones = ['+254 725 242 620', '+254725242620', '+25472524262', '0725242620', '254725242620', '25472524262'];
+    const rawPhone = raw.phone !== undefined ? String(raw.phone).trim() : '';
+    const cleanPhone = legacyPhones.includes(rawPhone.replace(/\s+/g, '')) ? '' : rawPhone;
+
+    // Purge legacy baked location
+    const legacyLocations = ['mariakani'];
+    const rawLocation = raw.physicalLocation !== undefined ? String(raw.physicalLocation).trim() : '';
+    const cleanLocation = legacyLocations.includes(rawLocation.toLowerCase()) ? '' : rawLocation;
+
+    // Purge legacy baked address
+    const legacyAddresses = ['p.o. box 42491-80100, mombasa, kenya', 'p.o. box 42491-80100', 'mombasa, kenya'];
+    const rawAddress = raw.postalAddress !== undefined ? String(raw.postalAddress).trim() : '';
+    const cleanAddress = legacyAddresses.includes(rawAddress.toLowerCase()) ? '' : rawAddress;
+
+    // Purge legacy baked Google Apps Script Web App URL
+    const legacyWebAppUrls = [
+      'https://script.google.com/macros/s/akfycbyds-5xrobh66ryf6x_pm_zikkgvwd720iqrr724ndaz3nhtmlffgsq9_uba5nywnvk/exec',
+    ];
+    const rawWebAppUrl = raw.googleWebAppUrl !== undefined ? String(raw.googleWebAppUrl).trim() : '';
+    const cleanWebAppUrl = legacyWebAppUrls.includes(rawWebAppUrl.toLowerCase()) ? '' : rawWebAppUrl;
+
+    // Purge legacy baked Google Drive folder URL
+    const legacyDriveFolderUrls = [
+      'https://drive.google.com/drive/folders/19buymteqx7nmkwubvcm8n6nisza8hzn',
+    ];
+    const rawDriveFolderUrl = raw.googleDriveFolderUrl !== undefined ? String(raw.googleDriveFolderUrl).trim() : '';
+    const cleanDriveFolderUrl = legacyDriveFolderUrls.includes(rawDriveFolderUrl.toLowerCase()) ? '' : rawDriveFolderUrl;
+
+    // Purge legacy baked Google Drive folder name
+    const legacyDriveFolders = ['hotel damview archives'];
+    const rawDriveFolder = raw.googleDriveFolder !== undefined ? String(raw.googleDriveFolder).trim() : '';
+    const cleanDriveFolder = legacyDriveFolders.includes(rawDriveFolder.toLowerCase()) ? '' : rawDriveFolder;
+
+    // Purge legacy baked hotel names
+    const legacyHotelNames = ['hotel damview', 'hotel damview resort', 'hotel damview ltd'];
+    const rawName = raw.name !== undefined ? String(raw.name).trim() : '';
+    const cleanName = legacyHotelNames.includes(rawName.toLowerCase()) ? '' : rawName;
 
     // Bank and settlement credentials: default to blank unless officially entered
     // Purge all original/legacy demo credentials completely
@@ -723,32 +792,43 @@ class StorageEngine {
     const cleanAccountNo = isLegacyDemoBank ? '' : rawAccountNo;
     const cleanMpesa = (rawMpesa === '5432100' && (isLegacyDemoBank || rawBankName === 'KCB Bank Kenya' || !rawBankName)) ? '' : rawMpesa;
 
+    // Purge baked company logo if matched
+    let cleanLogo = raw.logoBase64 !== undefined ? String(raw.logoBase64).trim() : '';
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const storedLogo = localStorage.getItem('damview_company_logo');
+      if (storedLogo && storedLogo.length > 50 && storedLogo.includes('iVBORw0KGgoAAAANSUhEUgAAAKAAAACgCAYAAAB')) {
+        try {
+          localStorage.removeItem('damview_company_logo');
+        } catch {}
+      } else if (storedLogo && !cleanLogo) {
+        cleanLogo = storedLogo;
+      }
+    }
+    if (cleanLogo.includes('iVBORw0KGgoAAAANSUhEUgAAAKAAAACgCAYAAAB')) {
+      cleanLogo = '';
+    }
+
     return {
-      name: (raw.name && String(raw.name).trim()) ? String(raw.name).trim() : DEFAULT_HOTEL_PROFILE.name,
+      name: cleanName,
       tagline: cleanTagline,
-      kraPin: (raw.kraPin && String(raw.kraPin).trim()) ? String(raw.kraPin).trim() : DEFAULT_HOTEL_PROFILE.kraPin,
-      email: (raw.email && String(raw.email).trim()) ? String(raw.email).trim() : DEFAULT_HOTEL_PROFILE.email,
-      phone: (raw.phone && String(raw.phone).trim()) ? String(raw.phone).trim() : DEFAULT_HOTEL_PROFILE.phone,
-      physicalLocation: (raw.physicalLocation && String(raw.physicalLocation).trim()) ? String(raw.physicalLocation).trim() : DEFAULT_HOTEL_PROFILE.physicalLocation,
-      postalAddress: (raw.postalAddress && String(raw.postalAddress).trim()) ? String(raw.postalAddress).trim() : DEFAULT_HOTEL_PROFILE.postalAddress,
-      logoBase64:
-        raw.logoBase64 !== undefined && String(raw.logoBase64).trim() !== ''
-          ? String(raw.logoBase64).trim()
-          : typeof window !== 'undefined' && window.localStorage
-          ? localStorage.getItem('damview_company_logo') || DEFAULT_HOTEL_PROFILE.logoBase64
-          : DEFAULT_HOTEL_PROFILE.logoBase64,
+      kraPin: cleanKraPin,
+      email: cleanEmail,
+      phone: cleanPhone,
+      physicalLocation: cleanLocation,
+      postalAddress: cleanAddress,
+      logoBase64: cleanLogo,
       bankName: cleanBankName,
       bankBranch: cleanBankBranch,
       accountHolder: cleanAccountHolder,
       accountNumber: cleanAccountNo,
       mpesaTillNumber: cleanMpesa,
-      vatRate: typeof raw.vatRate === 'number' && !isNaN(raw.vatRate) && raw.vatRate >= 0 ? raw.vatRate : DEFAULT_HOTEL_PROFILE.vatRate,
-      googleWebAppUrl: (raw.googleWebAppUrl && String(raw.googleWebAppUrl).trim()) ? String(raw.googleWebAppUrl).trim() : DEFAULT_HOTEL_PROFILE.googleWebAppUrl,
-      googleDriveFolder: (raw.googleDriveFolder && String(raw.googleDriveFolder).trim()) ? String(raw.googleDriveFolder).trim() : DEFAULT_HOTEL_PROFILE.googleDriveFolder,
-      googleSheetUrl: raw.googleSheetUrl !== undefined ? raw.googleSheetUrl : (DEFAULT_HOTEL_PROFILE.googleSheetUrl || ''),
-      googleDriveFolderUrl: (raw.googleDriveFolderUrl && String(raw.googleDriveFolderUrl).trim()) ? String(raw.googleDriveFolderUrl).trim() : DEFAULT_HOTEL_PROFILE.googleDriveFolderUrl,
-      googleSheetEmbedUrl: raw.googleSheetEmbedUrl !== undefined ? raw.googleSheetEmbedUrl : (DEFAULT_HOTEL_PROFILE.googleSheetEmbedUrl || ''),
-      autoSyncEnabled: raw.autoSyncEnabled !== undefined ? raw.autoSyncEnabled : DEFAULT_HOTEL_PROFILE.autoSyncEnabled,
+      vatRate: typeof raw.vatRate === 'number' && !isNaN(raw.vatRate) && raw.vatRate >= 0 ? raw.vatRate : 16,
+      googleWebAppUrl: cleanWebAppUrl,
+      googleDriveFolder: cleanDriveFolder,
+      googleSheetUrl: raw.googleSheetUrl !== undefined ? String(raw.googleSheetUrl).trim() : '',
+      googleDriveFolderUrl: cleanDriveFolderUrl,
+      googleSheetEmbedUrl: raw.googleSheetEmbedUrl !== undefined ? String(raw.googleSheetEmbedUrl).trim() : '',
+      autoSyncEnabled: cleanWebAppUrl.length > 0 && raw.autoSyncEnabled !== undefined ? Boolean(raw.autoSyncEnabled) : false,
       lastSyncTimestamp: raw.lastSyncTimestamp,
     };
   }
@@ -1405,32 +1485,52 @@ class StorageEngine {
   async getNextDocumentNumber(type: 'QUOTATION' | 'PROFORMA' | 'INVOICE'): Promise<string> {
     const docs = await this.getDocuments();
     const prefix = type === 'QUOTATION' ? 'QT-' : type === 'PROFORMA' ? 'PI-' : 'INV-';
+    
+    // Match either by documentType OR if documentNumber starts with known prefix for that type
     const matching = docs.filter((d) => {
-      if (d.documentType !== type) return false;
+      if (d.documentType === type) return true;
+      const numUpper = (d.documentNumber || '').toUpperCase().trim();
       if (type === 'QUOTATION') {
-        return d.documentNumber.startsWith('QT-') || d.documentNumber.startsWith('Q-');
+        return numUpper.startsWith('QT-') || numUpper.startsWith('QT') || numUpper.startsWith('Q-');
       }
-      return d.documentNumber.startsWith(prefix);
+      if (type === 'PROFORMA') {
+        return numUpper.startsWith('PI-') || numUpper.startsWith('PI') || numUpper.startsWith('PRO-');
+      }
+      return numUpper.startsWith('INV-') || numUpper.startsWith('INV') || numUpper.startsWith('IN-');
     });
 
     let maxNum = 0;
+    let maxPad = 4;
+
     matching.forEach((d) => {
-      const numPart = parseInt(d.documentNumber.replace(/^(QT-|Q-|PI-|INV-)/, ''), 10);
-      if (!isNaN(numPart) && numPart > maxNum) {
-        maxNum = numPart;
+      const docNumStr = (d.documentNumber || '').trim();
+      // Extract numeric suffix from end of document number (handles INV-0001, INV-2025-004, INV 005, etc.)
+      const match = docNumStr.match(/(\d+)$/);
+      if (match) {
+        const digitsStr = match[1];
+        const numPart = parseInt(digitsStr, 10);
+        if (!isNaN(numPart) && numPart > maxNum) {
+          maxNum = numPart;
+          if (digitsStr.length > maxPad) {
+            maxPad = digitsStr.length;
+          }
+        }
       }
     });
 
-    let localResult = `${prefix}${String(maxNum + 1).padStart(4, '0')}`;
+    let localResult = `${prefix}${String(maxNum + 1).padStart(maxPad, '0')}`;
 
     // Cloud sequence check if online and configured
     if (this.cloudSequenceResolver && typeof window !== 'undefined' && navigator.onLine) {
       try {
         const cloudSeq = await this.cloudSequenceResolver(type);
         if (cloudSeq && cloudSeq.startsWith(prefix)) {
-          const cloudNum = parseInt(cloudSeq.replace(prefix, ''), 10);
-          if (!isNaN(cloudNum) && cloudNum > maxNum) {
-            localResult = cloudSeq;
+          const cloudNumMatch = cloudSeq.match(/(\d+)$/);
+          if (cloudNumMatch) {
+            const cloudNum = parseInt(cloudNumMatch[1], 10);
+            if (!isNaN(cloudNum) && cloudNum > maxNum) {
+              localResult = cloudSeq;
+            }
           }
         }
       } catch (err) {
@@ -1594,22 +1694,35 @@ class StorageEngine {
   async getNextReceiptNumber(): Promise<string> {
     const payments = await this.getPayments();
     let maxNum = 0;
+    let maxPad = 4;
+
     payments.forEach((p) => {
-      const numPart = parseInt(p.receiptNumber.replace('REC-', ''), 10);
-      if (!isNaN(numPart) && numPart > maxNum) {
-        maxNum = numPart;
+      const recStr = (p.receiptNumber || '').trim();
+      const match = recStr.match(/(\d+)$/);
+      if (match) {
+        const digitsStr = match[1];
+        const numPart = parseInt(digitsStr, 10);
+        if (!isNaN(numPart) && numPart > maxNum) {
+          maxNum = numPart;
+          if (digitsStr.length > maxPad) {
+            maxPad = digitsStr.length;
+          }
+        }
       }
     });
 
-    let localResult = `REC-${String(maxNum + 1).padStart(4, '0')}`;
+    let localResult = `REC-${String(maxNum + 1).padStart(maxPad, '0')}`;
 
     if (this.cloudSequenceResolver && typeof window !== 'undefined' && navigator.onLine) {
       try {
         const cloudSeq = await this.cloudSequenceResolver('RECEIPT');
         if (cloudSeq && cloudSeq.startsWith('REC-')) {
-          const cloudNum = parseInt(cloudSeq.replace('REC-', ''), 10);
-          if (!isNaN(cloudNum) && cloudNum > maxNum) {
-            localResult = cloudSeq;
+          const match = cloudSeq.match(/(\d+)$/);
+          if (match) {
+            const cloudNum = parseInt(match[1], 10);
+            if (!isNaN(cloudNum) && cloudNum > maxNum) {
+              localResult = cloudSeq;
+            }
           }
         }
       } catch (err) {
@@ -2775,6 +2888,10 @@ class StorageEngine {
 }
 
 export const dbService = new StorageEngine();
+
+if (typeof window !== 'undefined') {
+  (window as any).dbService = dbService;
+}
 
 export const saveLocalFirst = <T = any>(params: SaveLocalFirstParams<T>) =>
   dbService.saveLocalFirst<T>(params);

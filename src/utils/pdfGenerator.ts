@@ -155,12 +155,10 @@ export function injectSearchableVectorTextLayer(
             const relX_mm = (rect.left - rootRect.left) * pxToMm;
             const relY_mm = (rect.top - rootRect.top) * pxToMm;
 
-            const pageIndex = Math.floor(relY_mm / pdfHeightMm);
-            const pageY_mm = relY_mm - pageIndex * pdfHeightMm;
+            const maxAllowedPageIndex = Math.max(0, pdf.getNumberOfPages() - 1);
+            const pageIndex = Math.min(maxAllowedPageIndex, Math.max(0, Math.floor(relY_mm / pdfHeightMm)));
+            const pageY_mm = Math.min(pdfHeightMm - 2, Math.max(0, relY_mm - pageIndex * pdfHeightMm));
 
-            while (pdf.getNumberOfPages() <= pageIndex) {
-              pdf.addPage();
-            }
             pdf.setPage(pageIndex + 1);
 
             pdf.setFont(fontName, fontStyle);
@@ -193,12 +191,10 @@ export function injectSearchableVectorTextLayer(
                 const relX_mm = (wordRect.left - rootRect.left) * pxToMm;
                 const relY_mm = (wordRect.top - rootRect.top) * pxToMm;
 
-                const pageIndex = Math.floor(relY_mm / pdfHeightMm);
-                const pageY_mm = relY_mm - pageIndex * pdfHeightMm;
+                const maxAllowedPageIndex = Math.max(0, pdf.getNumberOfPages() - 1);
+                const pageIndex = Math.min(maxAllowedPageIndex, Math.max(0, Math.floor(relY_mm / pdfHeightMm)));
+                const pageY_mm = Math.min(pdfHeightMm - 2, Math.max(0, relY_mm - pageIndex * pdfHeightMm));
 
-                while (pdf.getNumberOfPages() <= pageIndex) {
-                  pdf.addPage();
-                }
                 pdf.setPage(pageIndex + 1);
 
                 pdf.setFont(fontName, fontStyle);
@@ -320,12 +316,12 @@ export async function generatePdfFromElement(
   } catch {}
 
   // 3. Create an isolated, unscaled off-screen staging sandbox
-  // This guarantees that any CSS transform: scale(...) on the parent/viewport/modal
-  // NEVER distorts the generated PDF canvas, table borders, subtle gridlines, or vector coordinates.
+  // Placed at top:0, left:0 with z-index: -99999 and opacity: 0 so all CSS, layout,
+  // bounding client rects, images, and fonts compute identically to on-screen rendering.
   const sandbox = document.createElement('div');
   sandbox.id = `pdf-staging-sandbox-${Date.now()}`;
   sandbox.style.position = 'fixed';
-  sandbox.style.left = '-99999px';
+  sandbox.style.left = '0';
   sandbox.style.top = '0';
   sandbox.style.width = '794px'; // Standard 210mm @ 96 DPI
   sandbox.style.minHeight = '1123px'; // Standard 297mm @ 96 DPI
@@ -336,6 +332,7 @@ export async function generatePdfFromElement(
   sandbox.style.transformOrigin = 'top left';
   sandbox.style.zIndex = '-99999';
   sandbox.style.backgroundColor = '#ffffff';
+  sandbox.style.opacity = '1';
   sandbox.style.visibility = 'visible';
   sandbox.style.pointerEvents = 'none';
 
@@ -348,6 +345,12 @@ export async function generatePdfFromElement(
   clone.style.minHeight = '1123px';
   clone.style.boxSizing = 'border-box';
   clone.style.backgroundColor = '#ffffff';
+  clone.style.opacity = '1';
+  clone.style.visibility = 'visible';
+  clone.style.border = 'none';
+  clone.style.boxShadow = 'none';
+  clone.style.outline = 'none';
+  clone.classList.remove('border', 'border-stone-300', 'shadow-md', 'shadow-lg', 'shadow-2xl');
 
   // Remove any responsive scaling classes or transforms from all cloned descendants
   const scaledDescendants = clone.querySelectorAll<HTMLElement>('[style*="transform"], [class*="scale"]');
@@ -371,8 +374,23 @@ export async function generatePdfFromElement(
   const pdfHeight = pdf.internal.pageSize.getHeight(); // 297 mm
 
   try {
-    // Wait small tick for DOM and image assets to settle inside sandbox
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    // Ensure all images inside clone are fully loaded and decoded before rendering canvas
+    const imgElements = Array.from(clone.querySelectorAll('img'));
+    if (imgElements.length > 0) {
+      await Promise.all(
+        imgElements.map((img) => {
+          if (img.complete && img.naturalHeight !== 0) return Promise.resolve();
+          return new Promise<void>((resolve) => {
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+            setTimeout(resolve, 350);
+          });
+        })
+      );
+    }
+
+    // Wait small tick for layout and vector styles to settle inside sandbox
+    await new Promise((resolve) => setTimeout(resolve, 60));
 
     // High-resolution canvas rendering: scale 2.5 (240 DPI print quality) for crystal-clear vector borders, logos, and typography
     canvas = await html2canvas(clone, {
@@ -385,13 +403,16 @@ export async function generatePdfFromElement(
       windowWidth: 794,
       scrollX: 0,
       scrollY: 0,
+      x: 0,
+      y: 0,
     });
 
     if (canvas.width <= 0 || canvas.height <= 0) {
       throw new Error('Canvas rendering engine returned zero dimensions.');
     }
 
-    const imgData = canvas.toDataURL('image/jpeg', 0.98);
+    // Use lossless PNG for 100% visual parity with preview (no lossy JPEG artifacts or background discoloration)
+    const imgData = canvas.toDataURL('image/png');
     const imgWidth = pdfWidth;
     const imgHeight = (canvas.height * pdfWidth) / canvas.width;
 
@@ -404,7 +425,7 @@ export async function generatePdfFromElement(
       }
       pdf.setPage(page + 1);
       const yOffset = -page * pdfHeight;
-      pdf.addImage(imgData, 'JPEG', 0, yOffset, imgWidth, imgHeight);
+      pdf.addImage(imgData, 'PNG', 0, yOffset, imgWidth, imgHeight, undefined, 'FAST');
     }
 
     // Inject searchable, selectable vector text layer on top of all pages using the unscaled staging element

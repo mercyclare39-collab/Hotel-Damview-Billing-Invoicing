@@ -720,13 +720,13 @@ export const ExcelWorkstationModule: React.FC<ExcelWorkstationModuleProps> = ({
                   <tr className="bg-stone-50/50">
                     <td className="p-3 font-bold text-amber-700">A1:F1</td>
                     <td className="p-3 font-sans text-stone-900">Executive Hotel Header</td>
-                    <td className="p-3 text-stone-600">HOTEL DAMVIEW LTD (16pt Times New Roman, Stone 900 Fill)</td>
+                    <td className="p-3 text-stone-600">{profile.name || 'HOTEL MANAGEMENT ERP'} (16pt Times New Roman, Stone 900 Fill)</td>
                     <td className="p-3 font-sans text-stone-600">Row Height 26, White bold text, centered</td>
                   </tr>
                   <tr>
                     <td className="p-3 font-bold text-amber-700">A2:F2</td>
                     <td className="p-3 font-sans text-stone-900">Contact & PIN Strip</td>
-                    <td className="p-3 text-stone-600">Off Kangundo Rd | Tel: +254 722 000 000 | PIN: P051982741Z</td>
+                    <td className="p-3 text-stone-600">{profile.physicalLocation ? `${profile.physicalLocation} | ` : ''}Tel: {profile.phone || '—'} | PIN: {profile.kraPin || '—'}</td>
                     <td className="p-3 font-sans text-stone-600">Row Height 16, 9pt italic, centered</td>
                   </tr>
                   <tr className="bg-stone-50/50">
@@ -941,7 +941,7 @@ export const ExcelWorkstationModule: React.FC<ExcelWorkstationModuleProps> = ({
                 { name: 'Data_Proformas', count: `${proformaCount} rows`, desc: 'Proforma Invoices ledger' },
                 { name: 'Data_Receipts', count: `${payments.length} rows`, desc: 'Settlements ledger with M-Pesa till references' },
                 { name: 'Data_Statements', count: `${statements.length} rows`, desc: 'Generated Statements of Account ledger' },
-                { name: 'Data_Hotel_Settings', count: '13 keys', desc: 'Hotel Damview PIN P051982741Z, Till 5432100, Bank details' },
+                { name: 'Data_Hotel_Settings', count: '13 keys', desc: `${profile.name || 'Hotel'} PIN, Till, Remittance & Bank configuration` },
               ].map((d) => (
                 <div key={d.name} className="p-3.5 rounded-xl border border-stone-200 bg-stone-50/50 hover:bg-stone-50 transition-colors">
                   <div className="font-bold text-stone-900 text-xs flex items-center justify-between">

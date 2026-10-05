@@ -8,7 +8,6 @@ import {
   SyncQueueItem,
 } from './types';
 import { dbService, DEFAULT_HOTEL_PROFILE } from './services/db';
-import { DEFAULT_COMPANY_LOGO_BASE64 } from './services/defaultLogo';
 import { syncManager } from './services/sync';
 import { Sidebar, MainNavModule } from './components/Sidebar';
 import { DocumentModule } from './components/DocumentModule';
@@ -91,11 +90,36 @@ export function hasActiveDataInputInProgress(): boolean {
       }
     }
 
-    // 3. Check active POS cart
+    // 3. Check active settings and credentials draft
+    const settingsDraftRaw = localStorage.getItem('damview_settings_draft');
+    if (settingsDraftRaw) {
+      const s = JSON.parse(settingsDraftRaw);
+      const hasContent = Object.values(s).some(
+        (v) => typeof v === 'string' && v.trim().length > 0
+      );
+      if (hasContent) return true;
+    }
+
+    // 4. Check client directory draft
+    const clientDraftRaw = localStorage.getItem('damview_client_draft');
+    if (clientDraftRaw) {
+      const c = JSON.parse(clientDraftRaw);
+      if (c?.name?.trim() || c?.phone?.trim() || c?.kraPin?.trim()) return true;
+    }
+
+    // 5. Check active POS cart
     const posCartRaw = localStorage.getItem('damview_pos_active_cart');
     if (posCartRaw) {
       const cart = JSON.parse(posCartRaw);
       if (Array.isArray(cart) && cart.length > 0) return true;
+    }
+
+    // 6. Check active DOM inputs if page is currently live
+    if (typeof document !== 'undefined' && document.activeElement) {
+      const tag = document.activeElement.tagName.toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement as HTMLElement).isContentEditable) {
+        return true;
+      }
     }
   } catch {}
   return false;
@@ -103,28 +127,25 @@ export function hasActiveDataInputInProgress(): boolean {
 
 export default function App() {
   const [currentModule, setCurrentModuleState] = useState<MainNavModule>(() => {
-    // When reloading/refreshing, return to normal default app module page ('dashboard')
-    // unless user is actually in process of inputting data or an active transaction
-    const hasInput = hasActiveDataInputInProgress();
+    const validModules: MainNavModule[] = [
+      'dashboard',
+      'reservations',
+      'pos',
+      'quotations',
+      'proformas',
+      'invoices',
+      'receipts',
+      'statements',
+      'nightaudit',
+      'vault',
+      'clients',
+      'sync',
+      'excel',
+      'settings',
+    ];
 
-    if (hasInput && typeof window !== 'undefined') {
+    if (typeof window !== 'undefined') {
       const hash = window.location.hash.replace('#', '').toLowerCase() as MainNavModule;
-      const validModules: MainNavModule[] = [
-        'dashboard',
-        'reservations',
-        'pos',
-        'quotations',
-        'proformas',
-        'invoices',
-        'receipts',
-        'statements',
-        'nightaudit',
-        'vault',
-        'clients',
-        'sync',
-        'excel',
-        'settings',
-      ];
       if (hash && validModules.includes(hash)) {
         return hash;
       }
@@ -134,20 +155,6 @@ export default function App() {
         if (saved && validModules.includes(saved)) {
           return saved;
         }
-      }
-    }
-
-    // Reset non-default hash and active module on clean reload to return to normal default app module
-    if (typeof window !== 'undefined') {
-      if (window.location.hash && window.location.hash !== '#dashboard') {
-        try {
-          window.history.replaceState(null, '', '#dashboard');
-        } catch {}
-      }
-      if (window.localStorage) {
-        try {
-          localStorage.removeItem('damview_active_module');
-        } catch {}
       }
     }
     return 'dashboard';
@@ -167,69 +174,24 @@ export default function App() {
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         const stored = localStorage.getItem('damview_profile');
-        const customLogo = (localStorage.getItem('damview_company_logo') || '').trim() || DEFAULT_COMPANY_LOGO_BASE64;
-        // Seed dedicated localStorage key so it's always available across tabs and components
-        if (!localStorage.getItem('damview_company_logo')) {
-          try {
-            localStorage.setItem('damview_company_logo', DEFAULT_COMPANY_LOGO_BASE64);
-          } catch {}
-        }
         if (stored) {
           const parsed = JSON.parse(stored);
-          // Always ensure the active company logo is applied
-          parsed.logoBase64 = customLogo;
-          const legacyTaglines = [
-            'premier hospitality, accommodation & dining',
-            'luxury & serenity by the dam',
-            'luxury & serenity',
-            'luxury and serenity by the dam',
-            'premier hospitality',
-            'serenity by the dam',
-          ];
-          if (parsed.tagline && legacyTaglines.includes(String(parsed.tagline).toLowerCase().trim())) {
-            parsed.tagline = '';
-          }
-          const legacyBanks = [
-            'kcb bank kenya',
-            'kenya commercial bank',
-            'kenya commercial bank (kcb)',
-            'kcb',
-            'equity bank',
-            'equity bank kenya',
-            'equity bank machakos',
-            'equity bank limited',
-          ];
-          const legacyAccs = ['1102983746', '0123456789012'];
-          const legacyBranches = ['mariakani branch', 'machakos branch', 'machakos main branch', 'machakos'];
-          const legacyHolders = ['hotel damview enterprises ltd', 'hotel damview ltd', 'hotel damview'];
-
-          const bankNameLower = (parsed.bankName || '').toLowerCase().trim();
-          const accNoTrim = (parsed.accountNumber || '').trim();
-          const branchLower = (parsed.bankBranch || '').toLowerCase().trim();
-          const holderLower = (parsed.accountHolder || '').toLowerCase().trim();
-
-          if (
-            legacyBanks.includes(bankNameLower) ||
-            legacyAccs.includes(accNoTrim) ||
-            (branchLower && legacyBranches.includes(branchLower)) ||
-            (holderLower && legacyHolders.includes(holderLower))
-          ) {
-            parsed.bankName = '';
-            parsed.bankBranch = '';
-            parsed.accountHolder = '';
-            parsed.accountNumber = '';
-            if (parsed.mpesaTillNumber === '5432100') parsed.mpesaTillNumber = '';
-          }
+          const reconciled = dbService.reconcileProfile(parsed);
           try {
-            localStorage.setItem('damview_profile', JSON.stringify(parsed));
+            localStorage.setItem('damview_profile', JSON.stringify(reconciled));
           } catch {}
-          return parsed;
-        } else if (customLogo) {
-          return { ...DEFAULT_HOTEL_PROFILE, logoBase64: customLogo };
+          return reconciled;
+        } else {
+          // Fresh initialization: keep all default saved data credentials and settings blank
+          const initial = { ...DEFAULT_HOTEL_PROFILE };
+          try {
+            localStorage.setItem('damview_profile', JSON.stringify(initial));
+          } catch {}
+          return initial;
         }
       } catch {}
     }
-    return DEFAULT_HOTEL_PROFILE;
+    return { ...DEFAULT_HOTEL_PROFILE };
   });
   const [clients, setClients] = useState<Client[]>([]);
   const [documents, setDocuments] = useState<BillingDocument[]>([]);
@@ -467,9 +429,19 @@ export default function App() {
       }
     };
 
+    const handleProfileUpdated = (e: any) => {
+      const updates = e?.detail;
+      if (updates && typeof updates === 'object') {
+        setProfile((prev) => ({ ...prev, ...updates }));
+      }
+      safeRefreshData();
+    };
+
     window.addEventListener('damview:data-changed', handleRemoteDataChanged);
     window.addEventListener('damview-sync-completed', handleRemoteDataChanged);
     window.addEventListener('damview-renumbered', handleRemoteDataChanged);
+    window.addEventListener('damview:profile-updated', handleProfileUpdated);
+    window.addEventListener('damview:credentials-updated', handleRemoteDataChanged);
     window.addEventListener('damview:sync-warning', handleSyncWarning);
     window.addEventListener('damview:navigate-module', handleNavigateModule);
     window.addEventListener('damview:navigate-journal', handleNavigateJournal);
@@ -500,6 +472,41 @@ export default function App() {
     };
     window.addEventListener('damview:logo-changed', handleLogoChanged);
     window.addEventListener('storage', handleStorageChange);
+
+    // Dynamic App Title and Metadata Synchronizer: auto-populates browser title, meta tags, and header details
+    // whenever user inputs or updates hotel settings and credentials
+    const hotelName = profile?.name?.trim() || 'Hotel Damview';
+    const hotelTagline =
+      profile?.tagline?.trim() ||
+      (profile?.physicalLocation ? profile.physicalLocation.trim() : 'Billing & Documentation ERP');
+    const fullTitle = `${hotelName} — ${hotelTagline}`;
+
+    if (typeof document !== 'undefined') {
+      document.title = fullTitle;
+
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) {
+        metaDesc.setAttribute(
+          'content',
+          `${hotelName}: ${hotelTagline}. Dynamic billing, invoicing, and quotation management.`
+        );
+      }
+
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle) {
+        ogTitle.setAttribute('content', fullTitle);
+      }
+
+      const ogDesc = document.querySelector('meta[property="og:description"]');
+      if (ogDesc) {
+        ogDesc.setAttribute('content', `${hotelName} — ${hotelTagline}`);
+      }
+
+      const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+      if (appleTitle) {
+        appleTitle.setAttribute('content', hotelName);
+      }
+    }
 
     // Handle browser hash changes (Back/Forward buttons)
     const handleHashChange = () => {
@@ -603,6 +610,8 @@ export default function App() {
       window.removeEventListener('damview:data-changed', handleRemoteDataChanged);
       window.removeEventListener('damview-sync-completed', handleRemoteDataChanged);
       window.removeEventListener('damview-renumbered', handleRemoteDataChanged);
+      window.removeEventListener('damview:profile-updated', handleProfileUpdated);
+      window.removeEventListener('damview:credentials-updated', handleRemoteDataChanged);
       window.removeEventListener('damview:sync-warning', handleSyncWarning);
       window.removeEventListener('damview:navigate-module', handleNavigateModule);
       window.removeEventListener('damview:navigate-journal', handleNavigateJournal);
@@ -619,6 +628,42 @@ export default function App() {
       clearInterval(interval);
     };
   }, [refreshData, safeRefreshData]);
+
+  // Dynamically synchronize browser tab title and metadata whenever profile updates
+  useEffect(() => {
+    const hotelName = profile?.name?.trim() || 'Hotel Damview';
+    const hotelTagline =
+      profile?.tagline?.trim() ||
+      (profile?.physicalLocation ? profile.physicalLocation.trim() : 'Billing & Documentation ERP');
+    const fullTitle = `${hotelName} — ${hotelTagline}`;
+
+    if (typeof document !== 'undefined') {
+      document.title = fullTitle;
+
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) {
+        metaDesc.setAttribute(
+          'content',
+          `${hotelName}: ${hotelTagline}. Dynamic billing, invoicing, and quotation management.`
+        );
+      }
+
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle) {
+        ogTitle.setAttribute('content', fullTitle);
+      }
+
+      const ogDesc = document.querySelector('meta[property="og:description"]');
+      if (ogDesc) {
+        ogDesc.setAttribute('content', `${hotelName} — ${hotelTagline}`);
+      }
+
+      const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+      if (appleTitle) {
+        appleTitle.setAttribute('content', hotelName);
+      }
+    }
+  }, [profile?.name, profile?.tagline, profile?.physicalLocation]);
 
   // Handle manual sync trigger
   const handleTriggerSync = async () => {
@@ -1133,7 +1178,7 @@ export default function App() {
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="font-bold text-xs uppercase tracking-wider text-white font-serif truncate block max-w-[130px] sm:max-w-[200px]">
-                    {profile.name || profile.hotelName || 'HOTEL DAMVIEW'}
+                    {profile.name || profile.hotelName || 'HOTEL ERP'}
                   </span>
                 </div>
                 {/* ALWAYS SHOW ACTIVE NAVIGATION MODULE NAME ON MOBILE */}
@@ -1192,22 +1237,24 @@ export default function App() {
             >
               <HotelLogo
                 logoBase64={profile.logoBase64}
-                hotelName={profile.name || profile.hotelName || 'HOTEL DAMVIEW'}
+                hotelName={profile.name || profile.hotelName || 'HOTEL ERP'}
                 size={34}
                 className="w-8 h-8 rounded p-0.5 bg-stone-950 border border-stone-800 group-hover:border-amber-500/60 transition-colors shrink-0 object-contain"
               />
               <div className="flex flex-col min-w-0 leading-tight">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="font-bold text-sm tracking-wide text-white group-hover:text-amber-300 transition-colors uppercase font-serif truncate">
-                    {profile.name || profile.hotelName || 'HOTEL DAMVIEW'}
+                    {profile.name || profile.hotelName || 'HOTEL ERP'}
                   </span>
                   <span className="inline-block text-[10px] text-amber-400 font-bold px-1.5 py-0.2 rounded bg-amber-400/10 border border-amber-400/30 uppercase tracking-wider shrink-0">
                     ERP
                   </span>
                 </div>
-                <span className="text-[10px] text-stone-300 font-medium truncate max-w-[240px] xl:max-w-[360px]">
-                  {profile.tagline || profile.physicalLocation || profile.postalAddress || 'Machakos, Kenya'}
-                </span>
+                {(profile.tagline || profile.physicalLocation || profile.postalAddress) && (
+                  <span className="text-[10px] text-stone-300 font-medium truncate max-w-[240px] xl:max-w-[360px]">
+                    {profile.tagline || profile.physicalLocation || profile.postalAddress}
+                  </span>
+                )}
               </div>
             </div>
 

@@ -177,13 +177,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           className="flex items-center gap-3 cursor-pointer py-1"
           onClick={() => onSelectTab('dashboard')}
         >
-          <HotelLogo logoBase64={profile.logoBase64} size={38} />
+          <HotelLogo logoBase64={profile.logoBase64} size={38} hotelName={profile.name} />
           <div>
             <div className="font-bold text-sm tracking-wider uppercase text-amber-400 font-serif leading-none">
-              {profile.name || 'HOTEL DAMVIEW'}
+              {profile.name || 'HOTEL MANAGEMENT ERP'}
             </div>
-            <div className="text-[10px] text-stone-400 tracking-wide mt-0.5">
-              Billing & Documentation ERP
+            <div className="text-[10px] text-stone-400 tracking-wide mt-0.5 truncate max-w-[240px]">
+              {profile.tagline || profile.physicalLocation || 'Billing & Documentation ERP'}
             </div>
           </div>
         </div>

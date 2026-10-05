@@ -165,7 +165,7 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
       phone = '254' + phone;
     }
 
-    const hotelName = profile?.name || 'Hotel Damview';
+    const hotelName = profile?.name || 'Hotel Management';
     const tillInfo = profile?.mpesaTillNumber?.trim()
       ? `\nPayment Settlement: M-Pesa Buy Goods Till ${profile.mpesaTillNumber.trim()}`
       : (profile?.bankName?.trim() && profile?.accountNumber?.trim())
@@ -254,7 +254,7 @@ export const DriveVault: React.FC<DriveVaultProps> = ({
             </span>
             <div className="text-xs font-bold text-stone-900 truncate max-w-[180px]">
               {profile.googleSheetsSpreadsheetId
-                ? 'Hotel Damview Google Drive'
+                ? (profile.name ? `${profile.name} Google Drive` : 'Google Drive Storage')
                 : 'Workspace Drive Linked'}
             </div>
             <span className="text-[11px] text-sky-600 font-medium">Drive Archive Linked</span>

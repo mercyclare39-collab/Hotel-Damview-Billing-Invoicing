@@ -1,5 +1,5 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v6.2.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v6.3.0)
  * High-Concurrency Multi-Tier Lock Isolation, Decoupled Instant Drive Archival & Universal ERP Sync Engine
  * Single Source of Truth Binary Archival & 100% Visual and Structural Parity Pipeline
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Fail-Safe Architecture
@@ -81,7 +81,7 @@
  * 7. Click "Deploy", authorize permissions, and verify the Web App URL in Hotel Damview App Settings.
  */
 
-var CURRENT_SCRIPT_VERSION = "v6.2.0";
+var CURRENT_SCRIPT_VERSION = "v6.3.0";
 
 // ============================================================================
 // 1. CANONICAL FIELD DEFINITIONS & ALIASES FOR DYNAMIC HEADER MAPPING
@@ -790,6 +790,62 @@ function doPost(e) {
       } catch (profErr) {
         logAudit(ss, "UPSERT_PROFILE", "Failed profile sync: " + profErr.toString(), "FAILURE", "", "");
         return responseJSON({ success: false, error: profErr.toString() });
+      }
+    }
+
+    // 9b. CATALOGUE / PARTICULAR PRESETS UPSERT
+    if (action === "UPSERT_CATALOGUE" || action === "UPSERT_CATALOGUE_ITEM") {
+      try {
+        var catTarget = data.catalogueItem || data.item || data.catalogue;
+        if (!catTarget) throw new Error("Missing catalogue item payload object");
+        var catRes = upsertCatalogueItem(ss, catTarget);
+        logAudit(ss, "UPSERT_CATALOGUE", "Catalogue preset: " + (catTarget.particulars || "Item"), "SUCCESS", "", "");
+        return responseJSON({ success: true, result: catRes });
+      } catch (catErr) {
+        logAudit(ss, "UPSERT_CATALOGUE", "Failed catalogue sync: " + catErr.toString(), "FAILURE", "", "");
+        return responseJSON({ success: false, error: catErr.toString() });
+      }
+    }
+
+    // 9c. POS ORDER UPSERT
+    if (action === "UPSERT_POS_ORDER" || action === "RECORD_POS_ORDER") {
+      try {
+        var posTarget = data.posOrder || data.order;
+        if (!posTarget) throw new Error("Missing POS order payload object");
+        var posRes = upsertPosOrder(ss, posTarget);
+        logAudit(ss, "UPSERT_POS_ORDER", "POS Order " + (posTarget.orderNumber || "Order"), "SUCCESS", "", "");
+        return responseJSON({ success: true, result: posRes });
+      } catch (posErr) {
+        logAudit(ss, "UPSERT_POS_ORDER", "Failed POS order sync: " + posErr.toString(), "FAILURE", "", "");
+        return responseJSON({ success: false, error: posErr.toString() });
+      }
+    }
+
+    // 9d. RESERVATION UPSERT
+    if (action === "UPSERT_RESERVATION" || action === "RECORD_RESERVATION") {
+      try {
+        var resTarget = data.reservation || data.booking;
+        if (!resTarget) throw new Error("Missing reservation payload object");
+        var resResult = upsertReservation(ss, resTarget);
+        logAudit(ss, "UPSERT_RESERVATION", "Reservation for " + (resTarget.guestName || "Guest"), "SUCCESS", "", "");
+        return responseJSON({ success: true, result: resResult });
+      } catch (resErr) {
+        logAudit(ss, "UPSERT_RESERVATION", "Failed reservation sync: " + resErr.toString(), "FAILURE", "", "");
+        return responseJSON({ success: false, error: resErr.toString() });
+      }
+    }
+
+    // 9e. EXPENSE OUTFLOW UPSERT
+    if (action === "UPSERT_EXPENSE" || action === "RECORD_EXPENSE") {
+      try {
+        var expTarget = data.expense;
+        if (!expTarget) throw new Error("Missing expense payload object");
+        var expRes = upsertExpense(ss, expTarget);
+        logAudit(ss, "UPSERT_EXPENSE", "Expense: " + (expTarget.description || "Expense"), "SUCCESS", "", "");
+        return responseJSON({ success: true, result: expRes });
+      } catch (expErr) {
+        logAudit(ss, "UPSERT_EXPENSE", "Failed expense sync: " + expErr.toString(), "FAILURE", "", "");
+        return responseJSON({ success: false, error: expErr.toString() });
       }
     }
 
@@ -2305,7 +2361,13 @@ function getFullSpreadsheetData(ss) {
     proformas: [],
     clients: [],
     receipts: [],
-    profile: {}
+    profile: {},
+    lineItems: [],
+    catalogue: [],
+    posOrders: [],
+    reservations: [],
+    expenses: [],
+    statements: []
   };
 
   for (var i = 0; i < sheets.length; i++) {
@@ -2380,6 +2442,54 @@ function getFullSpreadsheetData(ss) {
       rows.forEach(function(r) {
         if (r[0]) {
           result.profile[String(r[0])] = r[1] !== undefined ? String(r[1]) : "";
+        }
+      });
+    } else if (tabName === "Line_Items_Breakdown") {
+      var liLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.LINE_ITEM);
+      rows.forEach(function(r) {
+        var parsed = liLookup.parseRowToJSON(r, ss);
+        if (parsed.documentNumber || parsed.particulars) {
+          result.lineItems.push(parsed);
+        }
+      });
+    } else if (tabName === "Particulars_Catalogue") {
+      var catLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.CATALOGUE);
+      rows.forEach(function(r) {
+        var parsed = catLookup.parseRowToJSON(r, ss);
+        if (parsed.particulars || parsed.id) {
+          result.catalogue.push(parsed);
+        }
+      });
+    } else if (tabName === "POS_Orders") {
+      var posLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.POS_ORDER);
+      rows.forEach(function(r) {
+        var parsed = posLookup.parseRowToJSON(r, ss);
+        if (parsed.orderNumber) {
+          result.posOrders.push(parsed);
+        }
+      });
+    } else if (tabName === "Reservations") {
+      var resLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.RESERVATION);
+      rows.forEach(function(r) {
+        var parsed = resLookup.parseRowToJSON(r, ss);
+        if (parsed.id || parsed.guestName) {
+          result.reservations.push(parsed);
+        }
+      });
+    } else if (tabName === "Expenses") {
+      var expLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.EXPENSE);
+      rows.forEach(function(r) {
+        var parsed = expLookup.parseRowToJSON(r, ss);
+        if (parsed.id || parsed.description || parsed.amount) {
+          result.expenses.push(parsed);
+        }
+      });
+    } else if (tabName === "Statements" || tabName === "Statements_Ledger") {
+      var stmtLookup = createHeaderIndexLookup(sheet, CANONICAL_SCHEMAS.STATEMENT);
+      rows.forEach(function(r) {
+        var parsed = stmtLookup.parseRowToJSON(r, ss);
+        if (parsed.statementNumber || parsed.clientId || parsed.clientName) {
+          result.statements.push(parsed);
         }
       });
     }

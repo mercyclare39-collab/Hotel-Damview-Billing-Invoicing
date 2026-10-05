@@ -294,6 +294,15 @@ class PWAService {
               this.registration.waiting.postMessage({ type: 'SKIP_WAITING' });
             }
           }
+
+          // Automatically apply update without requiring user inputs
+          if (!this.isUserActivelyEditing()) {
+            setTimeout(() => {
+              if (!this.isUserActivelyEditing()) {
+                this.applyUpdate();
+              }
+            }, 1000);
+          }
           return true;
         } else {
           // App is confirmed already up to date - ALWAYS clear refresh flag!
@@ -365,6 +374,13 @@ class PWAService {
       if (isNewer) {
         this.state.needRefresh = true;
         this.notify();
+        if (!this.isUserActivelyEditing()) {
+          setTimeout(() => {
+            if (!this.isUserActivelyEditing()) {
+              this.applyUpdate();
+            }
+          }, 1000);
+        }
       } else {
         // Already on latest build: activate worker without prompting
         this.state.needRefresh = false;

@@ -63,6 +63,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
   const [typeFilter, setTypeFilter] = useState<'ALL' | DocumentType>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | DocumentStatus | 'VARIANCE'>('ALL');
   const [selectedDocForPreview, setSelectedDocForPreview] = useState<BillingDocument | null>(null);
+  const [previewAutoAction, setPreviewAutoAction] = useState<'NONE' | 'PRINT' | 'DOWNLOAD' | 'SHARE'>('NONE');
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [isResolvingAll, setIsResolvingAll] = useState(false);
@@ -105,6 +106,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
       setLocalHighlightedDocId(selectedDocForPreview.id);
     }
     setSelectedDocForPreview(null);
+    setPreviewAutoAction('NONE');
     if (typeof window !== 'undefined' && window.history.state?.modal === 'journal-doc-preview') {
       window.history.back();
     }
@@ -215,73 +217,22 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
     return sortedDocs.slice(start, start + pageSize);
   }, [sortedDocs, currentPage, pageSize]);
 
-  // Download PDF directly from journal
-  const handleQuickDownload = async (doc: BillingDocument) => {
+  // Download PDF directly from journal with 100% preview parity
+  const handleQuickDownload = (doc: BillingDocument) => {
     setSelectedDocForPreview(doc);
-    setIsGeneratingPdf(true);
-    setTimeout(async () => {
-      const previewEl = document.getElementById(`journal-offscreen-a4`) || document.getElementById(`journal-modal-a4`);
-      if (previewEl) {
-        try {
-          await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
-            download: true,
-          });
-        } catch (err: any) {
-          console.warn('PDF generation warning:', err);
-        }
-      }
-      setIsGeneratingPdf(false);
-    }, 100);
+    setPreviewAutoAction('DOWNLOAD');
   };
 
-  // Universal share helper with direct vector PDF binary attachment
-  const handleQuickShare = async (doc: BillingDocument) => {
+  // Universal share helper with 100% preview parity
+  const handleQuickShare = (doc: BillingDocument) => {
     setSelectedDocForPreview(doc);
-    setIsGeneratingPdf(true);
-    setTimeout(async () => {
-      const previewEl = document.getElementById(`journal-offscreen-a4`) || document.getElementById(`journal-modal-a4`);
-      if (previewEl) {
-        try {
-          const res = await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
-            download: false,
-          });
-          const summaryText = getDocumentOperationalSummary(doc, profile);
-          await universalSharePdfDocument({
-            blob: res.blob,
-            fileName: res.fileName,
-            title: `${doc.documentType} ${doc.documentNumber} - ${profile.name}`,
-            summaryText,
-            clientPhone: doc.clientPhone,
-            driveUrl: doc.driveFileUrl,
-          });
-        } catch (err: any) {
-          console.error('Universal share error:', err);
-        }
-      }
-      setIsGeneratingPdf(false);
-    }, 100);
+    setPreviewAutoAction('SHARE');
   };
 
-  // Direct vector PDF printing helper
-  const handleQuickPrint = async (doc: BillingDocument) => {
+  // Direct vector PDF printing helper with 100% preview parity
+  const handleQuickPrint = (doc: BillingDocument) => {
     setSelectedDocForPreview(doc);
-    setIsGeneratingPdf(true);
-    setTimeout(async () => {
-      const previewEl = document.getElementById(`journal-offscreen-a4`) || document.getElementById(`journal-modal-a4`);
-      if (previewEl) {
-        try {
-          const res = await generatePdfFromElement(previewEl, doc.documentNumber, doc.clientName, doc.issueDate, {
-            download: false,
-          });
-          await printPdfBlob(res.blob);
-        } catch {
-          window.print();
-        }
-      } else {
-        window.print();
-      }
-      setIsGeneratingPdf(false);
-    }, 100);
+    setPreviewAutoAction('PRINT');
   };
 
   const getStatusBadge = (status: DocumentStatus) => {
@@ -779,6 +730,7 @@ export const DocumentJournal: React.FC<DocumentJournalProps> = ({
         onClose={handleDismissJournalDocPreview}
         profile={profile}
         document={selectedDocForPreview}
+        autoAction={previewAutoAction}
         onNavigateToJournal={() => {
           if (selectedDocForPreview) {
             setLocalHighlightedDocId(selectedDocForPreview.id);

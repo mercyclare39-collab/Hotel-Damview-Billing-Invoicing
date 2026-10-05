@@ -3,8 +3,7 @@ import JSZip from 'jszip';
 import { BillingDocument, Client, DocumentStatus, HotelProfile, PaymentRecord, StatementRecord } from '../types';
 import { dbService } from './db';
 
-export const DEFAULT_ARCHIVE_PATH =
-  'C:\\Users\\mercy\\OneDrive\\Documents\\Mikma & Hotel Damview\\Hotel Damview_Template Files\\Hotel Damview_Documents Templates\\Hotel Damview_Archives';
+export const DEFAULT_ARCHIVE_PATH = '';
 
 export const WORKBOOK_FILENAME = 'Hotel_Damview_Master_Suite.xlsm';
 export const VBA_MODULE_FILENAME = 'modHotelDamviewEngine.bas';
@@ -131,7 +130,7 @@ export async function generateMasterSuiteWorkbook(
   wb.lastModifiedBy = 'Hotel Damview Management';
   wb.created = new Date();
   wb.modified = new Date();
-  wb.company = 'HOTEL DAMVIEW LTD';
+  wb.company = profile.name || 'HOTEL ERP';
   wb.title = 'Hotel Damview Executive Master Suite';
   wb.subject = 'A4 Print Templates, Universal Document Editor & Google Sheets Live Ledger';
 
@@ -200,7 +199,7 @@ export async function generateMasterSuiteWorkbook(
   // Header
   wsEditor.mergeCells('A1:F1');
   const edTitle = wsEditor.getCell('A1');
-  edTitle.value = 'HOTEL DAMVIEW LTD — UNIVERSAL DOCUMENT WORKSTATION';
+  edTitle.value = `${(profile.name || 'HOTEL ERP').toUpperCase()} — UNIVERSAL DOCUMENT WORKSTATION`;
   edTitle.font = { ...fontTimes14Bold, color: { argb: 'FFFFFFFF' } };
   edTitle.fill = fillCharcoal;
   edTitle.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -275,32 +274,32 @@ export async function generateMasterSuiteWorkbook(
   wsEditor.getCell('E9').value = 'KRA PIN:';
   wsEditor.getCell('E9').font = fontTimes11;
   wsEditor.getCell('F9').value = {
-    formula: 'IFERROR(VLOOKUP(C9, Data_Clients!$B$2:$E$100, 4, FALSE), "P051982741Z")',
-    result: clients[0]?.kraPin || 'P051982741Z',
+    formula: 'IFERROR(VLOOKUP(C9, Data_Clients!$B$2:$E$100, 4, FALSE), "")',
+    result: clients[0]?.kraPin || '',
   };
   wsEditor.getCell('F9').font = fontTimes11;
 
   wsEditor.getCell('B10').value = 'Telephone:';
   wsEditor.getCell('B10').font = fontTimes11;
   wsEditor.getCell('C10').value = {
-    formula: 'IFERROR(VLOOKUP(C9, Data_Clients!$B$2:$C$100, 2, FALSE), "+254 700 000 000")',
-    result: clients[0]?.phone || '+254 700 000 000',
+    formula: 'IFERROR(VLOOKUP(C9, Data_Clients!$B$2:$C$100, 2, FALSE), "")',
+    result: clients[0]?.phone || '',
   };
   wsEditor.getCell('C10').font = fontTimes11;
 
   wsEditor.getCell('E10').value = 'Physical Address:';
   wsEditor.getCell('E10').font = fontTimes11;
   wsEditor.getCell('F10').value = {
-    formula: 'IFERROR(VLOOKUP(C9, Data_Clients!$B$2:$F$100, 5, FALSE), "Nairobi / Machakos, Kenya")',
-    result: clients[0]?.address || 'Nairobi / Machakos, Kenya',
+    formula: 'IFERROR(VLOOKUP(C9, Data_Clients!$B$2:$F$100, 5, FALSE), "")',
+    result: clients[0]?.address || '',
   };
   wsEditor.getCell('F10').font = fontTimes11;
 
   wsEditor.getCell('B11').value = 'Email Address:';
   wsEditor.getCell('B11').font = fontTimes11;
   wsEditor.getCell('C11').value = {
-    formula: 'IFERROR(VLOOKUP(C9, Data_Clients!$B$2:$D$100, 3, FALSE), "info@client.co.ke")',
-    result: clients[0]?.email || 'info@client.co.ke',
+    formula: 'IFERROR(VLOOKUP(C9, Data_Clients!$B$2:$D$100, 3, FALSE), "")',
+    result: clients[0]?.email || '',
   };
   wsEditor.getCell('C11').font = fontTimes11;
 
@@ -668,13 +667,13 @@ export async function generateMasterSuiteWorkbook(
   ];
   styleHeaderRow(wsSettings, fillCharcoal);
   const settingsEntries = [
-    { key: 'Hotel Name', val: profile.name || 'HOTEL DAMVIEW', cat: 'Identity' },
+    { key: 'Hotel Name', val: profile.name || '', cat: 'Identity' },
     { key: 'Tagline', val: profile.tagline || '', cat: 'Identity' },
-    { key: 'Physical Address', val: profile.physicalLocation || 'MARIAKANI', cat: 'Contact' },
-    { key: 'Postal Address', val: profile.postalAddress || 'P.O. BOX 42491-80100, Mombasa, Kenya', cat: 'Contact' },
-    { key: 'Telephone', val: profile.phone || '+254 725 242 620', cat: 'Contact' },
-    { key: 'Email', val: profile.email || 'hoteldamview@gmail.com', cat: 'Contact' },
-    { key: 'KRA PIN', val: profile.kraPin || 'P051453023Q', cat: 'Taxation' },
+    { key: 'Physical Address', val: profile.physicalLocation || '', cat: 'Contact' },
+    { key: 'Postal Address', val: profile.postalAddress || '', cat: 'Contact' },
+    { key: 'Telephone', val: profile.phone || '', cat: 'Contact' },
+    { key: 'Email', val: profile.email || '', cat: 'Contact' },
+    { key: 'KRA PIN', val: profile.kraPin || '', cat: 'Taxation' },
     { key: 'Default VAT Rate (%)', val: (profile.vatRate || 16) + '%', cat: 'Taxation' },
     { key: 'M-Pesa Buy Goods Till', val: profile.mpesaTillNumber || '', cat: 'Payment' },
     { key: 'Bank Name', val: profile.bankName || '', cat: 'Payment' },
@@ -781,7 +780,7 @@ function buildPrintableTemplateSheet(
   // 1. Header Banner
   ws.mergeCells('A1:F1');
   const h1 = ws.getCell('A1');
-  h1.value = profile.name || 'HOTEL DAMVIEW';
+  h1.value = profile.name || 'HOTEL ERP';
   h1.font = { ...fontTimes16Bold, color: { argb: 'FFFFFFFF' } };
   h1.fill = fillCharcoal;
   h1.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -790,9 +789,12 @@ function buildPrintableTemplateSheet(
   ws.mergeCells('A2:F2');
   const h2 = ws.getCell('A2');
   const taglineDisplay = profile.tagline?.trim() ? `${profile.tagline.trim()} • ` : '';
-  const phoneDisplay = profile.phone?.trim() ? profile.phone.trim() : '+254 725 242 620';
-  const emailDisplay = profile.email?.trim() ? profile.email.trim() : 'hoteldamview@gmail.com';
-  h2.value = `${taglineDisplay}${profile.physicalLocation || 'MARIAKANI'} | Phone: ${phoneDisplay} | Email: ${emailDisplay} | PIN: ${profile.kraPin || 'P051453023Q'}`;
+  const phoneDisplay = profile.phone?.trim() ? `Phone: ${profile.phone.trim()}` : '';
+  const emailDisplay = profile.email?.trim() ? `Email: ${profile.email.trim()}` : '';
+  const pinDisplay = profile.kraPin?.trim() ? `PIN: ${profile.kraPin.trim()}` : '';
+  const locDisplay = profile.physicalLocation?.trim() ? profile.physicalLocation.trim() : (profile.postalAddress?.trim() || '');
+  const details = [locDisplay, phoneDisplay, emailDisplay, pinDisplay].filter(Boolean).join(' | ');
+  h2.value = `${taglineDisplay}${details}`;
   h2.font = fontTimes9Italic;
   h2.alignment = { horizontal: 'center', vertical: 'middle' };
   ws.getRow(2).height = 16;
@@ -960,7 +962,7 @@ function buildPrintableTemplateSheet(
   ws.getCell('A29').font = fontTimes9;
 
   ws.mergeCells('A30:C30');
-  ws.getCell('A30').value = `• Submit remittance slips to ${profile.email || 'hoteldamview@gmail.com'}`;
+  ws.getCell('A30').value = profile.email?.trim() ? `• Submit remittance slips to ${profile.email.trim()}` : '';
   ws.getCell('A30').font = fontTimes9Italic;
 
   // Right: Kenyan VAT 16% Financial Summary
@@ -1013,13 +1015,15 @@ function buildPrintableTemplateSheet(
   ws.getCell('A33').font = fontTimes9Italic;
 
   ws.mergeCells('A34:F34');
+  const payeeNote = profile.name?.trim() ? `All cheques payable to ${profile.name.trim()}. ` : '';
+  const tillNote = profile.mpesaTillNumber?.trim() ? `M-Pesa payments via Official Till Number ${profile.mpesaTillNumber.trim()} only.` : '';
   ws.getCell('A34').value =
-    '2. All cheques payable to HOTEL DAMVIEW LTD. M-Pesa payments via Official Till Number 5432100 only.';
+    `2. ${payeeNote}${tillNote}`.trim() || '2. Cheques and electronic settlements payable per agreed terms.';
   ws.getCell('A34').font = fontTimes9Italic;
 
   ws.mergeCells('A35:F35');
   ws.getCell('A35').value =
-    '3. Reservations and catering services once booked are subject to Hotel Damview operational cancellation guidelines.';
+    '3. Reservations and catering services once booked are subject to operational cancellation guidelines.';
   ws.getCell('A35').font = fontTimes9Italic;
 
   // 7. Signature / Stamp Row (Rows 37 to 38)
@@ -1458,15 +1462,14 @@ export async function syncExcelChangesToLedger(extractedData: ParsedWorkbookResu
 export function getVbaModuleCode(): string {
   return `Attribute VB_Name = "modHotelDamviewEngine"
 ' =====================================================================================
-' HOTEL DAMVIEW MANAGEMENT SUITE — KENYA
+' HOTEL MANAGEMENT SUITE — KENYA
 ' Automated VBA Automation Engine & Document Publisher
-' Target Archive: C:\\Users\\mercy\\OneDrive\\Documents\\Mikma & Hotel Damview\\Hotel Damview_Template Files\\Hotel Damview_Documents Templates\\Hotel Damview_Archives
 ' =====================================================================================
 Option Explicit
 
-Public Const DEFAULT_ARCHIVE_PATH As String = "C:\\Users\\mercy\\OneDrive\\Documents\\Mikma & Hotel Damview\\Hotel Damview_Template Files\\Hotel Damview_Documents Templates\\Hotel Damview_Archives"
-Public Const HOTEL_PIN As String = "P051982741Z"
-Public Const HOTEL_TILL As String = "5432100"
+Public Const DEFAULT_ARCHIVE_PATH As String = ""
+Public Const HOTEL_PIN As String = ""
+Public Const HOTEL_TILL As String = ""
 
 ' -------------------------------------------------------------------------------------
 ' 1. SWITCH DOCUMENT MODE
@@ -1504,7 +1507,7 @@ Public Sub SwitchDocumentMode(Optional ByVal docType As String = "")
             dataWsName = "Data_Receipts"
             wsEd.Range("E5").Value = "Payment Mode:"
             wsEd.Range("B6").Value = "Transaction / M-Pesa Ref:"
-            wsEd.Range("C6").Value = "M-Pesa Buy Goods 5432100"
+            wsEd.Range("C6").Value = "M-Pesa Buy Goods"
         Case "STATEMENT"
             prefix = "SOA-"
             dataWsName = "Data_Statements"
@@ -1791,7 +1794,7 @@ Public Sub AppendRecordToDataSheet()
             wsData.Cells(nextRow, 3).Value = clientName
             wsData.Cells(nextRow, 4).Value = wsEd.Range("C6").Value
             wsData.Cells(nextRow, 5).Value = "M-PESA"
-            wsData.Cells(nextRow, 6).Value = "TILL 5432100"
+            wsData.Cells(nextRow, 6).Value = "TILL / SETTLEMENT"
             wsData.Cells(nextRow, 7).Value = wsEd.Range("F30").Value
             wsData.Cells(nextRow, 8).Value = "Accounts"
     End Select

@@ -38,9 +38,9 @@ export async function exportTableToXlsx(options: ExcelExportOptions): Promise<vo
     pageSetup: { orientation: 'landscape', paperSize: 9 }, // A4
   });
 
-  const hotelName = profile?.name || 'HOTEL DAMVIEW';
-  const kraPin = profile?.kraPin || 'P051453023Q';
-  const address = profile?.physicalLocation || 'MARIAKANI, KENYA';
+  const hotelName = profile?.name || 'HOTEL ERP';
+  const kraPin = profile?.kraPin || '';
+  const address = profile?.physicalLocation || '';
 
   // 1. Hotel Brand Title Banner
   worksheet.mergeCells(1, 1, 1, columns.length);

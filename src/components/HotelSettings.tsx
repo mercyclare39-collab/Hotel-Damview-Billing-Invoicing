@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Settings,
   Building2,
@@ -73,7 +73,24 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   onSaveProfile,
   onTriggerSync,
 }) => {
-  const [formData, setFormData] = useState<HotelProfile>({ ...profile });
+  // Ref to track if user has active unsaved typing/edits to permanently prevent background syncs from clearing inputs
+  const isDirtyRef = useRef(false);
+  const autoSaveTimerRef = useRef<any>(null);
+
+  const [formData, setFormData] = useState<HotelProfile>(() => {
+    let initial = { ...profile };
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const draft = localStorage.getItem('damview_settings_draft');
+        if (draft) {
+          const parsed = JSON.parse(draft);
+          initial = { ...initial, ...parsed };
+          isDirtyRef.current = true;
+        }
+      } catch {}
+    }
+    return initial;
+  });
   const [activeTab, setActiveTabState] = useState<'profile' | 'accounts' | 'google-sync' | 'local-backup' | 'pwa' | 'catalogue'>(() => {
     if (typeof window !== 'undefined' && window.localStorage) {
       const saved = localStorage.getItem('damview_settings_active_tab') as any;
@@ -136,7 +153,24 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     loadCatalogue();
   }, []);
 
+  // Cleanup auto-save timer on unmount
   useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Safe Profile Sync Protection:
+  // Never overwrite user inputs if user is currently typing, interacting, or has an uncommitted draft!
+  useEffect(() => {
+    if (isDirtyRef.current) return;
+    try {
+      if (typeof window !== 'undefined' && localStorage.getItem('damview_settings_draft')) {
+        return;
+      }
+    } catch {}
     setFormData({ ...profile });
   }, [profile]);
 
@@ -228,23 +262,36 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   const [pathSaveNotification, setPathSaveNotification] = useState(false);
 
   // Passcode-Gated Configuration & Settings
-  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [adminPasscode, setAdminPasscode] = useState(() => {
+    if (typeof window === 'undefined' || !window.localStorage) return '';
+    const saved = localStorage.getItem('damview_admin_passcode');
+    if (saved === '1000' || saved === '2025') {
+      try {
+        localStorage.removeItem('damview_admin_passcode');
+      } catch {}
+      return '';
+    }
+    return saved || '';
+  });
+  // If no administrative passcode is configured yet (fresh initialization), editing is unlocked by default
+  const [isUnlocked, setIsUnlocked] = useState(() => {
+    if (typeof window === 'undefined' || !window.localStorage) return true;
+    const saved = localStorage.getItem('damview_admin_passcode');
+    return !saved || saved === '1000' || saved === '2025' || saved.trim() === '';
+  });
   const [showPasscodeModal, setShowPasscodeModal] = useState(false);
   const [showSensitiveAccounts, setShowSensitiveAccounts] = useState(false);
   const [showSensitiveKra, setShowSensitiveKra] = useState(false);
   const [showSensitiveWebhookUrls, setShowSensitiveWebhookUrls] = useState(false);
   const [passcodeInput, setPasscodeInput] = useState('');
   const [passcodeError, setPasscodeError] = useState('');
-  const [adminPasscode, setAdminPasscode] = useState(() => {
-    return localStorage.getItem('damview_admin_passcode') || '1000';
-  });
   const [isChangingPasscode, setIsChangingPasscode] = useState(false);
   const [newPasscode, setNewPasscode] = useState('');
   const [passcodeChangeSuccess, setPasscodeChangeSuccess] = useState(false);
 
   const handleUnlockAttempt = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (passcodeInput.trim() === adminPasscode) {
+    if (!adminPasscode || passcodeInput.trim() === adminPasscode) {
       setIsUnlocked(true);
       setShowPasscodeModal(false);
       setPasscodeInput('');
@@ -255,6 +302,10 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   };
 
   const handleLockSettings = () => {
+    if (!adminPasscode) {
+      setIsChangingPasscode(true);
+      return;
+    }
     setIsUnlocked(false);
     setIsChangingPasscode(false);
   };
@@ -277,7 +328,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     localBackupService.getStoredDirectoryHandle().then((handle) => {
       if (handle) {
         setSavedDirectoryHandle(handle);
-        setConnectedDirName(handle.name || 'Hotel Damview_Archives');
+        setConnectedDirName(handle.name || 'Local Archives');
       }
     });
     setBackupHistory(localBackupService.getBackupHistory());
@@ -418,7 +469,23 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   };
 
   const handleInputChange = (field: keyof HotelProfile, value: any) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    isDirtyRef.current = true;
+    setFormData((prev) => {
+      const updated = { ...prev, [field]: value };
+      try {
+        localStorage.setItem('damview_settings_draft', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // Auto-save changes with a debounce to ensure credentials & settings are permanently retained
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      setFormData((current) => {
+        onSaveProfile(current);
+        return current;
+      });
+    }, 1500);
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -437,6 +504,9 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
           // 2. Persist directly to dedicated localStorage key so it's NEVER lost across any app/refresh
           try {
             localStorage.setItem('damview_company_logo', base64);
+            const draft = localStorage.getItem('damview_settings_draft');
+            const parsedDraft = draft ? JSON.parse(draft) : {};
+            localStorage.setItem('damview_settings_draft', JSON.stringify({ ...parsedDraft, logoBase64: base64 }));
           } catch {}
           // 3. Immediately persist profile across all apps without requiring form submission
           const updatedProfile = { ...formData, logoBase64: base64 };
@@ -459,6 +529,12 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     setFormData((prev) => ({ ...prev, logoBase64: '' }));
     try {
       localStorage.removeItem('damview_company_logo');
+      const draft = localStorage.getItem('damview_settings_draft');
+      if (draft) {
+        const parsedDraft = JSON.parse(draft);
+        parsedDraft.logoBase64 = '';
+        localStorage.setItem('damview_settings_draft', JSON.stringify(parsedDraft));
+      }
     } catch {}
     const updatedProfile = { ...formData, logoBase64: '' };
     onSaveProfile(updatedProfile);
@@ -478,6 +554,12 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
       setPasscodeError('Administrative authorization required: Enter your passcode to unlock and save changes.');
       return;
     }
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    try {
+      localStorage.removeItem('damview_settings_draft');
+    } catch {}
+    isDirtyRef.current = false;
+
     const normalizedData: HotelProfile = {
       ...formData,
       phone: normalizeKenyanPhone(formData.phone),
@@ -489,7 +571,13 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   };
 
   const handleRestoreBakedDefaults = () => {
-    if (window.confirm('Restore all hotel profile, tax, banking, and Google Cloud credentials to official baked defaults?')) {
+    if (window.confirm('Reset all hotel profile, tax, banking, and Google Cloud credentials to blank defaults? This will clear all fields to protect privacy.')) {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      try {
+        localStorage.removeItem('damview_settings_draft');
+        localStorage.removeItem('damview_company_logo');
+      } catch {}
+      isDirtyRef.current = false;
       const restored = { ...DEFAULT_HOTEL_PROFILE };
       setFormData(restored);
       onSaveProfile(restored);
@@ -603,13 +691,13 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     setTestPdfResult(null);
     try {
       const res = await syncManager.uploadTestPdfToDrive({
-        folderName: formData.googleDriveFolder || 'Hotel Damview Archives',
+        folderName: formData.googleDriveFolder || (formData.name ? `${formData.name} Archives` : 'Archives'),
       });
 
       if (res.success) {
         setTestPdfResult({
           ok: true,
-          message: `Test PDF successfully generated and uploaded to Google Drive folder "${res.folderName || 'Hotel Damview Archives'}"!`,
+          message: `Test PDF successfully generated and uploaded to Google Drive folder "${res.folderName || (formData.name ? `${formData.name} Archives` : 'Archives')}"!`,
           driveUrl: res.driveUrl,
           driveFileId: res.driveFileId,
           fileName: res.fileName,
@@ -686,11 +774,11 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             <button
               type="button"
               onClick={handleRestoreBakedDefaults}
-              className="px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs rounded flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Restore all credentials to baked official defaults"
+              className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs rounded flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Reset all credentials and settings to clean blank defaults"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
-              <span className="hidden sm:inline">Restore Defaults</span>
+              <RefreshCw className="w-3.5 h-3.5 text-stone-600" />
+              <span className="hidden sm:inline">Clear to Blank</span>
             </button>
           )}
 
@@ -739,10 +827,10 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               type="button"
               onClick={() => setIsChangingPasscode(!isChangingPasscode)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 font-semibold rounded text-[11px] transition-colors cursor-pointer"
-              title="Change administrative passcode"
+              title={adminPasscode ? 'Change administrative passcode' : 'Set administrative passcode to protect settings'}
             >
               <KeyRound className="w-3.5 h-3.5 text-emerald-700" />
-              <span>{isChangingPasscode ? 'Close Form' : 'Change Passcode'}</span>
+              <span>{isChangingPasscode ? 'Close Form' : (adminPasscode ? 'Change Passcode' : 'Set Passcode')}</span>
             </button>
           </div>
         </div>

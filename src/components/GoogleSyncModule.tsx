@@ -521,7 +521,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     setTestPdfResult(null);
     try {
       const res = await syncManager.uploadTestPdfToDrive({
-        folderName: profile?.googleDriveFolder || 'Hotel Damview Archives',
+        folderName: profile?.googleDriveFolder || (profile?.name ? `${profile.name} Archives` : 'Archives'),
       });
 
       if (res.success) {
@@ -536,7 +536,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
         });
         setSyncFeedback({
           type: 'success',
-          message: `Test PDF "${res.fileName}" successfully uploaded to Google Drive folder "${res.folderName || 'Hotel Damview Archives'}"!`,
+          message: `Test PDF "${res.fileName}" successfully uploaded to Google Drive folder "${res.folderName || (profile?.name ? `${profile.name} Archives` : 'Archives')}"!`,
           timestamp: new Date().toLocaleTimeString(),
         });
       } else {
@@ -1062,11 +1062,11 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
         rowCount: 8,
         headers: ['Setting Key', 'Configured Value', 'Description'],
         rows: [
-          ['HOTEL_NAME', profile?.name || 'Hotel Damview Ltd', 'Legal Business Name'],
-          ['KRA_PIN', profile?.kraPin || 'P051982741Z', 'Kenya Revenue Authority PIN'],
-          ['PHONE', profile?.phone || '+254 722 000 000', 'Official Contact Telephone'],
-          ['EMAIL', profile?.email || 'info@hoteldamview.co.ke', 'Official Contact Email'],
-          ['LOCATION', profile?.physicalLocation || profile?.postalAddress || 'Off Kangundo Rd, Malaa, Machakos', 'Physical Location'],
+          ['HOTEL_NAME', profile?.name || '—', 'Legal Business Name'],
+          ['KRA_PIN', profile?.kraPin || '—', 'Kenya Revenue Authority PIN'],
+          ['PHONE', profile?.phone || '—', 'Official Contact Telephone'],
+          ['EMAIL', profile?.email || '—', 'Official Contact Email'],
+          ['LOCATION', profile?.physicalLocation || profile?.postalAddress || '—', 'Physical Location'],
           ['MPESA_TILL', profile?.mpesaTillNumber || '—', 'M-Pesa Buy Goods Till'],
           ['BANK_NAME', profile?.bankName || '—', 'Official Settlement Bank'],
           ['ACCOUNT_NUMBER', profile?.accountNumber || '—', 'Settlement Bank Account'],
@@ -1389,7 +1389,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
             <span>
               Drive Archive Folder:{' '}
               <strong className="text-stone-200">
-                {profile?.googleDriveFolder || 'Hotel Damview Archives'}
+                {profile?.googleDriveFolder || (profile?.name ? `${profile.name} Archives` : 'Not Configured')}
               </strong>
             </span>
           </div>
