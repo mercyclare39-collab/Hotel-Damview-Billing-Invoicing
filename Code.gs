@@ -1,5 +1,5 @@
 /**
- * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v6.3.0)
+ * HOTEL DAMVIEW - ENTERPRISE CENTRALIZED GOOGLE WORKSPACE BACKEND (Code.gs v6.4.0)
  * High-Concurrency Multi-Tier Lock Isolation, Decoupled Instant Drive Archival & Universal ERP Sync Engine
  * Single Source of Truth Binary Archival & 100% Visual and Structural Parity Pipeline
  * Production High-Precision Schema Alignment, Dynamic Header-Index Row-Parsing & Fail-Safe Architecture
@@ -81,7 +81,7 @@
  * 7. Click "Deploy", authorize permissions, and verify the Web App URL in Hotel Damview App Settings.
  */
 
-var CURRENT_SCRIPT_VERSION = "v6.3.0";
+var CURRENT_SCRIPT_VERSION = "v6.4.0";
 
 // ============================================================================
 // 1. CANONICAL FIELD DEFINITIONS & ALIASES FOR DYNAMIC HEADER MAPPING
@@ -396,6 +396,19 @@ function doPost(e) {
   if (action === "PING" || action === "HEALTHCHECK" || action === "GET_VERSION" || action === "VERSION") {
     ensureSheetTabs(ss);
     var sheetList = getDiscoveredSheets(ss);
+    var savedProfile = {};
+    try {
+      var profSheet = ss.getSheetByName("Hotel_Profile");
+      if (profSheet && profSheet.getLastRow() > 1) {
+        var pRows = profSheet.getDataRange().getValues();
+        for (var pi = 1; pi < pRows.length; pi++) {
+          if (pRows[pi][0]) {
+            savedProfile[String(pRows[pi][0]).trim()] = pRows[pi][1] !== undefined ? String(pRows[pi][1]).trim() : "";
+          }
+        }
+      }
+    } catch(pErr) {}
+
     return responseJSON({
       success: true,
       action: "PING",
@@ -404,6 +417,32 @@ function doPost(e) {
       sheetName: ss.getName(),
       sheetUrl: ss.getUrl(),
       tabs: sheetList,
+      profile: savedProfile,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  if (action === "GET_PROFILE" || action === "PULL_PROFILE") {
+    var savedProfile = {};
+    try {
+      var profSheet = ss.getSheetByName("Hotel_Profile");
+      if (profSheet && profSheet.getLastRow() > 1) {
+        var pRows = profSheet.getDataRange().getValues();
+        for (var pi = 1; pi < pRows.length; pi++) {
+          if (pRows[pi][0]) {
+            savedProfile[String(pRows[pi][0]).trim()] = pRows[pi][1] !== undefined ? String(pRows[pi][1]).trim() : "";
+          }
+        }
+      }
+    } catch(pErr) {}
+
+    return responseJSON({
+      success: true,
+      action: "GET_PROFILE",
+      version: CURRENT_SCRIPT_VERSION,
+      profile: savedProfile,
+      sheetName: ss.getName(),
+      sheetUrl: ss.getUrl(),
       timestamp: new Date().toISOString()
     });
   }
@@ -433,7 +472,7 @@ function doPost(e) {
 
   if (isArchivePdfAction && data.pdfBase64) {
     try {
-      var targetFolder = data.folderName || "Hotel Damview Archives";
+      var targetFolder = data.folderName || "Hotel Archive";
       var fileName = data.fileName || ("Document_" + new Date().toISOString().split("T")[0] + ".pdf");
       externalPdfArchive = archiveGenericPdfToDrive(data.pdfBase64, targetFolder, fileName);
       if (externalPdfArchive && externalPdfArchive.url) {
@@ -2738,7 +2777,7 @@ function cascadeDeleteDocument(ss, documentId, documentNumber, folderName) {
 
   if (folderName && documentNumber) {
     try {
-      var targetFolder = folderName || "Hotel Damview Archives";
+      var targetFolder = folderName || "Hotel Archive";
       var folders = DriveApp.getFoldersByName(targetFolder);
       if (folders.hasNext()) {
         var folder = folders.next();
@@ -2822,7 +2861,7 @@ function cascadeDeletePayment(ss, paymentId, receiptNumber, documentNumber, fold
 
   if (folderName && receiptNumber) {
     try {
-      var targetFolder = folderName || "Hotel Damview Archives";
+      var targetFolder = folderName || "Hotel Archive";
       var folders = DriveApp.getFoldersByName(targetFolder);
       if (folders.hasNext()) {
         var folder = folders.next();
@@ -2846,7 +2885,7 @@ function purgeTombstoneList(ss, tombstones, folderName) {
   }
 
   var purgedCount = 0;
-  var targetFolder = folderName || "Hotel Damview Archives";
+  var targetFolder = folderName || "Hotel Archive";
 
   for (var i = 0; i < tombstones.length; i++) {
     var t = tombstones[i];
@@ -2876,9 +2915,9 @@ function purgeTombstoneList(ss, tombstones, folderName) {
 
 function getOrCreateDriveFolder(folderNameOrId) {
   var target = (folderNameOrId || "").trim();
-  if (!target || target === "Hotel Damview Archives") {
-    var defaultFolders = DriveApp.getFoldersByName("Hotel Damview Archives");
-    return defaultFolders.hasNext() ? defaultFolders.next() : DriveApp.createFolder("Hotel Damview Archives");
+  if (!target || target === "Hotel Damview Archives" || target === "Hotel Archive") {
+    var defaultFolders = DriveApp.getFoldersByName("Hotel Archive");
+    return defaultFolders.hasNext() ? defaultFolders.next() : DriveApp.createFolder("Hotel Archive");
   }
 
   // 1. Check if target is a Google Drive folder URL (e.g., https://drive.google.com/drive/folders/1abc123...)

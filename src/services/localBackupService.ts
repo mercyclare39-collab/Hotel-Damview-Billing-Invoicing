@@ -7,6 +7,13 @@
  * handle persistence, automatic silent writes, pre-flight validation, and robust fallback.
  */
 
+export function getHotelArchiveFolderName(hotelName?: string): string {
+  const clean = (hotelName || '').trim();
+  const sanitized = clean.replace(/[/\\:*?"<>|()]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!sanitized) return 'Hotel Archive';
+  return `${sanitized} Archive`;
+}
+
 export const DEFAULT_DESIGNATED_ARCHIVE_PATH = '';
 
 const FS_DB_NAME = 'HotelDamview_LocalFS_DB';
@@ -64,19 +71,20 @@ class LocalBackupService {
 
   /**
    * Get the designated target filesystem path string (for UI display and reference).
-   * Leaves blank by default on fresh initialization to protect privacy.
+   * Automatically targets Documents/${getHotelArchiveFolderName(hotelName)} by default on the user device.
    */
-  getTargetDirectoryPath(): string {
-    if (typeof window === 'undefined') return '';
+  getTargetDirectoryPath(hotelName?: string): string {
+    const defaultFolder = `Documents/${getHotelArchiveFolderName(hotelName)}`;
+    if (typeof window === 'undefined') return defaultFolder;
     try {
       const saved = localStorage.getItem(TARGET_PATH_KEY);
       if (saved && (saved.toLowerCase().includes('mercy') || saved.toLowerCase().includes('mikma') || saved.toLowerCase().includes('hotel damview_archives'))) {
         localStorage.removeItem(TARGET_PATH_KEY);
-        return '';
+        return defaultFolder;
       }
-      return saved || '';
+      return saved || defaultFolder;
     } catch {
-      return '';
+      return defaultFolder;
     }
   }
 
@@ -178,14 +186,15 @@ class LocalBackupService {
   }
 
   /**
-   * Prompt user to select their local archive directory (targeting Hotel Damview Archives).
+   * Prompt user to select their local archive directory (targeting ((Hotel name)_Archive)).
    * Saves the granted handle into IndexedDB for persistent background backups.
    */
-  async pickArchiveDirectory(): Promise<{ success: boolean; directoryName?: string; error?: string }> {
+  async pickArchiveDirectory(hotelName?: string): Promise<{ success: boolean; directoryName?: string; error?: string }> {
+    const archiveFolderName = getHotelArchiveFolderName(hotelName);
     if (this.isInEmbeddedFrame()) {
       return {
         success: false,
-        error: 'Browser Security Note: Direct folder picking is restricted inside embedded preview frames. Generated PDFs automatically save via seamless browser download to your designated folder ("Hotel Damview Archives"). When opened in a top-level tab, direct folder handle connection is active.',
+        error: `Browser Security Note: Direct folder picking is restricted inside embedded preview frames. Generated PDFs automatically save via seamless browser download to your designated local folder ("${archiveFolderName}"). When opened in a top-level tab, direct folder handle connection is active.`,
       };
     }
 
@@ -198,7 +207,7 @@ class LocalBackupService {
 
     try {
       const handle = await (window as any).showDirectoryPicker({
-        id: 'hotelDamviewArchives',
+        id: `archive_${archiveFolderName}`,
         mode: 'readwrite',
         startIn: 'documents',
       });

@@ -30,6 +30,7 @@ import {
   KeyRound,
   ShieldAlert,
   UploadCloud,
+  DownloadCloud,
   FileText,
   ListPlus,
   Plus,
@@ -40,8 +41,11 @@ import {
   EyeOff,
   Sparkles,
   Globe,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { HotelProfile, SyncQueueItem, CatalogueItem } from '../types';
+import { getHotelArchiveFolderName } from '../services/localBackupService';
 import {
   normalizeKenyanPhone,
   sanitizeKenyanPhoneLive,
@@ -100,6 +104,50 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     }
     return 'profile';
   });
+
+  const tabListRef = useRef<HTMLDivElement>(null);
+  const activeTabBtnRef = useRef<HTMLButtonElement | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScrollState = () => {
+    if (!tabListRef.current) return;
+    const { scrollLeft, scrollWidth, clientWidth } = tabListRef.current;
+    setCanScrollLeft(scrollLeft > 6);
+    setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 6);
+  };
+
+  useEffect(() => {
+    checkScrollState();
+    const el = tabListRef.current;
+    if (el) {
+      el.addEventListener('scroll', checkScrollState, { passive: true });
+      window.addEventListener('resize', checkScrollState);
+    }
+    return () => {
+      if (el) el.removeEventListener('scroll', checkScrollState);
+      window.removeEventListener('resize', checkScrollState);
+    };
+  }, []);
+
+  // Auto-scroll active tab into view when activeTab changes
+  useEffect(() => {
+    if (activeTabBtnRef.current) {
+      activeTabBtnRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'center',
+      });
+    }
+    const timer = setTimeout(checkScrollState, 150);
+    return () => clearTimeout(timer);
+  }, [activeTab]);
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    if (!tabListRef.current) return;
+    const offset = direction === 'left' ? -220 : 220;
+    tabListRef.current.scrollBy({ left: offset, behavior: 'smooth' });
+  };
 
   const setActiveTab = (tab: 'profile' | 'accounts' | 'google-sync' | 'local-backup' | 'pwa' | 'catalogue') => {
     setActiveTabState(tab);
@@ -173,6 +221,28 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     } catch {}
     setFormData({ ...profile });
   }, [profile]);
+
+  // Real-time listener for profile credentials propagated from Google Sheets
+  useEffect(() => {
+    const handleRemoteProfileUpdate = (e: any) => {
+      const updates = e.detail;
+      if (updates && typeof updates === 'object') {
+        setFormData((prev) => ({
+          ...prev,
+          ...updates,
+        }));
+        isDirtyRef.current = false;
+        try {
+          localStorage.removeItem('damview_settings_draft');
+        } catch {}
+      }
+    };
+
+    window.addEventListener('damview:profile-updated', handleRemoteProfileUpdate);
+    return () => {
+      window.removeEventListener('damview:profile-updated', handleRemoteProfileUpdate);
+    };
+  }, []);
 
   const handleOpenNewCatItem = () => {
     setEditingCatItem(null);
@@ -250,7 +320,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   const [logoSaveFeedback, setLogoSaveFeedback] = useState<string | null>(null);
 
   // Local Machine Filesystem Backup States
-  const [localTargetPath, setLocalTargetPath] = useState<string>(localBackupService.getTargetDirectoryPath());
+  const [localTargetPath, setLocalTargetPath] = useState<string>(localBackupService.getTargetDirectoryPath(profile?.name));
   const [savedDirectoryHandle, setSavedDirectoryHandle] = useState<any>(null);
   const [connectedDirName, setConnectedDirName] = useState<string | null>(null);
   const [isPickingDirectory, setIsPickingDirectory] = useState(false);
@@ -261,68 +331,17 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   const [copiedPath, setCopiedPath] = useState(false);
   const [pathSaveNotification, setPathSaveNotification] = useState(false);
 
-  // Passcode-Gated Configuration & Settings
-  const [adminPasscode, setAdminPasscode] = useState(() => {
-    if (typeof window === 'undefined' || !window.localStorage) return '';
-    const saved = localStorage.getItem('damview_admin_passcode');
-    if (saved === '1000' || saved === '2025') {
-      try {
-        localStorage.removeItem('damview_admin_passcode');
-      } catch {}
-      return '';
-    }
-    return saved || '';
-  });
-  // If no administrative passcode is configured yet (fresh initialization), editing is unlocked by default
-  const [isUnlocked, setIsUnlocked] = useState(() => {
-    if (typeof window === 'undefined' || !window.localStorage) return true;
-    const saved = localStorage.getItem('damview_admin_passcode');
-    return !saved || saved === '1000' || saved === '2025' || saved.trim() === '';
-  });
-  const [showPasscodeModal, setShowPasscodeModal] = useState(false);
   const [showSensitiveAccounts, setShowSensitiveAccounts] = useState(false);
   const [showSensitiveKra, setShowSensitiveKra] = useState(false);
   const [showSensitiveWebhookUrls, setShowSensitiveWebhookUrls] = useState(false);
-  const [passcodeInput, setPasscodeInput] = useState('');
-  const [passcodeError, setPasscodeError] = useState('');
-  const [isChangingPasscode, setIsChangingPasscode] = useState(false);
-  const [newPasscode, setNewPasscode] = useState('');
-  const [passcodeChangeSuccess, setPasscodeChangeSuccess] = useState(false);
 
-  const handleUnlockAttempt = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!adminPasscode || passcodeInput.trim() === adminPasscode) {
-      setIsUnlocked(true);
-      setShowPasscodeModal(false);
-      setPasscodeInput('');
-      setPasscodeError('');
-    } else {
-      setPasscodeError('Invalid administrative passcode. Please try again.');
-    }
-  };
-
-  const handleLockSettings = () => {
-    if (!adminPasscode) {
-      setIsChangingPasscode(true);
-      return;
-    }
-    setIsUnlocked(false);
-    setIsChangingPasscode(false);
-  };
-
-  const handleSaveNewPasscode = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPasscode.trim() || newPasscode.length < 4) {
-      setPasscodeError('Passcode must be at least 4 characters long.');
-      return;
-    }
-    localStorage.setItem('damview_admin_passcode', newPasscode.trim());
-    setAdminPasscode(newPasscode.trim());
-    setNewPasscode('');
-    setIsChangingPasscode(false);
-    setPasscodeChangeSuccess(true);
-    setTimeout(() => setPasscodeChangeSuccess(false), 3000);
-  };
+  // Google Sheets credentials sync state
+  const [isPushingCredentials, setIsPushingCredentials] = useState(false);
+  const [isPullingCredentials, setIsPullingCredentials] = useState(false);
+  const [cloudSyncFeedback, setCloudSyncFeedback] = useState<{
+    type: 'success' | 'error' | 'info';
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     localBackupService.getStoredDirectoryHandle().then((handle) => {
@@ -338,7 +357,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     setIsPickingDirectory(true);
     setLocalWriteResult(null);
     try {
-      const res = await localBackupService.pickArchiveDirectory();
+      const res = await localBackupService.pickArchiveDirectory(formData.name);
       if (res.success && res.directoryName) {
         setConnectedDirName(res.directoryName);
         const handle = await localBackupService.getStoredDirectoryHandle();
@@ -549,11 +568,6 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isUnlocked) {
-      setShowPasscodeModal(true);
-      setPasscodeError('Administrative authorization required: Enter your passcode to unlock and save changes.');
-      return;
-    }
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     try {
       localStorage.removeItem('damview_settings_draft');
@@ -618,6 +632,88 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
     }, 1000);
   };
 
+  const handlePushCredentialsToSheets = async () => {
+    let targetUrl = formData.googleWebAppUrl ? formData.googleWebAppUrl.trim() : '';
+    if (!targetUrl) {
+      setCloudSyncFeedback({ type: 'error', message: 'Please configure a Google Apps Script Web App URL first.' });
+      return;
+    }
+    setIsPushingCredentials(true);
+    setCloudSyncFeedback(null);
+    try {
+      const normalizedData: HotelProfile = {
+        ...formData,
+        phone: normalizeKenyanPhone(formData.phone),
+      };
+      onSaveProfile(normalizedData);
+      const res = await syncManager.pushHotelProfile(normalizedData);
+      if (res.success) {
+        setCloudSyncFeedback({
+          type: 'success',
+          message: 'Hotel settings & credentials successfully saved and synchronized to Google Sheets master ledger (Hotel_Profile).',
+        });
+        appNotificationService.notifySync(
+          'Settings Saved to Google Sheets',
+          'Hotel settings & credentials updated in Google Sheets.',
+          'SUCCESS'
+        );
+        setTimeout(() => setCloudSyncFeedback(null), 6000);
+      } else {
+        setCloudSyncFeedback({
+          type: 'error',
+          message: res.error || 'Failed to sync hotel profile to Google Sheets.',
+        });
+      }
+    } catch (err: any) {
+      setCloudSyncFeedback({ type: 'error', message: err.message || 'Error pushing settings to Google Sheets.' });
+    } finally {
+      setIsPushingCredentials(false);
+    }
+  };
+
+  const handlePullCredentialsFromSheets = async (urlOverride?: string) => {
+    let targetUrl = (urlOverride || formData.googleWebAppUrl || '').trim();
+    if (!targetUrl) {
+      setCloudSyncFeedback({ type: 'error', message: 'Please configure a Google Apps Script Web App URL first.' });
+      return;
+    }
+    setIsPullingCredentials(true);
+    setCloudSyncFeedback(null);
+    try {
+      const res = await syncManager.pullHotelProfile(targetUrl);
+      if (res.success && res.profile) {
+        const pulled = res.profile;
+        setFormData((prev) => ({
+          ...prev,
+          ...pulled,
+        }));
+        isDirtyRef.current = false;
+        try {
+          localStorage.removeItem('damview_settings_draft');
+        } catch {}
+        setCloudSyncFeedback({
+          type: 'success',
+          message: `Hotel settings module successfully populated from Google Sheets (${pulled.name || 'Saved Credentials'}).`,
+        });
+        appNotificationService.notifySync(
+          'Settings Populated from Google Sheets',
+          `Loaded credentials & identity from Google Sheets.`,
+          'SUCCESS'
+        );
+        setTimeout(() => setCloudSyncFeedback(null), 6000);
+      } else {
+        setCloudSyncFeedback({
+          type: 'error',
+          message: res.error || 'No saved profile found in Google Sheets or unable to pull credentials.',
+        });
+      }
+    } catch (err: any) {
+      setCloudSyncFeedback({ type: 'error', message: err.message || 'Error pulling settings from Google Sheets.' });
+    } finally {
+      setIsPullingCredentials(false);
+    }
+  };
+
   const handleTestConnection = async () => {
     let targetUrl = formData.googleWebAppUrl ? formData.googleWebAppUrl.trim() : '';
     if (!targetUrl) {
@@ -637,6 +733,22 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
       const res = await syncManager.testConnection(targetUrl);
       setTestResult(res);
       if (res.ok) {
+        // If Google Sheets returns profile credentials, populate the Hotel Settings module immediately
+        if (res.profile && typeof res.profile === 'object' && Object.keys(res.profile).length > 0) {
+          setFormData((prev) => ({
+            ...prev,
+            ...res.profile,
+          }));
+          isDirtyRef.current = false;
+          try {
+            localStorage.removeItem('damview_settings_draft');
+          } catch {}
+          setCloudSyncFeedback({
+            type: 'success',
+            message: 'Connected to Google Sheets & populated Hotel Settings credentials automatically!',
+          });
+        }
+
         const versionMatch = res.message.match(/v\d+\.\d+(\.\d+)?/);
         const detectedVer = versionMatch ? versionMatch[0] : null;
 
@@ -654,7 +766,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
 
         appNotificationService.notifyAppsScript(
           'Google Apps Script Connected',
-          `Successfully verified endpoint connection (${detectedVer || GOOGLE_APPS_SCRIPT_VERSION}). Google Spreadsheet: ${res.sheetName || 'Hotel Damview ERP'}.`,
+          `Successfully verified endpoint connection (${detectedVer || GOOGLE_APPS_SCRIPT_VERSION}). Google Spreadsheet: ${res.sheetName || 'Hotel ERP'}.`,
           { version: detectedVer || GOOGLE_APPS_SCRIPT_VERSION, sheetName: res.sheetName, url: targetUrl }
         );
       } else {
@@ -732,304 +844,302 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-3 sm:p-5 md:p-6 w-full max-w-5xl mx-auto space-y-4 sm:space-y-6 min-w-0 overflow-x-hidden">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-stone-200 pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-stone-900 tracking-tight flex items-center gap-2">
-            <Settings className="w-6 h-6 text-amber-700" />
-            Hotel Profile & Google Sync Configuration
+          <h1 className="text-xl sm:text-2xl font-bold text-stone-900 tracking-tight flex items-center gap-2">
+            <Settings className="w-6 h-6 text-amber-700 shrink-0" />
+            <span>Hotel Profile &amp; Google Sync Configuration</span>
           </h1>
-          <p className="text-sm text-stone-600">
-            Configure Hotel Damview business credentials, KRA PIN, settlement accounts, and Google Workspace webhook sync.
+          <p className="text-xs sm:text-sm text-stone-600 mt-0.5">
+            Configure {formData.name || 'organization'} business credentials, KRA PIN, settlement accounts, and centralized Google Workspace webhook sync.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {!isUnlocked ? (
-            <button
-              type="button"
-              onClick={() => {
-                setPasscodeError('');
-                setPasscodeInput('');
-                setShowPasscodeModal(true);
-              }}
-              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded flex items-center gap-1.5 shadow-xs transition-colors"
-            >
-              <KeyRound className="w-4 h-4" />
-              <span>Unlock to Edit</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleLockSettings}
-              className="px-3 py-2 bg-stone-200 hover:bg-stone-300 text-stone-800 font-bold text-xs rounded flex items-center gap-1.5 transition-colors"
-            >
-              <Lock className="w-4 h-4 text-stone-600" />
-              <span>Lock Settings</span>
-            </button>
-          )}
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          {formData.googleWebAppUrl && (
+            <>
+              <button
+                type="button"
+                onClick={() => handlePullCredentialsFromSheets()}
+                disabled={isPullingCredentials}
+                className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold text-xs rounded flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                title="Fetch credentials saved in Google Sheets and populate Hotel Settings module"
+              >
+                <DownloadCloud className={`w-3.5 h-3.5 ${isPullingCredentials ? 'animate-bounce' : 'text-blue-600'}`} />
+                <span className="hidden sm:inline">{isPullingCredentials ? 'Populating...' : 'Populate from Google Sheets'}</span>
+                <span className="sm:hidden">From Sheets</span>
+              </button>
 
-          {isUnlocked && (
-            <button
-              type="button"
-              onClick={handleRestoreBakedDefaults}
-              className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs rounded flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="Reset all credentials and settings to clean blank defaults"
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-stone-600" />
-              <span className="hidden sm:inline">Clear to Blank</span>
-            </button>
+              <button
+                type="button"
+                onClick={handlePushCredentialsToSheets}
+                disabled={isPushingCredentials}
+                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs rounded flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                title="Save & sync hotel profile credentials to Google Sheets master ledger"
+              >
+                <UploadCloud className={`w-3.5 h-3.5 ${isPushingCredentials ? 'animate-bounce' : 'text-emerald-600'}`} />
+                <span className="hidden sm:inline">{isPushingCredentials ? 'Syncing...' : 'Save to Google Sheets'}</span>
+                <span className="sm:hidden">To Sheets</span>
+              </button>
+            </>
           )}
 
           <button
             type="button"
+            onClick={handleRestoreBakedDefaults}
+            className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs rounded flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Reset all credentials and settings to clean blank defaults"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-stone-600" />
+            <span className="hidden sm:inline">Clear to Blank</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleSubmit}
-            disabled={!isUnlocked}
-            className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-amber-400 font-bold text-xs rounded flex items-center gap-1.5 shadow-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
           >
             <Save className="w-4 h-4" />
-            {saveSuccess ? 'Changes Saved!' : 'Save Settings'}
+            <span>{saveSuccess ? 'Changes Saved & Published!' : 'Save & Publish Settings'}</span>
           </button>
         </div>
       </div>
 
-      {/* Lock / Unlock Status Banner */}
-      {!isUnlocked ? (
-        <div className="bg-amber-50/90 border border-amber-300 rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950 shadow-2xs">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-200/80 rounded-full text-amber-900 shrink-0">
-              <Lock className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="font-bold text-sm block">Protected Configuration (Read-Only Mode)</span>
-              <span className="text-amber-800 text-[11px]">
-                Hotel business details, KRA credentials, bank accounts, and webhook settings are locked against unauthorized modifications.
-              </span>
-            </div>
+      {/* Cloud Sync Feedback Banner */}
+      {cloudSyncFeedback && (
+        <div
+          className={`p-3 rounded-lg border text-xs flex items-center justify-between gap-2 shadow-2xs ${
+            cloudSyncFeedback.type === 'success'
+              ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+              : cloudSyncFeedback.type === 'error'
+              ? 'bg-rose-50 text-rose-900 border-rose-300'
+              : 'bg-blue-50 text-blue-900 border-blue-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {cloudSyncFeedback.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
+            {cloudSyncFeedback.type === 'error' && <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />}
+            {cloudSyncFeedback.type === 'info' && <Cloud className="w-4 h-4 text-blue-600 shrink-0" />}
+            <span className="font-medium">{cloudSyncFeedback.message}</span>
           </div>
-        </div>
-      ) : (
-        <div className="bg-emerald-50 border border-emerald-300 rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-emerald-950 shadow-2xs">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-200 rounded-full text-emerald-800 shrink-0">
-              <Unlock className="w-4 h-4" />
-            </div>
-            <div>
-              <span className="font-bold text-sm block">Admin Access Active (Editing Enabled)</span>
-              <span className="text-emerald-800 text-[11px]">
-                You can now edit hotel details, payment accounts, and Google webhooks. Remember to lock settings when done.
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setIsChangingPasscode(!isChangingPasscode)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-900 font-semibold rounded text-[11px] transition-colors cursor-pointer"
-              title={adminPasscode ? 'Change administrative passcode' : 'Set administrative passcode to protect settings'}
-            >
-              <KeyRound className="w-3.5 h-3.5 text-emerald-700" />
-              <span>{isChangingPasscode ? 'Close Form' : (adminPasscode ? 'Change Passcode' : 'Set Passcode')}</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setCloudSyncFeedback(null)}
+            className="text-stone-400 hover:text-stone-600 text-xs font-bold p-1 cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
       )}
 
-      {/* Change Passcode Inline Form */}
-      {isChangingPasscode && isUnlocked && (
-        <form onSubmit={handleSaveNewPasscode} className="bg-stone-50 border border-stone-300 rounded-lg p-4 space-y-3">
-          <div className="font-bold text-stone-900 text-xs flex items-center gap-1.5">
-            <KeyRound className="w-4 h-4 text-amber-700" />
-            <span>Update Administrative Passcode</span>
+      {/* Centralized Cloud Persistence Notice */}
+      <div className="bg-amber-50/90 border border-amber-300 rounded-lg p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-950 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-amber-200/80 rounded-full text-amber-900 shrink-0">
+            <CheckCircle2 className="w-4 h-4 text-amber-900" />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="password"
-              placeholder="Enter new passcode (min 4 characters)"
-              value={newPasscode}
-              onChange={(e) => setNewPasscode(e.target.value)}
-              className="border border-stone-300 rounded px-3 py-1.5 text-xs text-stone-900 font-mono w-64 bg-white"
-              required
-              minLength={4}
-            />
-            <button
-              type="submit"
-              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs transition-colors shadow-2xs cursor-pointer"
-            >
-              Save New Passcode
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsChangingPasscode(false)}
-              className="px-3 py-1.5 bg-stone-200 hover:bg-stone-300 text-stone-700 font-medium rounded text-xs transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
-          </div>
-          {passcodeChangeSuccess && (
-            <div className="text-emerald-700 font-semibold text-[11px] flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Passcode successfully updated and stored!</span>
-            </div>
-          )}
-        </form>
-      )}
-
-      {/* Passcode Unlock Modal */}
-      {showPasscodeModal && (
-        <div className="fixed inset-0 z-50 bg-stone-950/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg border border-stone-300 shadow-xl max-w-md w-full p-6 space-y-4 animate-fade-in">
-            <div className="flex items-center gap-3 border-b border-stone-200 pb-3">
-              <div className="p-2.5 bg-amber-100 rounded-full text-amber-800">
-                <Lock className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-stone-900 text-base">Administrative Authorization</h3>
-                <p className="text-stone-500 text-xs">Enter your admin passcode to unlock and modify settings.</p>
-              </div>
-            </div>
-
-            <form onSubmit={handleUnlockAttempt} className="space-y-4">
-              <div>
-                <label className="block text-stone-700 font-semibold text-xs mb-1.5">Admin Passcode</label>
-                <input
-                  type="password"
-                  autoFocus
-                  value={passcodeInput}
-                  onChange={(e) => setPasscodeInput(e.target.value)}
-                  placeholder="Enter administrator passcode"
-                  className="w-full border border-stone-300 rounded px-3 py-2 text-base font-mono tracking-widest text-center focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                />
-                {passcodeError && (
-                  <div className="text-rose-600 font-semibold text-xs mt-2 text-center bg-rose-50 border border-rose-200 p-2 rounded">
-                    {passcodeError}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-stone-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowPasscodeModal(false);
-                    setPasscodeError('');
-                  }}
-                  className="px-3.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold rounded text-xs transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs transition-colors shadow-2xs"
-                >
-                  Unlock Settings
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-stone-200 pb-1 text-xs">
-        <button
-          type="button"
-          onClick={() => setActiveTab('profile')}
-          className={`px-4 py-2 font-bold rounded-t transition-colors ${
-            activeTab === 'profile'
-              ? 'bg-white border-x border-t border-stone-300 text-stone-900 border-b-2 border-b-amber-500'
-              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
-          }`}
-        >
-          Hotel Identity & KRA Details
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('accounts')}
-          className={`px-4 py-2 font-bold rounded-t transition-colors ${
-            activeTab === 'accounts'
-              ? 'bg-white border-x border-t border-stone-300 text-stone-900 border-b-2 border-b-amber-500'
-              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
-          }`}
-        >
-          Bank & Settlement Accounts
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('google-sync')}
-          className={`px-4 py-2 font-bold rounded-t transition-colors flex items-center gap-1.5 ${
-            activeTab === 'google-sync'
-              ? 'bg-white border-x border-t border-stone-300 text-stone-900 border-b-2 border-b-amber-500'
-              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
-          }`}
-        >
-          <Cloud className="w-3.5 h-3.5 text-blue-600" />
-          Google Workspace Sync (Zero-Auth)
-          {syncQueue.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-900 text-[10px] font-mono font-bold">
-              {syncQueue.length}
+          <div>
+            <span className="font-bold text-sm block">Centralized Organization Configuration Active</span>
+            <span className="text-amber-900/90 text-[11px]">
+              All inputted credentials, settlement accounts, and branding are automatically saved locally and synchronized to Google Sheets for all connected apps.
             </span>
-          )}
-        </button>
+          </div>
+        </div>
+      </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('local-backup')}
-          className={`px-4 py-2 font-bold rounded-t transition-colors flex items-center gap-1.5 ${
-            activeTab === 'local-backup'
-              ? 'bg-white border-x border-t border-stone-300 text-stone-900 border-b-2 border-b-amber-500'
-              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
-          }`}
-        >
-          <FolderCheck className="w-3.5 h-3.5 text-emerald-600" />
-          Local Machine Backup & Archives
-          {savedDirectoryHandle && (
-            <span className="w-2 h-2 rounded-full bg-emerald-500" title="Direct local folder connected" />
-          )}
-        </button>
+      {/* Scrollable Tabs Navigation Names Block (Fits Viewport Length & Enables Horizontal Scrolling) */}
+      <div className="relative border-b border-stone-200 bg-stone-100/70 p-1.5 rounded-lg shadow-2xs">
+        {/* Left Scroll Navigation Button */}
+        {canScrollLeft && (
+          <button
+            type="button"
+            onClick={() => scrollTabs('left')}
+            className="absolute left-1.5 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-stone-900 text-amber-400 hover:bg-stone-800 rounded-md shadow-md transition-all cursor-pointer flex items-center justify-center border border-stone-700 shrink-0"
+            title="Scroll tabs left"
+            aria-label="Scroll tabs left"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('pwa')}
-          className={`px-4 py-2 font-bold rounded-t transition-colors flex items-center gap-1.5 ${
-            activeTab === 'pwa'
-              ? 'bg-white border-x border-t border-stone-300 text-stone-900 border-b-2 border-b-amber-500'
-              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
-          }`}
+        {/* Horizontal Scrollable Tabs Names Row */}
+        <div
+          ref={tabListRef}
+          className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scroll-smooth min-w-0 max-w-full flex-nowrap py-1 px-1"
+          style={{ scrollbarWidth: 'thin' }}
         >
-          <Smartphone className="w-3.5 h-3.5 text-amber-600" />
-          Offline Storage & Cache
-        </button>
+          {/* 1. Hotel Identity & KRA Details */}
+          <button
+            ref={activeTab === 'profile' ? activeTabBtnRef : undefined}
+            type="button"
+            onClick={() => setActiveTab('profile')}
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer select-none border ${
+              activeTab === 'profile'
+                ? 'bg-white border-stone-300 text-stone-950 shadow-xs ring-1 ring-amber-500/30 border-b-2 border-b-amber-500'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-white/80 border-transparent'
+            }`}
+          >
+            <Building2 className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'profile' ? 'text-amber-600' : 'text-stone-500'}`} />
+            <span className="hidden sm:inline">Hotel Identity &amp; KRA Details</span>
+            <span className="sm:hidden">Identity &amp; KRA</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('catalogue')}
-          className={`px-4 py-2 font-bold rounded-t transition-colors flex items-center gap-1.5 ${
-            activeTab === 'catalogue'
-              ? 'bg-white border-x border-t border-stone-300 text-stone-900 border-b-2 border-b-amber-500'
-              : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
-          }`}
-        >
-          <ListPlus className="w-3.5 h-3.5 text-purple-600" />
-          Particulars & Service Catalog ({catalogueItems.length})
-        </button>
+          {/* 2. Bank & Settlement Accounts */}
+          <button
+            ref={activeTab === 'accounts' ? activeTabBtnRef : undefined}
+            type="button"
+            onClick={() => setActiveTab('accounts')}
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer select-none border ${
+              activeTab === 'accounts'
+                ? 'bg-white border-stone-300 text-stone-950 shadow-xs ring-1 ring-amber-500/30 border-b-2 border-b-amber-500'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-white/80 border-transparent'
+            }`}
+          >
+            <CreditCard className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'accounts' ? 'text-amber-600' : 'text-stone-500'}`} />
+            <span className="hidden sm:inline">Bank &amp; Settlement Accounts</span>
+            <span className="sm:hidden">Settlement Accounts</span>
+          </button>
+
+          {/* 3. Google Workspace Sync */}
+          <button
+            ref={activeTab === 'google-sync' ? activeTabBtnRef : undefined}
+            type="button"
+            onClick={() => setActiveTab('google-sync')}
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer select-none border ${
+              activeTab === 'google-sync'
+                ? 'bg-white border-stone-300 text-stone-950 shadow-xs ring-1 ring-amber-500/30 border-b-2 border-b-amber-500'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-white/80 border-transparent'
+            }`}
+          >
+            <Cloud className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span className="hidden sm:inline">Google Workspace Sync (Zero-Auth)</span>
+            <span className="sm:hidden">Google Sync</span>
+            {syncQueue.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-900 text-[10px] font-mono font-bold">
+                {syncQueue.length}
+              </span>
+            )}
+          </button>
+
+          {/* 4. Local Machine Backup & Archives */}
+          <button
+            ref={activeTab === 'local-backup' ? activeTabBtnRef : undefined}
+            type="button"
+            onClick={() => setActiveTab('local-backup')}
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer select-none border ${
+              activeTab === 'local-backup'
+                ? 'bg-white border-stone-300 text-stone-950 shadow-xs ring-1 ring-amber-500/30 border-b-2 border-b-amber-500'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-white/80 border-transparent'
+            }`}
+          >
+            <FolderCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span className="hidden sm:inline">Local Machine Backup &amp; Archives</span>
+            <span className="sm:hidden">Local Archives</span>
+            {savedDirectoryHandle && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title="Direct local folder connected" />
+            )}
+          </button>
+
+          {/* 5. Offline Storage & Cache */}
+          <button
+            ref={activeTab === 'pwa' ? activeTabBtnRef : undefined}
+            type="button"
+            onClick={() => setActiveTab('pwa')}
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer select-none border ${
+              activeTab === 'pwa'
+                ? 'bg-white border-stone-300 text-stone-950 shadow-xs ring-1 ring-amber-500/30 border-b-2 border-b-amber-500'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-white/80 border-transparent'
+            }`}
+          >
+            <Smartphone className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span className="hidden sm:inline">Offline Storage &amp; Cache</span>
+            <span className="sm:hidden">Offline Cache</span>
+            {needRefresh && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-stone-950 text-[10px] font-bold animate-pulse">
+                Update
+              </span>
+            )}
+          </button>
+
+          {/* 6. Particulars & Service Catalog */}
+          <button
+            ref={activeTab === 'catalogue' ? activeTabBtnRef : undefined}
+            type="button"
+            onClick={() => setActiveTab('catalogue')}
+            className={`whitespace-nowrap shrink-0 px-3.5 py-2 font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer select-none border ${
+              activeTab === 'catalogue'
+                ? 'bg-white border-stone-300 text-stone-950 shadow-xs ring-1 ring-amber-500/30 border-b-2 border-b-amber-500'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-white/80 border-transparent'
+            }`}
+          >
+            <ListPlus className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+            <span className="hidden sm:inline">Particulars &amp; Service Catalog ({catalogueItems.length})</span>
+            <span className="sm:hidden">Service Catalog ({catalogueItems.length})</span>
+          </button>
+        </div>
+
+        {/* Right Scroll Navigation Button */}
+        {canScrollRight && (
+          <button
+            type="button"
+            onClick={() => scrollTabs('right')}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 z-20 p-1.5 bg-stone-900 text-amber-400 hover:bg-stone-800 rounded-md shadow-md transition-all cursor-pointer flex items-center justify-center border border-stone-700 shrink-0"
+            title="Scroll tabs right"
+            aria-label="Scroll tabs right"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* TAB 1: HOTEL IDENTITY & KRA */}
       {activeTab === 'profile' && (
         <form onSubmit={handleSubmit} className="bg-white border border-stone-200 rounded-lg p-6 shadow-xs space-y-5 text-xs">
+          {/* Quick Google Sheets Sync bar for credentials */}
+          {formData.googleWebAppUrl && (
+            <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="text-[11.5px] text-blue-950 font-medium">
+                  Google Workspace connected. You can synchronize your hotel identity &amp; KRA credentials with Google Sheets.
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handlePullCredentialsFromSheets()}
+                  disabled={isPullingCredentials}
+                  className="px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 font-bold text-[11px] rounded flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Populate Identity & KRA credentials from Google Sheets"
+                >
+                  <DownloadCloud className={`w-3.5 h-3.5 ${isPullingCredentials ? 'animate-bounce' : 'text-blue-600'}`} />
+                  <span>{isPullingCredentials ? 'Populating...' : 'Populate from Sheets'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePushCredentialsToSheets}
+                  disabled={isPushingCredentials}
+                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Save current identity credentials to Google Sheets"
+                >
+                  <UploadCloud className={`w-3.5 h-3.5 ${isPushingCredentials ? 'animate-bounce' : 'text-white'}`} />
+                  <span>{isPushingCredentials ? 'Saving...' : 'Save to Sheets'}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Logo upload and preview - always accessible for instant company branding */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-stone-50 border border-stone-200 rounded-lg">
             <div className="shrink-0">
               <HotelLogo logoBase64={formData.logoBase64} size={90} />
             </div>
             <div className="space-y-1.5 min-w-0 flex-1">
-              <label className="block font-bold text-stone-800 text-sm">Hotel Damview Company Logo</label>
+              <label className="block font-bold text-stone-800 text-sm">Company Logo &amp; Crest Branding</label>
               <p className="text-[11px] text-stone-500">
-                Uploaded logo automatically persists across all applications, documents, receipts, statements, and live PDF exports.
+                Uploaded logo automatically persists across all applications, documents, receipts, statements, and live PDF exports. Leave blank for clean minimalist look.
               </p>
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <label className="px-3 py-1.5 bg-white border border-stone-300 rounded text-stone-700 font-semibold flex items-center gap-1.5 cursor-pointer hover:bg-stone-50 transition-colors shadow-2xs">
@@ -1043,7 +1153,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                     onClick={handleResetLogo}
                     className="text-rose-600 hover:text-rose-700 hover:underline text-[11px] font-medium cursor-pointer"
                   >
-                    Reset to Default Crest
+                    Clear Logo (Leave Blank)
                   </button>
                 )}
               </div>
@@ -1056,16 +1166,14 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             </div>
           </div>
 
-          <fieldset disabled={!isUnlocked} className="space-y-5 disabled:opacity-80">
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block font-semibold text-stone-700 mb-1">Hotel Business Name *</label>
+              <label className="block font-semibold text-stone-700 mb-1">Hotel Business Name</label>
               <input
                 type="text"
-                required
-                value={formData.name}
+                value={formData.name || ''}
                 onChange={(e) => handleInputChange('name', e.target.value)}
+                placeholder="Leave blank (default) or enter hotel business name"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-bold"
               />
             </div>
@@ -1073,7 +1181,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block font-semibold text-stone-700">Tagline / Subtitle</label>
-                {formData.tagline?.trim() && isUnlocked && (
+                {formData.tagline?.trim() && (
                   <button
                     type="button"
                     onClick={() => handleInputChange('tagline', '')}
@@ -1098,7 +1206,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block font-semibold text-stone-700">KRA PIN *</label>
+                <label className="block font-semibold text-stone-700">KRA PIN</label>
                 <button
                   type="button"
                   onClick={() => setShowSensitiveKra((prev) => !prev)}
@@ -1120,9 +1228,9 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               </div>
               <input
                 type={showSensitiveKra ? 'text' : 'password'}
-                required
-                value={formData.kraPin}
+                value={formData.kraPin || ''}
                 onChange={(e) => handleInputChange('kraPin', e.target.value.toUpperCase())}
+                placeholder="Leave blank (default) or enter KRA PIN e.g. P051234567Z"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-mono font-bold"
               />
             </div>
@@ -1133,7 +1241,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                 type="number"
                 step="0.1"
                 min="0"
-                value={formData.vatRate}
+                value={formData.vatRate !== undefined ? formData.vatRate : 16}
                 onChange={(e) => handleInputChange('vatRate', Number(e.target.value))}
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-semibold"
               />
@@ -1143,8 +1251,9 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               <label className="block font-semibold text-stone-700 mb-1">Official Email Address</label>
               <input
                 type="email"
-                value={formData.email}
+                value={formData.email || ''}
                 onChange={(e) => handleInputChange('email', e.target.value)}
+                placeholder="Leave blank (default) or enter official email e.g. info@hotel.com"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900"
               />
             </div>
@@ -1168,14 +1277,14 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               </div>
               <input
                 type="text"
-                value={formData.phone}
+                value={formData.phone || ''}
                 onChange={(e) =>
                   handleInputChange('phone', sanitizeKenyanPhoneLive(e.target.value))
                 }
                 onBlur={(e) =>
                   handleInputChange('phone', normalizeKenyanPhone(e.target.value))
                 }
-                placeholder="e.g. +254 722 890 123 or 0722 890 123"
+                placeholder="Leave blank (default) or e.g. +254 722 890 123 or 0722 890 123"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-mono text-xs"
               />
               <p className="text-[10px] text-stone-500 mt-1">
@@ -1187,8 +1296,9 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               <label className="block font-semibold text-stone-700 mb-1">Physical Location</label>
               <input
                 type="text"
-                value={formData.physicalLocation}
+                value={formData.physicalLocation || ''}
                 onChange={(e) => handleInputChange('physicalLocation', e.target.value)}
+                placeholder="Leave blank (default) or enter physical location"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900"
               />
             </div>
@@ -1197,60 +1307,91 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               <label className="block font-semibold text-stone-700 mb-1">Postal Address</label>
               <input
                 type="text"
-                value={formData.postalAddress}
+                value={formData.postalAddress || ''}
                 onChange={(e) => handleInputChange('postalAddress', e.target.value)}
+                placeholder="Leave blank (default) or enter postal address"
                 className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900"
               />
             </div>
           </div>
-          </fieldset>
         </form>
       )}
 
       {/* TAB 2: BANK & SETTLEMENT ACCOUNTS */}
       {activeTab === 'accounts' && (
         <form onSubmit={handleSubmit} className="bg-white border border-stone-200 rounded p-6 shadow-xs space-y-5 text-xs">
-          <fieldset disabled={!isUnlocked} className="space-y-5 disabled:opacity-80">
-          <div className="p-3 bg-stone-50 border border-stone-200 rounded text-stone-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <strong className="text-stone-900">Settlement &amp; Remittance Accounts:</strong> All bank remittance and settlement account credentials are blank by default. All original default demo bank credentials have been purged completely. Enter your official hotel banking details below only if you wish them to appear on invoices, quotations, receipts, proformas, and statements.
-            </div>
-            {isUnlocked && (
+          {formData.googleWebAppUrl && (
+            <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="text-[11.5px] text-blue-950 font-medium">
+                  Settlement &amp; Remittance accounts can be saved in Google Sheets and populated across terminals.
+                </span>
+              </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setShowSensitiveAccounts((prev) => !prev)}
-                  className="px-2.5 py-1 bg-white hover:bg-stone-100 text-stone-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1 cursor-pointer border border-stone-300"
-                  title="Toggle shielding for sensitive account credentials"
+                  onClick={() => handlePullCredentialsFromSheets()}
+                  disabled={isPullingCredentials}
+                  className="px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 font-bold text-[11px] rounded flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Populate settlement account credentials from Google Sheets"
                 >
-                  {showSensitiveAccounts ? (
-                    <>
-                      <EyeOff className="w-3 h-3 text-stone-500" />
-                      <span>Shield Sensitive Fields</span>
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="w-3 h-3 text-stone-500" />
-                      <span>Reveal Sensitive Fields</span>
-                    </>
-                  )}
+                  <DownloadCloud className={`w-3.5 h-3.5 ${isPullingCredentials ? 'animate-bounce' : 'text-blue-600'}`} />
+                  <span>{isPullingCredentials ? 'Populating...' : 'Populate from Sheets'}</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    handleInputChange('bankName', '');
-                    handleInputChange('bankBranch', '');
-                    handleInputChange('accountHolder', '');
-                    handleInputChange('accountNumber', '');
-                  }}
-                  className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1 cursor-pointer border border-rose-200"
-                  title="Purge all bank details completely and leave blank"
+                  onClick={handlePushCredentialsToSheets}
+                  disabled={isPushingCredentials}
+                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Save current settlement accounts to Google Sheets"
                 >
-                  <RefreshCw className="w-3 h-3 text-rose-600" />
-                  <span>Purge Bank Details (Leave Blank)</span>
+                  <UploadCloud className={`w-3.5 h-3.5 ${isPushingCredentials ? 'animate-bounce' : 'text-white'}`} />
+                  <span>{isPushingCredentials ? 'Saving...' : 'Save to Sheets'}</span>
                 </button>
               </div>
-            )}
+            </div>
+          )}
+
+          <div className="p-3 bg-stone-50 border border-stone-200 rounded text-stone-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <strong className="text-stone-900">Settlement &amp; Remittance Accounts:</strong> All bank remittance and settlement account credentials are blank by default. All original default demo bank credentials have been purged completely. Enter your official hotel banking details below to appear on invoices, quotations, receipts, proformas, and statements.
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowSensitiveAccounts((prev) => !prev)}
+                className="px-2.5 py-1 bg-white hover:bg-stone-100 text-stone-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1 cursor-pointer border border-stone-300"
+                title="Toggle shielding for sensitive account credentials"
+              >
+                {showSensitiveAccounts ? (
+                  <>
+                    <EyeOff className="w-3 h-3 text-stone-500" />
+                    <span>Shield Sensitive Fields</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-3 h-3 text-stone-500" />
+                    <span>Reveal Sensitive Fields</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleInputChange('bankName', '');
+                  handleInputChange('bankBranch', '');
+                  handleInputChange('accountHolder', '');
+                  handleInputChange('accountNumber', '');
+                  handleInputChange('mpesaTillNumber', '');
+                }}
+                className="px-2.5 py-1 bg-white hover:bg-rose-50 text-rose-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1 cursor-pointer border border-rose-200"
+                title="Purge all bank details completely and leave blank"
+              >
+                <RefreshCw className="w-3 h-3 text-rose-600" />
+                <span>Purge Bank Details (Leave Blank)</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1306,7 +1447,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
             <div className="md:col-span-2">
               <div className="flex items-center justify-between mb-1">
                 <label className="block font-semibold text-emerald-800">
-                  M-Pesa Buy Goods Till Number *
+                  M-Pesa Buy Goods Till Number
                 </label>
                 <span className="text-[10px] text-stone-400 font-medium">
                   {showSensitiveAccounts ? 'Plain' : 'Shielded'}
@@ -1314,14 +1455,13 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               </div>
               <input
                 type={showSensitiveAccounts ? 'text' : 'password'}
-                value={formData.mpesaTillNumber}
+                value={formData.mpesaTillNumber || ''}
                 onChange={(e) => handleInputChange('mpesaTillNumber', e.target.value)}
-                placeholder="e.g. 5432100"
+                placeholder="Leave blank (default) or enter till number e.g. 5432100"
                 className="w-full border border-emerald-300 bg-emerald-50/40 rounded px-2.5 py-1.5 text-emerald-950 font-mono font-bold text-sm"
               />
             </div>
           </div>
-          </fieldset>
         </form>
       )}
 
@@ -1429,29 +1569,26 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                 </p>
               </div>
 
-              {isUnlocked && (
-                <button
-                  type="button"
-                  onClick={() => setShowSensitiveWebhookUrls((prev) => !prev)}
-                  className="px-2.5 py-1 bg-white hover:bg-stone-100 text-stone-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1 cursor-pointer border border-stone-300 shrink-0"
-                  title="Toggle shielding for webhook endpoint and drive URLs"
-                >
-                  {showSensitiveWebhookUrls ? (
-                    <>
-                      <EyeOff className="w-3 h-3 text-stone-500" />
-                      <span>Shield Webhook URLs</span>
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="w-3 h-3 text-stone-500" />
-                      <span>Reveal Webhook URLs</span>
-                    </>
-                  )}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowSensitiveWebhookUrls((prev) => !prev)}
+                className="px-2.5 py-1 bg-white hover:bg-stone-100 text-stone-700 font-bold rounded text-[11px] transition-colors flex items-center gap-1 cursor-pointer border border-stone-300 shrink-0"
+                title="Toggle shielding for webhook endpoint and drive URLs"
+              >
+                {showSensitiveWebhookUrls ? (
+                  <>
+                    <EyeOff className="w-3 h-3 text-stone-500" />
+                    <span>Shield Webhook URLs</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-3 h-3 text-stone-500" />
+                    <span>Reveal Webhook URLs</span>
+                  </>
+                )}
+              </button>
             </div>
 
-            <fieldset disabled={!isUnlocked} className="space-y-4 disabled:opacity-80">
             <div className="space-y-4">
               {/* 1. Google Apps Script Web App Endpoint URL */}
               <div>
@@ -1468,13 +1605,18 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                     type={showSensitiveWebhookUrls ? 'url' : 'password'}
                     value={formData.googleWebAppUrl || ''}
                     onChange={(e) => handleInputChange('googleWebAppUrl', e.target.value)}
-                    placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                    onBlur={() => {
+                      if (formData.googleWebAppUrl && formData.googleWebAppUrl.trim().startsWith('https://script.google.com/macros/s/')) {
+                        handleTestConnection();
+                      }
+                    }}
+                    placeholder="https://script.google.com/macros/s/AKfycb.../exec (Leave blank by default)"
                     className="flex-1 border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-mono text-[11px]"
                   />
                   <button
                     type="button"
                     onClick={handleTestConnection}
-                    disabled={isTesting || !isUnlocked}
+                    disabled={isTesting}
                     className="px-3 py-1.5 bg-stone-800 hover:bg-stone-700 text-stone-200 font-semibold rounded shrink-0 disabled:opacity-50 flex items-center gap-1.5"
                   >
                     <RefreshCw className={`w-3 h-3 ${isTesting ? 'animate-spin text-amber-400' : ''}`} />
@@ -1482,7 +1624,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                   </button>
                 </div>
                 <p className="text-[10.5px] text-stone-500 mt-1">
-                  Deployed as Web App with <em>&quot;Execute as: Me&quot;</em> and <em>&quot;Who has access: Anyone&quot;</em>.
+                  Deployed as Web App with <em>&quot;Execute as: Me&quot;</em> and <em>&quot;Who has access: Anyone&quot;</em>. Testing connection or entering URL automatically populates Hotel Settings from Google Sheets.
                 </p>
               </div>
 
@@ -1507,7 +1649,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                     type={showSensitiveWebhookUrls ? 'url' : 'password'}
                     value={formData.googleSheetUrl || ''}
                     onChange={(e) => handleInputChange('googleSheetUrl', e.target.value)}
-                    placeholder="https://docs.google.com/spreadsheets/d/1abcXYZ.../edit"
+                    placeholder="https://docs.google.com/spreadsheets/d/1abcXYZ.../edit (Leave blank by default)"
                     className="flex-1 border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-mono text-[11px]"
                   />
                   {formData.googleSheetUrl && (
@@ -1548,7 +1690,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                     type={showSensitiveWebhookUrls ? 'url' : 'password'}
                     value={formData.googleDriveFolderUrl || ''}
                     onChange={(e) => handleInputChange('googleDriveFolderUrl', e.target.value)}
-                    placeholder="https://drive.google.com/drive/folders/1abcXYZ..."
+                    placeholder="https://drive.google.com/drive/folders/1abcXYZ... (Leave blank by default)"
                     className="flex-1 border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-mono text-[11px]"
                   />
                   {formData.googleDriveFolderUrl && (
@@ -1576,12 +1718,13 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                   </label>
                   <input
                     type="text"
-                    value={formData.googleDriveFolder || 'Hotel Damview Archives'}
+                    value={formData.googleDriveFolder || ''}
                     onChange={(e) => handleInputChange('googleDriveFolder', e.target.value)}
+                    placeholder={`Leave blank (default: ${getHotelArchiveFolderName(formData.name)}) or enter archival folder name`}
                     className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900"
                   />
                   <p className="text-[10.5px] text-stone-500 mt-1">
-                    Folder automatically created in Drive if not yet existing.
+                    Folder automatically created in Drive if not yet existing (e.g. {getHotelArchiveFolderName(formData.name)}).
                   </p>
                 </div>
 
@@ -1593,7 +1736,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                     type={showSensitiveWebhookUrls ? 'url' : 'password'}
                     value={formData.googleSheetEmbedUrl || ''}
                     onChange={(e) => handleInputChange('googleSheetEmbedUrl', e.target.value)}
-                    placeholder="https://docs.google.com/spreadsheets/d/e/.../pubhtml"
+                    placeholder="https://docs.google.com/spreadsheets/d/e/.../pubhtml (Leave blank by default)"
                     className="w-full border border-stone-300 rounded px-2.5 py-1.5 text-stone-900 font-mono text-[11px]"
                   />
                   <p className="text-[10.5px] text-stone-500 mt-1">
@@ -1620,15 +1763,13 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={!isUnlocked}
-                  className="px-3 py-1 bg-stone-900 hover:bg-stone-800 text-amber-400 font-bold rounded text-xs flex items-center gap-1 shadow-xs disabled:opacity-50"
+                  className="px-3 py-1 bg-stone-900 hover:bg-stone-800 text-amber-400 font-bold rounded text-xs flex items-center gap-1 shadow-xs"
                 >
                   <Save className="w-3.5 h-3.5" />
                   Save Changes
                 </button>
               </div>
             </div>
-            </fieldset>
 
             {/* Test Result alert */}
               {testResult && (
@@ -1857,13 +1998,14 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    setLocalTargetPath(DEFAULT_DESIGNATED_ARCHIVE_PATH);
-                    localBackupService.setTargetDirectoryPath(DEFAULT_DESIGNATED_ARCHIVE_PATH);
+                    const defaultPath = localBackupService.getTargetDirectoryPath(formData.name);
+                    setLocalTargetPath(defaultPath);
+                    localBackupService.setTargetDirectoryPath(defaultPath);
                     setPathSaveNotification(true);
                     setTimeout(() => setPathSaveNotification(false), 3000);
                   }}
                   className="px-2.5 py-1 bg-white border border-stone-300 rounded text-stone-700 hover:bg-stone-100 flex items-center gap-1 font-semibold transition-colors text-[11px]"
-                  title="Reset to default Hotel Damview Archives path"
+                  title={`Reset to default Documents/${getHotelArchiveFolderName(formData.name)} path`}
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-stone-500" />
                   <span>Reset Default</span>
@@ -1877,7 +2019,7 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
                 value={localTargetPath}
                 onChange={(e) => setLocalTargetPath(e.target.value)}
                 className="w-full font-mono text-[11px] bg-white border border-stone-300 rounded px-3 py-2 text-stone-900 focus:outline-hidden focus:ring-1 focus:ring-amber-500"
-                placeholder="C:\Users\...\Hotel Damview_Archives"
+                placeholder={`Documents/${getHotelArchiveFolderName(formData.name)}`}
               />
               <button
                 type="button"
@@ -2283,18 +2425,16 @@ export const HotelSettings: React.FC<HotelSettingsProps> = ({
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {isUnlocked && (
-                <button
-                  type="button"
-                  onClick={handlePurgeAllDemoData}
-                  className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Purge all demo / mock records across all operational modules"
-                >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                  <span>Purge All Demo Data</span>
-                </button>
-              )}
-              {catalogueItems.length > 0 && isUnlocked && (
+              <button
+                type="button"
+                onClick={handlePurgeAllDemoData}
+                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Purge all demo / mock records across all operational modules"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>Purge All Demo Data</span>
+              </button>
+              {catalogueItems.length > 0 && (
                 <button
                   type="button"
                   onClick={handlePurgeCatalogue}

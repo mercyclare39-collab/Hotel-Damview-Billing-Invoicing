@@ -3,13 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hotel Damview Billing & Invoicing</title>
+    <title>Hotel Damview Management Suite</title>
     <script>
-      // Universal Single Page App redirect for GitHub Pages & custom hosting
+      // Universal Single Page App redirect & GitHub Pages recovery engine
       (function(l) {
         var isGithubIo = l.hostname.endsWith('github.io');
         var pathSegments = l.pathname.split('/').filter(Boolean);
-        var repoPrefix = (isGithubIo && pathSegments.length > 0) ? '/' + pathSegments[0] + '/' : '/';
+        var storedPrefix = '';
+        try {
+          storedPrefix = localStorage.getItem('damview_github_repo_prefix') || '';
+        } catch(e) {}
+
+        var repoPrefix = (isGithubIo && pathSegments.length > 0) 
+          ? '/' + pathSegments[0] + '/' 
+          : (storedPrefix || '/');
+
         var appPath = isGithubIo ? pathSegments.slice(1).join('/') : pathSegments.join('/');
 
         // 1. Missing trailing slash on repository base: e.g. /my-repo -> /my-repo/
@@ -18,13 +26,20 @@
           return;
         }
 
-        // 2. Already at root or no deep path: redirect directly to repoPrefix
-        if (!appPath || appPath === 'index.html') {
+        // 2. Root domain visited on github.io (e.g. user.github.io) while an app is installed:
+        // Automatically route to stored repository path if available
+        if (isGithubIo && pathSegments.length === 0 && storedPrefix) {
+          l.replace(l.protocol + '//' + l.host + storedPrefix + l.search + l.hash);
+          return;
+        }
+
+        // 3. Already at root or no deep path or asset 404: redirect directly to repoPrefix
+        if (!appPath || appPath === 'index.html' || appPath.startsWith('assets/')) {
           l.replace(l.protocol + '//' + l.host + repoPrefix + l.search + l.hash);
           return;
         }
 
-        // 3. Deep SPA path: encode into query parameter ?p=
+        // 4. Deep SPA path: encode into query parameter ?p=
         var search = l.search ? '&q=' + l.search.slice(1).replace(/&/g, '~and~') : '';
         l.replace(
           l.protocol + '//' + l.host +
@@ -52,24 +67,29 @@
       .card {
         background-color: #1c1917;
         border: 1px solid #292524;
-        border-radius: 12px;
-        padding: 32px;
-        max-width: 440px;
+        border-radius: 14px;
+        padding: 36px 28px;
+        max-width: 480px;
         box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
       }
       .title {
         color: #fbbf24;
-        font-size: 18px;
-        font-weight: 700;
+        font-size: 20px;
+        font-weight: 800;
         margin-bottom: 8px;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.03em;
         text-transform: uppercase;
       }
       .desc {
         color: #a8a29e;
         font-size: 13px;
         margin-bottom: 24px;
-        line-height: 1.5;
+        line-height: 1.6;
+      }
+      .actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
       }
       .btn {
         display: inline-block;
@@ -77,29 +97,72 @@
         color: #0c0a09;
         font-weight: 700;
         font-size: 13px;
-        padding: 10px 20px;
-        border-radius: 6px;
+        padding: 12px 20px;
+        border-radius: 8px;
         text-decoration: none;
         transition: background-color 0.15s;
+        border: none;
+        cursor: pointer;
       }
       .btn:hover {
         background-color: #fbbf24;
+      }
+      .btn-secondary {
+        background-color: #292524;
+        color: #d6d3d1;
+        border: 1px solid #44403c;
+      }
+      .btn-secondary:hover {
+        background-color: #44403c;
+        color: #ffffff;
       }
     </style>
   </head>
   <body>
     <div class="card">
       <div class="title">Hotel Damview Suite</div>
-      <p class="desc">Redirecting to application workspace...</p>
-      <a href="./" class="btn" id="reloadBtn">Enter Application</a>
+      <p class="desc" id="statusDesc">
+        Redirecting to application workspace and synchronizing with the latest GitHub deployment...
+      </p>
+      <div class="actions">
+        <a href="./" class="btn" id="reloadBtn">Enter Application Workspace</a>
+        <button type="button" class="btn btn-secondary" id="clearCacheBtn" onclick="wipeCacheAndEnter()">
+          Wipe Cache &amp; Reload Latest Build
+        </button>
+      </div>
     </div>
     <script>
+      function wipeCacheAndEnter() {
+        var statusDesc = document.getElementById('statusDesc');
+        if (statusDesc) statusDesc.textContent = 'Clearing outdated caches and reloading latest deployment...';
+        if ('caches' in window) {
+          caches.keys().then(function(keys) {
+            return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+          }).finally(function() {
+            proceedToApp();
+          });
+        } else {
+          proceedToApp();
+        }
+      }
+
+      function proceedToApp() {
+        var isGithubIo = window.location.hostname.endsWith('github.io');
+        var parts = window.location.pathname.split('/').filter(Boolean);
+        var stored = '';
+        try { stored = localStorage.getItem('damview_github_repo_prefix') || ''; } catch(e) {}
+        var prefix = (isGithubIo && parts.length > 0) ? '/' + parts[0] + '/' : (stored || '/');
+        window.location.replace(window.location.protocol + '//' + window.location.host + prefix + '?t=' + Date.now() + window.location.hash);
+      }
+
       (function() {
         var btn = document.getElementById('reloadBtn');
         if (btn) {
           var isGithubIo = window.location.hostname.endsWith('github.io');
           var parts = window.location.pathname.split('/').filter(Boolean);
-          var prefix = (isGithubIo && parts.length > 0) ? '/' + parts[0] + '/' : '/';
+          var stored = '';
+          try { stored = localStorage.getItem('damview_github_repo_prefix') || ''; } catch(e) {}
+          var prefix = (isGithubIo && parts.length > 0) ? '/' + parts[0] + '/' : (stored || '/');
           btn.href = prefix + window.location.hash;
         }
       })();

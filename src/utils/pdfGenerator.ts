@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
 import { getPdfFileName, formatKsh, formatDate } from './formatters';
+import { getHotelArchiveFolderName } from '../services/localBackupService';
 import { BillingDocument, HotelProfile, PaymentRecord, StatementRecord, Client, LedgerEntry } from '../types';
 import { A4DocumentPreview } from '../components/A4DocumentPreview';
 import { A4ReceiptPreview } from '../components/A4ReceiptPreview';
@@ -693,8 +694,8 @@ export function generateTestPdfDocument(options?: {
   targetFolder?: string;
 }): GeneratePdfResult {
   const testId = options?.testId || `TEST-${Date.now().toString().slice(-6)}`;
-  const hotelName = options?.hotelName || 'HOTEL DAMVIEW RESORT';
-  const targetFolder = options?.targetFolder || 'Hotel Damview Archives';
+  const hotelName = options?.hotelName || 'Hotel Damview';
+  const targetFolder = options?.targetFolder || getHotelArchiveFolderName(hotelName);
   const timestamp = new Date().toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' });
   const dateStr = new Date().toISOString().split('T')[0];
   const fileName = `TEST_DRIVE_${testId}_${dateStr}.pdf`;
@@ -873,6 +874,7 @@ export const formatKenyanPhoneForWhatsApp = formatKenyanPhone;
 
 /**
  * Builds concise, standardized operational summary text for Billing Documents (INV, QT, PI)
+ * Perfect as a companion message when exporting, sharing, or sending PDFs.
  */
 export function getDocumentOperationalSummary(
   doc: BillingDocument,
@@ -885,30 +887,36 @@ export function getDocumentOperationalSummary(
       ? 'Quotation'
       : 'Proforma Invoice';
 
-  const hotelName = (profile.name || 'Hotel Damview Resort').trim();
+  const companyName = (profile.name?.trim() || profile.hotelName?.trim() || 'Organization').trim();
   const bankDetails =
     profile.bankName?.trim() && profile.accountNumber?.trim()
-      ? `• Bank Settlement: ${profile.bankName.trim()} | Acc: ${profile.accountNumber.trim()}`
+      ? `• Bank Settlement: ${profile.bankName.trim()} | Acc: ${profile.accountNumber.trim()}${profile.bankBranch?.trim() ? ` (${profile.bankBranch.trim()})` : ''}`
       : '';
   const mpesaDetails = profile.mpesaTillNumber?.trim()
     ? `• M-Pesa Buy Goods Till: ${profile.mpesaTillNumber.trim()}`
     : '';
-  const contactPhone = profile.phone?.trim() ? `• Accounts / Inquiries: ${profile.phone.trim()}` : '';
+  const contactDetails = [
+    profile.phone?.trim() ? `• Phone: ${profile.phone.trim()}` : '',
+    profile.email?.trim() ? `• Email: ${profile.email.trim()}` : '',
+  ].filter(Boolean).join('\n');
 
-  const settlementBlock = [bankDetails, mpesaDetails, contactPhone].filter(Boolean).join('\n');
+  const settlementBlock = [bankDetails, mpesaDetails, contactDetails].filter(Boolean).join('\n');
 
   return [
-    `*${hotelName.toUpperCase()}*`,
-    `${docTypeLabel} Ref: *${doc.documentNumber}*`,
-    `Client: *${doc.clientName}*`,
-    `Issue Date: ${formatDate(doc.issueDate)} | Due Date: ${formatDate(doc.dueDate)}`,
+    `*${companyName.toUpperCase()}*`,
+    `Dear ${doc.clientName || 'Valued Client'},`,
+    `Please find attached your official ${docTypeLabel} (${doc.documentNumber}) from ${companyName}.`,
+    ``,
+    `• Document Ref: *${doc.documentNumber}*`,
+    `• Recipient: *${doc.clientName || 'Valued Client'}*`,
+    `• Issue Date: ${formatDate(doc.issueDate)} | Due Date: ${formatDate(doc.dueDate)}`,
     ``,
     `*Total Invoiced:* ${formatKsh(doc.grandTotal)}`,
-    doc.documentType !== 'QUOTATION' ? `*Amount Paid:* ${formatKsh(doc.amountPaid || 0)}` : '',
+    doc.documentType !== 'QUOTATION' && (doc.amountPaid || 0) > 0 ? `*Amount Paid:* ${formatKsh(doc.amountPaid || 0)}` : '',
     doc.documentType !== 'QUOTATION' ? `*Balance Due:* *${formatKsh(doc.balanceDue || 0)}*` : '',
-    settlementBlock ? `\nPayment Settlement:\n${settlementBlock}` : '',
-    doc.driveFileUrl ? `\nCloud Archive Link:\n${doc.driveFileUrl}` : '',
-    `\nThank you for choosing ${hotelName}!`,
+    settlementBlock ? `\nPayment Settlement & Inquiries:\n${settlementBlock}` : '',
+    doc.driveFileUrl ? `\nCloud Archive PDF:\n${doc.driveFileUrl}` : '',
+    `\nThank you for doing business with ${companyName}!`,
   ]
     .filter((line) => line !== '')
     .join('\n');
@@ -916,6 +924,7 @@ export function getDocumentOperationalSummary(
 
 /**
  * Builds concise, standardized operational summary text for Payment Receipts (REC)
+ * Perfect as a companion message when exporting, sharing, or sending PDFs.
  */
 export function getReceiptOperationalSummary(
   payment: {
@@ -930,14 +939,17 @@ export function getReceiptOperationalSummary(
   },
   profile: HotelProfile
 ): string {
-  const hotelName = (profile.name || 'Hotel Damview Resort').trim();
+  const companyName = (profile.name?.trim() || profile.hotelName?.trim() || 'Organization').trim();
   const contactPhone = profile.phone?.trim() ? `\nAccounts Desk: ${profile.phone.trim()}` : '';
 
   return [
-    `*${hotelName.toUpperCase()} - OFFICIAL RECEIPT*`,
-    `Receipt Voucher: *${payment.receiptNumber}*`,
-    `Received From: *${payment.clientName}*`,
-    `Payment Date: ${formatDate(payment.date)}`,
+    `*${companyName.toUpperCase()} - OFFICIAL PAYMENT RECEIPT*`,
+    `Dear ${payment.clientName || 'Valued Client'},`,
+    `Thank you for your payment. Please find your official payment receipt (${payment.receiptNumber}) attached.`,
+    ``,
+    `• Receipt Voucher: *${payment.receiptNumber}*`,
+    `• Received From: *${payment.clientName || 'Valued Client'}*`,
+    `• Payment Date: ${formatDate(payment.date)}`,
     ``,
     `*Amount Settled:* *${formatKsh(payment.amount)}*`,
     `*Payment Mode:* ${payment.paymentMode}`,
@@ -945,7 +957,8 @@ export function getReceiptOperationalSummary(
     payment.referenceNote ? `*Reference / Note:* ${payment.referenceNote}` : '',
     payment.driveFileUrl ? `\nOfficial Drive Receipt:\n${payment.driveFileUrl}` : '',
     contactPhone,
-    `\nThank you for your prompt settlement!`,
+    `\nThank you for your prompt settlement and valued partnership!`,
+    `— ${companyName}`,
   ]
     .filter((line) => line !== '')
     .join('\n');
@@ -953,6 +966,7 @@ export function getReceiptOperationalSummary(
 
 /**
  * Builds concise, standardized operational summary text for Statements of Account (SOA)
+ * Perfect as a companion message when exporting, sharing, or sending PDFs.
  */
 export function getStatementOperationalSummary(
   statement: {
@@ -967,21 +981,25 @@ export function getStatementOperationalSummary(
   },
   profile: HotelProfile
 ): string {
-  const hotelName = (profile.name || 'Hotel Damview Resort').trim();
+  const companyName = (profile.name?.trim() || profile.hotelName?.trim() || 'Organization').trim();
   const contactPhone = profile.phone?.trim() ? `\nAccounts Inquiries: ${profile.phone.trim()}` : '';
 
   return [
-    `*${hotelName.toUpperCase()} - STATEMENT OF ACCOUNT*`,
-    statement.statementNumber ? `Statement Ref: *${statement.statementNumber}*` : '',
-    `Client: *${statement.clientName}*`,
-    `Period Covered: ${formatDate(statement.startDate)} to ${formatDate(statement.endDate)}`,
+    `*${companyName.toUpperCase()} - STATEMENT OF ACCOUNT*`,
+    `Dear ${statement.clientName || 'Valued Client'},`,
+    `Please find your official Statement of Account attached from ${companyName} for period ${formatDate(statement.startDate)} to ${formatDate(statement.endDate)}.`,
+    ``,
+    statement.statementNumber ? `• Statement Ref: *${statement.statementNumber}*` : '',
+    `• Client: *${statement.clientName || 'Valued Client'}*`,
+    `• Period Covered: ${formatDate(statement.startDate)} to ${formatDate(statement.endDate)}`,
     ``,
     `*Total Invoiced (Debit):* ${formatKsh(statement.totalDebit || 0)}`,
     `*Total Settled (Credit):* ${formatKsh(statement.totalCredit || 0)}`,
     `*Current Outstanding Balance:* *${formatKsh(statement.closingBalance)}*`,
     statement.driveFileUrl ? `\nStatement PDF Cloud Link:\n${statement.driveFileUrl}` : '',
     contactPhone,
-    `\nPlease find your official Statement of Account PDF attached.`,
+    `\nPlease review the attached official Statement of Account PDF for full transaction records.`,
+    `— ${companyName}`,
   ]
     .filter((line) => line !== '')
     .join('\n');

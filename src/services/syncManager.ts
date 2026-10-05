@@ -1,4 +1,5 @@
 import { dbService } from './db';
+import { getHotelArchiveFolderName } from './localBackupService';
 import {
   BillingDocument,
   Client,
@@ -683,7 +684,7 @@ class EnterpriseSyncManager {
       }
     }
 
-    const targetFolder = folderName || profile?.googleDriveFolder || (profile?.name ? `${profile.name} Archives` : 'Archives');
+    const targetFolder = folderName || profile?.googleDriveFolder || getHotelArchiveFolderName(profile?.name);
 
     let attempt = 0;
     let lastError = 'Upload failed';
@@ -1170,6 +1171,73 @@ class EnterpriseSyncManager {
 
   public getDocumentActionTraces(): any[] {
     return this.lifecycleTraces;
+  }
+
+  /**
+   * Push and publish Hotel Profile / Credentials directly to Google Sheets (Hotel_Profile tab)
+   */
+  public async pushHotelProfile(profileToPush?: HotelProfile): Promise<{ success: boolean; error?: string }> {
+    try {
+      const current = profileToPush || (await dbService.getHotelProfile());
+      const webAppUrl = current?.googleWebAppUrl;
+      if (!webAppUrl || !webAppUrl.trim().startsWith('http')) {
+        return { success: false, error: 'Google Apps Script Web App URL is not configured.' };
+      }
+      const res = await this.postToScript(webAppUrl, {
+        action: 'UPSERT_PROFILE',
+        profile: current,
+        timestamp: new Date().toISOString(),
+      });
+      return { success: Boolean(res?.success), error: res?.error };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to push hotel profile to Google Sheets.' };
+    }
+  }
+
+  /**
+   * Test connection to Google Apps Script Web App
+   */
+  public async testConnection(webAppUrl: string): Promise<{ ok: boolean; message: string; sheetUrl?: string; sheetName?: string; tabs?: any[]; profile?: any }> {
+    try {
+      if (!webAppUrl || !webAppUrl.startsWith('http')) {
+        return { ok: false, message: 'Invalid URL. Enter a valid Google Apps Script Web App URL.' };
+      }
+      const res = await this.postToScript(webAppUrl, { action: 'PING', timestamp: new Date().toISOString() });
+      if (!res?.success) {
+        return { ok: false, message: res?.error || 'Connection test failed.' };
+      }
+      return {
+        ok: true,
+        message: res.message || 'Connected successfully to Google Apps Script backend.',
+        sheetUrl: res.sheetUrl,
+        sheetName: res.sheetName,
+        tabs: res.tabs || [],
+        profile: res.profile,
+      };
+    } catch (err: any) {
+      return { ok: false, message: err?.message || 'Connection test encountered an error.' };
+    }
+  }
+
+  /**
+   * Pull and populate Hotel Profile / Credentials directly from Google Sheets (Hotel_Profile tab)
+   */
+  public async pullHotelProfile(webAppUrlOverride?: string): Promise<{ success: boolean; profile?: HotelProfile; error?: string }> {
+    try {
+      const current = await dbService.getHotelProfile();
+      const webAppUrl = webAppUrlOverride || current?.googleWebAppUrl;
+      if (!webAppUrl || !webAppUrl.trim().startsWith('http')) {
+        return { success: false, error: 'Google Apps Script Web App URL is not configured.' };
+      }
+      const res = await this.testConnection(webAppUrl);
+      if (res.ok && res.profile && Object.keys(res.profile).length > 0) {
+        const fullProf = await dbService.getHotelProfile();
+        return { success: true, profile: fullProf };
+      }
+      return { success: res.ok, error: res.message };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to pull hotel profile from Google Sheets.' };
+    }
   }
 
   /**

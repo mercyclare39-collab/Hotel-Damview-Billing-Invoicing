@@ -18,7 +18,7 @@ export const HotelLogo: React.FC<HotelLogoProps> = ({
   hotelName = 'Hotel Logo',
 }) => {
   const finalHeight = height !== undefined ? (typeof height === 'number' ? `${height}px` : height) : `${size}px`;
-  const finalWidth = height !== undefined ? 'auto' : `${size}px`;
+  const finalWidth = height !== undefined ? (typeof height === 'string' && height.includes('%') ? 'auto' : typeof height === 'number' ? `${height}px` : 'auto') : `${size}px`;
 
   // Fallback to persisted company logo from localStorage if uploaded by user
   const effectiveLogo =
@@ -71,8 +71,9 @@ export const HotelLogo: React.FC<HotelLogoProps> = ({
     <div
       style={{
         height: finalHeight,
-        width: height !== undefined ? finalHeight : `${size}px`,
+        width: height !== undefined ? 'auto' : `${size}px`,
         aspectRatio: '1 / 1',
+        maxHeight: '100%',
         ...style,
       }}
       className={`relative flex flex-col items-center justify-center bg-stone-900 text-amber-400 rounded p-1 border border-stone-800 shadow-sm select-none ${className}`}

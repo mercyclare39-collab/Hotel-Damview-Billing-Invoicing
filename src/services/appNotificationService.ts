@@ -161,19 +161,31 @@ class AppNotificationService {
     const severity = options.severity || 'INFO';
     const isPrompt = options.isPrompt || options.requiresConfirmation || severity === 'PROMPT';
     
-    // Determine auto-dismiss policy
+    // Prevent rapid duplicate toast flooding
+    const nowTs = Date.now();
+    const isDuplicate = this.notifications.some(
+      (n) =>
+        n.title === options.title &&
+        n.message === options.message &&
+        nowTs - new Date(n.timestamp).getTime() < 2000
+    );
+    if (isDuplicate) {
+      return this.notifications[0];
+    }
+
+    // Determine standard auto-dismiss policy
     let autoDismiss = options.autoDismissMs;
     if (autoDismiss === undefined) {
       if (isPrompt) {
         autoDismiss = 0; // Sticky until user interactively decides
       } else if (severity === 'ERROR') {
-        autoDismiss = 9000;
+        autoDismiss = 7000;
       } else if (severity === 'WARNING') {
-        autoDismiss = 7500;
+        autoDismiss = 5500;
       } else if (severity === 'SUCCESS') {
-        autoDismiss = 4000;
+        autoDismiss = 3500;
       } else {
-        autoDismiss = 5000;
+        autoDismiss = 4000;
       }
     }
 

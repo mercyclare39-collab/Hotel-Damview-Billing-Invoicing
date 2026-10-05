@@ -32,6 +32,41 @@ export const CURRENT_BUILD_TIME =
     ? __BUILD_TIME__
     : '2026-09-26T11:03:06.454Z';
 
+/**
+ * Accurately determines the base URL of the application, handling GitHub Pages repositories,
+ * custom domains, PWA standalone launchers, and nested subpaths.
+ */
+export function getAppBaseUrl(): string {
+  if (typeof window === 'undefined') return '/';
+
+  const isGithubIo = window.location.hostname.endsWith('github.io');
+  if (isGithubIo) {
+    const parts = window.location.pathname.split('/').filter(Boolean);
+    if (parts.length > 0) {
+      return `${window.location.origin}/${parts[0]}/`;
+    }
+    try {
+      const stored = localStorage.getItem('damview_github_repo_prefix');
+      if (stored) {
+        const clean = stored.replace(/^\/+|\/+$/g, '');
+        return clean ? `${window.location.origin}/${clean}/` : `${window.location.origin}/`;
+      }
+    } catch {}
+  }
+
+  // Check document <base> if present
+  try {
+    const baseEl = document.querySelector('base');
+    if (baseEl && baseEl.href) {
+      return baseEl.href;
+    }
+  } catch {}
+
+  const pathname = window.location.pathname;
+  const dir = pathname.endsWith('/') ? pathname : pathname.substring(0, pathname.lastIndexOf('/') + 1) || '/';
+  return `${window.location.origin}${dir}`;
+}
+
 type PWAEventListener = (state: PWAState) => void;
 
 class PWAService {
@@ -237,11 +272,8 @@ class PWAService {
     this.lastVersionCheckTime = now;
 
     try {
-      // Determine base URL path
-      const baseUrl = window.location.pathname.endsWith('/')
-        ? window.location.pathname
-        : window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
-
+      // Determine accurate base URL path across GitHub Pages and subpaths
+      const baseUrl = getAppBaseUrl();
       const versionUrl = `${baseUrl}version.json?t=${Date.now()}`;
       const res = await fetch(versionUrl, {
         cache: 'no-store',
@@ -287,31 +319,19 @@ class PWAService {
           this.state.needRefresh = true;
           this.notify();
 
-          // Auto-trigger service worker update
+          // Auto-trigger service worker update in background without disruptive force-reload
           if (this.registration) {
-            await this.registration.update();
-            if (this.registration.waiting) {
-              this.registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-            }
-          }
-
-          // Automatically apply update without requiring user inputs
-          if (!this.isUserActivelyEditing()) {
-            setTimeout(() => {
-              if (!this.isUserActivelyEditing()) {
-                this.applyUpdate();
-              }
-            }, 1000);
+            this.registration.update().catch(() => {});
           }
           return true;
         } else {
-          // App is confirmed already up to date - ALWAYS clear refresh flag!
+          // App is confirmed already up to date - clear refresh flag
           if (this.state.needRefresh) {
             this.state.needRefresh = false;
             this.notify();
           }
 
-          // If a service worker is waiting for the current or older build, auto-activate it silently
+          // If a service worker is waiting for the current or older build, activate it silently
           if (this.registration?.waiting) {
             this.registration.waiting.postMessage({ type: 'SKIP_WAITING' });
           }
@@ -369,20 +389,13 @@ class PWAService {
    * Handles new service worker detection
    */
   private onNewVersionAvailable(worker: ServiceWorker) {
-    // Only set needRefresh after checking remote version.json confirms a genuine new build
+    // Check remote version.json to verify whether waiting worker is a genuine new build
     this.checkRemoteVersionJson().then((isNewer) => {
       if (isNewer) {
         this.state.needRefresh = true;
         this.notify();
-        if (!this.isUserActivelyEditing()) {
-          setTimeout(() => {
-            if (!this.isUserActivelyEditing()) {
-              this.applyUpdate();
-            }
-          }, 1000);
-        }
       } else {
-        // Already on latest build: activate worker without prompting
+        // Already on latest build: activate worker silently
         this.state.needRefresh = false;
         this.notify();
         worker.postMessage({ type: 'SKIP_WAITING' });
@@ -413,26 +426,19 @@ class PWAService {
   }
 
   /**
-   * Applies the waiting update and safely reloads the application with zero data loss
+   * Applies the waiting update and standardly reloads the application
    */
   public applyUpdate() {
     if (typeof window === 'undefined') return;
 
     try {
-      // Record applied build timestamp to permanently prevent re-prompting once reloaded
       const targetTime = this.state.remoteBuildTime
         ? new Date(this.state.remoteBuildTime).getTime()
         : Date.now();
       localStorage.setItem('damview_applied_build_time', String(targetTime));
       this.state.needRefresh = false;
       this.notify();
-      // Notify all active forms/editors to flush unsaved draft state immediately
       window.dispatchEvent(new CustomEvent('damview-before-app-update'));
-      appNotificationService.notifyAppUpdate(
-        'Applying App Update',
-        'Reloading application smoothly with zero draft or data loss...',
-        'SUCCESS'
-      );
     } catch {}
 
     if (this.registration && this.registration.waiting) {
@@ -442,19 +448,18 @@ class PWAService {
     this.refreshing = true;
     setTimeout(() => {
       window.location.reload();
-    }, 80);
+    }, 60);
   }
 
   /**
-   * Permanent Nuclear Cache Wipe & Force Update:
-   * Clears CacheStorage, unregisters stale Service Workers, and forces hard reload
+   * Clears CacheStorage, unregisters stale Service Workers, and reloads standardly
    */
   public async forceClearCacheAndReload(): Promise<void> {
     if (typeof window === 'undefined') return;
 
     try {
       // 1. Delete all CacheStorage caches
-      if ('caches' in window) {
+      if (typeof caches !== 'undefined') {
         const keys = await caches.keys();
         await Promise.all(keys.map((key) => caches.delete(key)));
       }
@@ -465,15 +470,8 @@ class PWAService {
         await Promise.all(registrations.map((reg) => reg.unregister()));
       }
 
-      // 3. Clear session storage flags
-      try {
-        sessionStorage.clear();
-      } catch {}
-
-      // 4. Force hard reload with cache buster query
-      const url = new URL(window.location.href);
-      url.searchParams.set('force_update', Date.now().toString());
-      window.location.href = url.toString();
+      // 3. Standard clean reload
+      window.location.reload();
     } catch {
       window.location.reload();
     }

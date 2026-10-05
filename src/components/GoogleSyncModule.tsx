@@ -8,6 +8,7 @@ import {
   AuditLogEntry,
 } from '../types';
 import { dbService } from '../services/db';
+import { getHotelArchiveFolderName } from '../services/localBackupService';
 import {
   syncManager,
   SpreadsheetDataPayload,
@@ -461,8 +462,14 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
 
     try {
       const result = await syncManager.testConnection(targetUrl);
-      if (result.ok && result.sheetUrl && profile && onUpdateProfile) {
-        onUpdateProfile({ ...profile, googleSheetUrl: result.sheetUrl });
+      if (result.ok) {
+        if (result.profile && Object.keys(result.profile).length > 0) {
+          const fullProf = await dbService.getHotelProfile();
+          setProfile(fullProf);
+          if (onUpdateProfile) onUpdateProfile(fullProf);
+        } else if (result.sheetUrl && profile && onUpdateProfile) {
+          onUpdateProfile({ ...profile, googleSheetUrl: result.sheetUrl });
+        }
       }
 
       // Detect version if reported by backend
@@ -487,10 +494,11 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
       }
 
       const tabCount = result.tabs && result.tabs.length > 0 ? ` (${result.tabs.length} tabs verified)` : '';
+      const profileNote = result.profile && Object.keys(result.profile).length > 0 ? ' & Hotel Settings populated' : '';
       setSyncFeedback({
         type: result.ok ? 'success' : 'error',
         message: result.ok
-          ? `Connected & Verified: Hotel Damview Google Workspace Backend is online and responding${tabCount}.`
+          ? `Connected & Verified: Google Workspace Backend is online and responding${tabCount}${profileNote}.`
           : result.message,
         timestamp: new Date().toLocaleTimeString(),
       });
@@ -521,7 +529,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
     setTestPdfResult(null);
     try {
       const res = await syncManager.uploadTestPdfToDrive({
-        folderName: profile?.googleDriveFolder || (profile?.name ? `${profile.name} Archives` : 'Archives'),
+        folderName: profile?.googleDriveFolder || getHotelArchiveFolderName(profile?.name),
       });
 
       if (res.success) {
@@ -536,7 +544,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
         });
         setSyncFeedback({
           type: 'success',
-          message: `Test PDF "${res.fileName}" successfully uploaded to Google Drive folder "${res.folderName || (profile?.name ? `${profile.name} Archives` : 'Archives')}"!`,
+          message: `Test PDF "${res.fileName}" successfully uploaded to Google Drive folder "${res.folderName || getHotelArchiveFolderName(profile?.name)}"!`,
           timestamp: new Date().toLocaleTimeString(),
         });
       } else {
@@ -1389,7 +1397,7 @@ export const GoogleSyncModule: React.FC<GoogleSyncModuleProps> = ({
             <span>
               Drive Archive Folder:{' '}
               <strong className="text-stone-200">
-                {profile?.googleDriveFolder || (profile?.name ? `${profile.name} Archives` : 'Not Configured')}
+                {profile?.googleDriveFolder || getHotelArchiveFolderName(profile?.name)}
               </strong>
             </span>
           </div>

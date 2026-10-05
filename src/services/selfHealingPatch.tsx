@@ -176,10 +176,36 @@ export function initSelfHealingPatch(): void {
     originalConsoleInfo(...args);
   };
 
-  // 2. Intercept unhandled promise rejections (e.g. background fetch dropouts, blob aborts, quota drops)
+  // 2. Intercept unhandled promise rejections (e.g. background fetch dropouts, blob aborts, quota drops, or stale redeployment chunks)
   window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
     const reason = event.reason;
     const message = reason instanceof Error ? reason.message : String(reason || 'Unhandled Promise Rejection');
+
+    // Detect stale chunk load error due to GitHub redeployment (old chunk returned 404)
+    if (
+      message.includes('Failed to fetch dynamically imported module') ||
+      message.includes('Loading chunk') ||
+      message.includes('error loading dynamically imported module') ||
+      message.includes('CSS chunk load failed')
+    ) {
+      event.preventDefault();
+      console.warn('[Self-Healing] Intercepted missing chunk following GitHub redeployment. Auto-recovering latest build...');
+      if (typeof window !== 'undefined' && typeof window.location !== 'undefined') {
+        const now = Date.now();
+        const lastReload = Number(sessionStorage.getItem('damview_chunk_error_reload') || 0);
+        if (now - lastReload > 8000) {
+          sessionStorage.setItem('damview_chunk_error_reload', String(now));
+          if (typeof caches !== 'undefined') {
+            caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).finally(() => {
+              window.location.reload();
+            });
+          } else {
+            window.location.reload();
+          }
+        }
+      }
+      return;
+    }
 
     // If it's WebSocket, benign network abort, or Firebase quota failover, ignore silently
     if (
@@ -203,6 +229,23 @@ export function initSelfHealingPatch(): void {
   // 3. Intercept global uncaught errors without breaking UI
   window.addEventListener('error', (event: ErrorEvent) => {
     const message = event.message || '';
+
+    // Detect stale script chunk error
+    if (
+      message.includes('Failed to fetch dynamically imported module') ||
+      message.includes('Loading chunk') ||
+      message.includes('error loading dynamically imported module')
+    ) {
+      event.preventDefault();
+      const now = Date.now();
+      const lastReload = Number(sessionStorage.getItem('damview_chunk_error_reload') || 0);
+      if (now - lastReload > 8000) {
+        sessionStorage.setItem('damview_chunk_error_reload', String(now));
+        window.location.reload();
+      }
+      return;
+    }
+
     if (isWebSocketHmrNoise(message) || isSuppressedFirebaseQuotaNoise(message)) {
       event.preventDefault();
       return;

@@ -30,13 +30,19 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script>
-      // 1. Critical GitHub Pages Trailing Slash Fix:
+      // 1. Critical GitHub Pages Trailing Slash Fix & Repository Identity Persistence:
       // When opened as https://user.github.io/repo without trailing slash, relative paths (./assets/...)
       // resolve incorrectly to https://user.github.io/assets/... which produces a 404 error!
       (function(w) {
         var l = w.location;
         if (l.hostname.endsWith('github.io')) {
           var p = l.pathname.split('/').filter(Boolean);
+          if (p.length >= 1) {
+            try {
+              localStorage.setItem('damview_github_repo_prefix', '/' + p[0] + '/');
+              localStorage.setItem('damview_last_known_url', l.href);
+            } catch(e) {}
+          }
           if (p.length === 1 && !l.pathname.endsWith('/')) {
             l.replace(l.protocol + '//' + l.host + '/' + p[0] + '/' + l.search + l.hash);
             return;
@@ -64,6 +70,28 @@
           }
         }
       }(window.location));
+
+      // 3. GitHub Redeployment Stale Chunk Interceptor:
+      // When app is redeployed on GitHub, old hashed script chunks return 404.
+      // Auto-reload to immediately fetch new build instead of breaking with 404/ChunkLoadError.
+      window.addEventListener('vite:preloadError', function(event) {
+        if (event && event.preventDefault) event.preventDefault();
+        console.warn('[Vite] Preload chunk error detected following GitHub redeployment. Auto-reloading latest build...');
+        var now = Date.now();
+        var lastReload = Number(sessionStorage.getItem('damview_chunk_error_reload') || 0);
+        if (now - lastReload > 8000) {
+          sessionStorage.setItem('damview_chunk_error_reload', String(now));
+          if ('caches' in window) {
+            caches.keys().then(function(keys) {
+              return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+            }).finally(function() {
+              window.location.reload();
+            });
+          } else {
+            window.location.reload();
+          }
+        }
+      });
     </script>
     <script>
       // Permanently neutralize Vite HMR & WebSocket connections

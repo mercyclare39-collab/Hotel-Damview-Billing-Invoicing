@@ -1,4 +1,5 @@
 import { dbService } from './db';
+import { getHotelArchiveFolderName } from './localBackupService';
 import { BillingDocument, Client, PaymentRecord, HotelProfile, LineItem, StatementRecord, SyncQueueItem } from '../types';
 import { getPdfFileName } from '../utils/formatters';
 import { generateTestPdfDocument, generateDocumentPdf, generateReceiptPdf, generateStatementPdf } from '../utils/pdfGenerator';
@@ -1253,11 +1254,11 @@ class GoogleSyncManager {
   }
 
   /**
-   * Test connection to Google Apps Script Web App
+   * Test connection to Google Apps Script Web App and auto-populate Hotel Profile from Google Sheets if available
    */
   async testConnection(
     webAppUrl: string
-  ): Promise<{ ok: boolean; message: string; sheetUrl?: string; sheetName?: string; tabs?: any[] }> {
+  ): Promise<{ ok: boolean; message: string; sheetUrl?: string; sheetName?: string; tabs?: any[]; profile?: any }> {
     if (!webAppUrl || !webAppUrl.startsWith('http')) {
       return {
         ok: false,
@@ -1277,21 +1278,48 @@ class GoogleSyncManager {
       };
     }
 
+    // Auto-populate Google Sheet URL and saved Hotel Profile from Google Sheets
+    const updates: Partial<HotelProfile> = {
+      googleWebAppUrl: webAppUrl.trim(),
+    };
     if (res.sheetUrl) {
-      try {
-        const prof = await dbService.getHotelProfile();
-        if (!prof.googleSheetUrl) {
-          await dbService.saveHotelProfile({ googleSheetUrl: res.sheetUrl });
-        }
-      } catch {}
+      updates.googleSheetUrl = res.sheetUrl;
     }
+
+    if (res.profile && typeof res.profile === 'object' && Object.keys(res.profile).length > 0) {
+      const raw = res.profile;
+      if (raw.name || raw.hotelName) updates.name = String(raw.name || raw.hotelName).trim();
+      if (raw.tagline) updates.tagline = String(raw.tagline).trim();
+      if (raw.kraPin || raw.kra_pin || raw.PIN) updates.kraPin = String(raw.kraPin || raw.kra_pin || raw.PIN).trim();
+      if (raw.email) updates.email = String(raw.email).trim().toLowerCase();
+      if (raw.phone || raw.telephone) updates.phone = String(raw.phone || raw.telephone).trim();
+      if (raw.physicalLocation || raw.location) updates.physicalLocation = String(raw.physicalLocation || raw.location).trim();
+      if (raw.postalAddress || raw.address) updates.postalAddress = String(raw.postalAddress || raw.address).trim();
+      if (raw.bankName) updates.bankName = String(raw.bankName).trim();
+      if (raw.bankBranch) updates.bankBranch = String(raw.bankBranch).trim();
+      if (raw.accountHolder) updates.accountHolder = String(raw.accountHolder).trim();
+      if (raw.accountNumber) updates.accountNumber = String(raw.accountNumber).trim();
+      if (raw.mpesaTillNumber || raw.tillNumber || raw.mpesaTill) updates.mpesaTillNumber = String(raw.mpesaTillNumber || raw.tillNumber || raw.mpesaTill).trim();
+      if (raw.googleDriveFolder) updates.googleDriveFolder = String(raw.googleDriveFolder).trim();
+      if (raw.googleDriveFolderUrl) updates.googleDriveFolderUrl = String(raw.googleDriveFolderUrl).trim();
+      if (raw.googleSheetEmbedUrl) updates.googleSheetEmbedUrl = String(raw.googleSheetEmbedUrl).trim();
+    }
+
+    try {
+      await dbService.saveHotelProfile(updates);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('damview:profile-updated', { detail: updates }));
+        window.dispatchEvent(new CustomEvent('damview:data-changed', { detail: { source: 'test-connection-profile', updates } }));
+      }
+    } catch {}
 
     return {
       ok: true,
-      message: res.message || 'Connected successfully to Hotel Damview Centralized Google Sheets & Drive backend!',
+      message: res.message || 'Connected successfully to Google Sheets & Drive backend!',
       sheetUrl: res.sheetUrl,
       sheetName: res.sheetName,
       tabs: res.tabs || [],
+      profile: res.profile,
     };
   }
 
@@ -1337,7 +1365,7 @@ class GoogleSyncManager {
       document: sanitizedDoc,
       pdfBase64: validPdfBase64,
       fileName: canonicalFileName,
-      folderName: profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives'),
+      folderName: profile.googleDriveFolder || getHotelArchiveFolderName(profile.name),
       timestamp: new Date().toISOString(),
     };
 
@@ -1477,7 +1505,7 @@ class GoogleSyncManager {
   }> {
     const profile = await dbService.getHotelProfile();
     const url = profile.googleWebAppUrl;
-    const targetFolder = options?.folderName || profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives');
+    const targetFolder = options?.folderName || profile.googleDriveFolder || getHotelArchiveFolderName(profile.name);
 
     if (!url || !url.startsWith('http')) {
       return {
@@ -1674,6 +1702,30 @@ class GoogleSyncManager {
   }
 
   /**
+   * Push and publish Hotel Profile / Credentials directly to Google Sheets (Hotel_Profile tab)
+   */
+  async pushHotelProfile(profileToPush?: HotelProfile): Promise<{ success: boolean; error?: string }> {
+    return enterpriseSyncManager.pushHotelProfile(profileToPush);
+  }
+
+  /**
+   * Pull and populate Hotel Profile / Credentials directly from Google Sheets (Hotel_Profile tab)
+   */
+  async pullHotelProfile(webAppUrlOverride?: string): Promise<{ success: boolean; profile?: HotelProfile; error?: string }> {
+    const current = await dbService.getHotelProfile();
+    const targetUrl = webAppUrlOverride || current.googleWebAppUrl;
+    if (!targetUrl || !targetUrl.trim().startsWith('http')) {
+      return { success: false, error: 'Google Apps Script Web App URL is not configured.' };
+    }
+    const res = await this.testConnection(targetUrl);
+    if (res.ok) {
+      const fullProf = await dbService.getHotelProfile();
+      return { success: true, profile: fullProf };
+    }
+    return { success: false, error: res.message };
+  }
+
+  /**
    * Sync a client record in real time (App -> Google Sheets)
    */
   async syncClient(client: Client): Promise<{ success: boolean; error?: string }> {
@@ -1775,7 +1827,7 @@ class GoogleSyncManager {
       payment: sanitizedPayment,
       pdfBase64: validPdfBase64,
       fileName: canonicalFileName,
-      folderName: profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives'),
+      folderName: profile.googleDriveFolder || getHotelArchiveFolderName(profile.name),
       timestamp: new Date().toISOString(),
     };
 
@@ -1908,7 +1960,7 @@ class GoogleSyncManager {
       action: 'CASCADE_DELETE_DOCUMENT',
       documentId,
       documentNumber,
-      folderName: folderName || profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives'),
+      folderName: folderName || profile.googleDriveFolder || getHotelArchiveFolderName(profile.name),
       timestamp: new Date().toISOString(),
     };
 
@@ -3302,7 +3354,7 @@ class GoogleSyncManager {
         posOrders,
         reservations,
         expenses,
-        folderName: profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives'),
+        folderName: profile.googleDriveFolder || getHotelArchiveFolderName(profile.name),
         timestamp: new Date().toISOString(),
       };
 
@@ -3323,7 +3375,7 @@ class GoogleSyncManager {
 
           // 3. Sync Documents
           for (const d of documents) {
-            await this.postToScript(url, { action: 'UPSERT_DOCUMENT', document: d, folderName: profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives') }, 20000);
+            await this.postToScript(url, { action: 'UPSERT_DOCUMENT', document: d, folderName: profile.googleDriveFolder || getHotelArchiveFolderName(profile.name) }, 20000);
           }
 
           // 4. Sync Payments

@@ -14,9 +14,20 @@ interface A4ReceiptPreviewProps {
 export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps>(
   ({ payment, profile, scale = 1, className = '', isPrintVersion = false }, ref) => {
     // Formatted phone & email line with explicit Phone and Email labels
+    const displayName = profile.name?.trim() || profile.hotelName?.trim() || 'HOTEL DAMVIEW';
+    const physicalLocation = profile.physicalLocation?.trim() || (profile as any).location?.trim() || '';
+    const postalAddress = profile.postalAddress?.trim() || (profile as any).address?.trim() || '';
     const phonePart = profile.phone?.trim() ? `Phone: ${profile.phone.trim()}` : '';
     const emailPart = profile.email?.trim() ? `Email: ${profile.email.trim()}` : '';
     const phoneEmail = [phonePart, emailPart].filter(Boolean).join(' | ');
+    const rawPin = profile.kraPin?.trim() || (profile as any).pin?.trim() || '';
+    const cleanKraPin = rawPin
+      ? rawPin.toUpperCase().startsWith('KRA PIN')
+        ? rawPin
+        : rawPin.toUpperCase().startsWith('PIN')
+        ? `KRA ${rawPin}`
+        : `KRA PIN: ${rawPin}`
+      : '';
 
     // Adaptive column width allocation
     const paymentModeLen = (payment.paymentMode || 'Bank Transfer').length;
@@ -53,32 +64,32 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
           <div className="flex-1 flex flex-col">
             {/* 1. HEADER & BRANDING IDENTITY */}
             <div className="relative flex items-center justify-center pb-3 mb-3 border-b-2 border-stone-800">
-              {/* Hotel Logo Top Left */}
-              <div className="absolute left-0 top-0 bottom-3 flex items-center justify-start">
+              {/* Hotel Logo Top Left: Auto-sized proportionally to match total height of adjacent company details block */}
+              <div className="absolute left-0 top-0 bottom-3 flex items-center justify-start max-w-[140px]">
                 <HotelLogo
                   logoBase64={profile.logoBase64}
+                  hotelName={displayName}
+                  height="100%"
                   style={{ maxHeight: '100%', height: '100%', width: 'auto', objectFit: 'contain' }}
                 />
               </div>
 
-              {/* Centered Identity Block */}
-              <div className="text-center px-24">
+              {/* Centered Identity Block: Exact 5-Row Sequence */}
+              <div className="text-center px-28 w-full">
+                {/* Row 1: Company Name */}
                 <h1
-                  style={{ fontSize: '28pt', lineHeight: 1.1 }}
+                  style={{ fontSize: '26pt', lineHeight: 1.15 }}
                   className="font-bold uppercase tracking-tight text-stone-950 m-0 pb-1"
                 >
-                  {profile.name || 'HOTEL DAMVIEW'}
+                  {displayName}
                 </h1>
-                {profile.tagline?.trim() && (
-                  <div className="text-[11pt] font-medium text-stone-700 italic tracking-wide pb-0.5">
-                    {profile.tagline.trim()}
-                  </div>
-                )}
+
+                {/* Rows 2 to 5: Physical Location, Address, Phone and Email, Kra Pin */}
                 <div className="text-[11pt] text-stone-800 leading-snug space-y-0.5">
-                  {profile.physicalLocation?.trim() && <div>{profile.physicalLocation.trim()}</div>}
-                  {profile.postalAddress?.trim() && <div>{profile.postalAddress.trim()}</div>}
+                  {physicalLocation && <div>{physicalLocation}</div>}
+                  {postalAddress && <div>{postalAddress}</div>}
                   {phoneEmail && <div>{phoneEmail}</div>}
-                  {profile.kraPin?.trim() && <div className="font-semibold tracking-wider">KRA PIN: {profile.kraPin.trim()}</div>}
+                  {cleanKraPin && <div className="font-semibold tracking-wider">{cleanKraPin}</div>}
                 </div>
               </div>
             </div>
@@ -271,7 +282,7 @@ export const A4ReceiptPreview = forwardRef<HTMLDivElement, A4ReceiptPreviewProps
             {/* 7. TERMINAL LEGAL FOOTER */}
             <div className="pt-2 border-t border-stone-800 flex items-center justify-between text-[11pt] text-stone-600">
               <div>Official computer generated payment receipt</div>
-              <div className="font-bold text-stone-800">Thank you for choosing {profile.name || 'HOTEL DAMVIEW'}</div>
+              <div className="font-bold text-stone-800">Thank you for choosing {displayName.toUpperCase()}</div>
             </div>
           </div>
         </div>

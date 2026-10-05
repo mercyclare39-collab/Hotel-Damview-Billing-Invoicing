@@ -1,5 +1,6 @@
 import { dbService } from './db';
 import { syncManager } from './syncManager';
+import { getHotelArchiveFolderName } from './localBackupService';
 import { BillingDocument, PaymentRecord, StatementRecord } from '../types';
 
 export interface ArchiverResult {
@@ -28,7 +29,7 @@ export class DriveArchiver {
     pdfBlob?: Blob
   ): Promise<ArchiverResult> {
     const profile = await dbService.getHotelProfile();
-    const targetFolder = folderName || profile.googleDriveFolder || (profile.name ? `${profile.name} Archives` : 'Archives');
+    const targetFolder = folderName || profile.googleDriveFolder || getHotelArchiveFolderName(profile.name);
 
     // Call central sync manager to execute multipart/form-data PDF upload with retries
     const response = await syncManager.uploadPdfWithMultipartFormData({

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   FileText,
   DollarSign,
@@ -52,87 +52,118 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onRecordPayment,
   onEditDocument,
 }) => {
-  // Current month & year
-  const now = new Date();
-  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const currentYearStr = `${now.getFullYear()}`;
+  // Memoized executive metrics and analytical data
+  const {
+    activeQuotations,
+    activeQuotationsValue,
+    pendingInvoices,
+    pendingInvoicesValue,
+    settledMTD,
+    settledYTD,
+    overdueInvoices,
+    monthlyData,
+    maxChartValue,
+    topClients,
+    totalInvoicedAll,
+    currentYearStr,
+    recentDocuments,
+  } = useMemo(() => {
+    const now = new Date();
+    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentYearStr = `${now.getFullYear()}`;
+    const todayStr = formatDate();
 
-  // 1. Active Quotations
-  const activeQuotations = documents.filter(
-    (d) => d.documentType === 'QUOTATION' && d.status !== 'Paid'
-  );
-  const activeQuotationsValue = activeQuotations.reduce((sum, d) => sum + d.grandTotal, 0);
+    // 1. Active Quotations
+    const activeQuotations = documents.filter(
+      (d) => d.documentType === 'QUOTATION' && d.status !== 'Paid'
+    );
+    const activeQuotationsValue = activeQuotations.reduce((sum, d) => sum + d.grandTotal, 0);
 
-  // 2. Pending Invoices (Accounts Receivable)
-  const pendingInvoices = documents.filter(
-    (d) => d.documentType === 'INVOICE' && (d.balanceDue || 0) > 0
-  );
-  const pendingInvoicesValue = pendingInvoices.reduce((sum, d) => sum + (d.balanceDue || 0), 0);
+    // 2. Pending Invoices (Accounts Receivable)
+    const pendingInvoices = documents.filter(
+      (d) => d.documentType === 'INVOICE' && (d.balanceDue || 0) > 0
+    );
+    const pendingInvoicesValue = pendingInvoices.reduce((sum, d) => sum + (d.balanceDue || 0), 0);
 
-  // 3. Settled Payments MTD & YTD
-  const settledMTD = payments
-    .filter((p) => p.date.startsWith(currentMonthStr))
-    .reduce((sum, p) => sum + p.amount, 0);
-
-  const settledYTD = payments
-    .filter((p) => p.date.startsWith(currentYearStr))
-    .reduce((sum, p) => sum + p.amount, 0);
-
-  // 4. Overdue Invoices
-  const todayStr = formatDate();
-  const overdueInvoices = pendingInvoices.filter((d) => d.dueDate < todayStr);
-
-  // 5. Monthly Revenue Trends (Last 6 months)
-  const monthLabels: { key: string; label: string }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = d.toLocaleDateString('en-US', { month: 'short' });
-    monthLabels.push({ key, label });
-  }
-
-  const monthlyData = monthLabels.map(({ key, label }) => {
-    const invoiced = documents
-      .filter((d) => d.documentType === 'INVOICE' && d.issueDate.startsWith(key))
-      .reduce((sum, d) => sum + d.grandTotal, 0);
-    const collected = payments
-      .filter((p) => p.date.startsWith(key))
+    // 3. Settled Payments MTD & YTD
+    const settledMTD = payments
+      .filter((p) => p.date.startsWith(currentMonthStr))
       .reduce((sum, p) => sum + p.amount, 0);
-    return { month: label, invoiced, collected };
-  });
 
-  const maxChartValue = Math.max(
-    ...monthlyData.map((m) => Math.max(m.invoiced, m.collected)),
-    100000
-  );
+    const settledYTD = payments
+      .filter((p) => p.date.startsWith(currentYearStr))
+      .reduce((sum, p) => sum + p.amount, 0);
 
-  // 6. Client Distribution (Top 4 clients by invoiced volume)
-  const clientRevenueMap: Record<string, number> = {};
-  documents
-    .filter((d) => d.documentType === 'INVOICE')
-    .forEach((d) => {
-      clientRevenueMap[d.clientName] = (clientRevenueMap[d.clientName] || 0) + d.grandTotal;
+    // 4. Overdue Invoices
+    const overdueInvoices = pendingInvoices.filter((d) => d.dueDate < todayStr);
+
+    // 5. Monthly Revenue Trends (Last 6 months)
+    const monthLabels: { key: string; label: string }[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short' });
+      monthLabels.push({ key, label });
+    }
+
+    const monthlyData = monthLabels.map(({ key, label }) => {
+      const invoiced = documents
+        .filter((d) => d.documentType === 'INVOICE' && d.issueDate.startsWith(key))
+        .reduce((sum, d) => sum + d.grandTotal, 0);
+      const collected = payments
+        .filter((p) => p.date.startsWith(key))
+        .reduce((sum, p) => sum + p.amount, 0);
+      return { month: label, invoiced, collected };
     });
 
-  const totalInvoicedAll = Object.values(clientRevenueMap).reduce((a, b) => a + b, 0) || 1;
-  const topClients = Object.entries(clientRevenueMap)
-    .map(([name, amount]) => {
-      const matched = clients.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
-      return {
-        id: matched?.id || '',
-        name,
-        amount,
-        percentage: Math.round((amount / totalInvoicedAll) * 100),
-      };
-    })
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, 4);
+    const maxChartValue = Math.max(
+      ...monthlyData.map((m) => Math.max(m.invoiced, m.collected)),
+      100000
+    );
+
+    // 6. Client Distribution (Top 4 clients by invoiced volume)
+    const clientRevenueMap: Record<string, number> = {};
+    documents
+      .filter((d) => d.documentType === 'INVOICE')
+      .forEach((d) => {
+        clientRevenueMap[d.clientName] = (clientRevenueMap[d.clientName] || 0) + d.grandTotal;
+      });
+
+    const totalInvoicedAll = Object.values(clientRevenueMap).reduce((a, b) => a + b, 0) || 1;
+    const topClients = Object.entries(clientRevenueMap)
+      .map(([name, amount]) => {
+        const matched = clients.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
+        return {
+          id: matched?.id || '',
+          name,
+          amount,
+          percentage: Math.round((amount / totalInvoicedAll) * 100),
+        };
+      })
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 4);
+
+    const recentDocuments = documents.slice(0, 5);
+
+    return {
+      activeQuotations,
+      activeQuotationsValue,
+      pendingInvoices,
+      pendingInvoicesValue,
+      settledMTD,
+      settledYTD,
+      overdueInvoices,
+      monthlyData,
+      maxChartValue,
+      topClients,
+      totalInvoicedAll,
+      currentYearStr,
+      recentDocuments,
+    };
+  }, [documents, payments, clients]);
 
   // Colors for donut & legend
   const donutColors = ['#b45309', '#0284c7', '#059669', '#6366f1'];
-
-  // Recent 5 documents
-  const recentDocuments = documents.slice(0, 5);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -142,14 +173,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="flex items-center gap-2 mb-1">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
             <span className="text-xs uppercase tracking-widest text-amber-400 font-bold">
-              Hotel Damview Management System
+              {profile.name || profile.hotelName || 'Enterprise ERP'} Business Suite
             </span>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">
             Billing & Invoicing Command Dashboard
           </h1>
           <p className="text-xs text-stone-400 mt-0.5">
-            {profile.physicalLocation} &bull; KRA PIN: {profile.kraPin}
+            {[
+              profile.physicalLocation?.trim(),
+              profile.postalAddress?.trim(),
+              profile.kraPin?.trim() ? `KRA PIN: ${profile.kraPin.trim()}` : '',
+              profile.phone?.trim() ? `Tel: ${profile.phone.trim()}` : '',
+            ]
+              .filter(Boolean)
+              .join(' • ') || 'Configured via Hotel & System Settings'}
           </p>
         </div>
 

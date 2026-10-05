@@ -224,7 +224,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       {
         id: 'action-settings-profile',
         title: 'Hotel Profile, Tax & Bank Settings',
-        subtitle: 'Update business identity, KRA PIN, bank settlement accounts & passcode',
+        subtitle: 'Update business identity, KRA PIN, bank settlement accounts & cloud sync',
         badge: 'SETTINGS',
         badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
         category: 'Actions' as const,

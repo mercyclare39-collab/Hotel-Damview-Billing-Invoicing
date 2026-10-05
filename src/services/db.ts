@@ -684,151 +684,35 @@ class StorageEngine {
   public reconcileProfile(raw?: Partial<HotelProfile> | null): HotelProfile {
     if (!raw) return { ...DEFAULT_HOTEL_PROFILE };
 
-    // Tagline / Subtitle: default to blank always; purge all original/legacy baked demo strings completely
-    const rawTagline = raw.tagline !== undefined ? String(raw.tagline).trim() : '';
-    const legacyDemoTaglines = [
-      'premier hospitality, accommodation & dining',
-      'luxury & serenity by the dam',
-      'luxury & serenity',
-      'luxury and serenity by the dam',
-      'premier hospitality',
-      'serenity by the dam',
-    ];
-    const isLegacyTagline = legacyDemoTaglines.includes(rawTagline.toLowerCase());
-    const cleanTagline = isLegacyTagline ? '' : rawTagline;
-
-    // Purge legacy baked KRA PIN
-    const legacyKraPins = ['p051453023q', 'p-051453023q', 'p051982741z', 'p-051982741z'];
-    const rawKraPin = raw.kraPin !== undefined ? String(raw.kraPin).trim() : '';
-    const cleanKraPin = legacyKraPins.includes(rawKraPin.toLowerCase().replace(/[^a-z0-9]/g, '')) ? '' : rawKraPin;
-
-    // Purge legacy baked official email
-    const legacyEmails = ['hoteldamview@gmail.com', 'admin@hoteldamview.com'];
-    const rawEmail = raw.email !== undefined ? String(raw.email).trim() : '';
-    const cleanEmail = legacyEmails.includes(rawEmail.toLowerCase()) ? '' : rawEmail;
-
-    // Purge legacy baked phone
-    const legacyPhones = ['+254 725 242 620', '+254725242620', '+25472524262', '0725242620', '254725242620', '25472524262'];
-    const rawPhone = raw.phone !== undefined ? String(raw.phone).trim() : '';
-    const cleanPhone = legacyPhones.includes(rawPhone.replace(/\s+/g, '')) ? '' : rawPhone;
-
-    // Purge legacy baked location
-    const legacyLocations = ['mariakani'];
-    const rawLocation = raw.physicalLocation !== undefined ? String(raw.physicalLocation).trim() : '';
-    const cleanLocation = legacyLocations.includes(rawLocation.toLowerCase()) ? '' : rawLocation;
-
-    // Purge legacy baked address
-    const legacyAddresses = ['p.o. box 42491-80100, mombasa, kenya', 'p.o. box 42491-80100', 'mombasa, kenya'];
-    const rawAddress = raw.postalAddress !== undefined ? String(raw.postalAddress).trim() : '';
-    const cleanAddress = legacyAddresses.includes(rawAddress.toLowerCase()) ? '' : rawAddress;
-
-    // Purge legacy baked Google Apps Script Web App URL
-    const legacyWebAppUrls = [
-      'https://script.google.com/macros/s/akfycbyds-5xrobh66ryf6x_pm_zikkgvwd720iqrr724ndaz3nhtmlffgsq9_uba5nywnvk/exec',
-    ];
-    const rawWebAppUrl = raw.googleWebAppUrl !== undefined ? String(raw.googleWebAppUrl).trim() : '';
-    const cleanWebAppUrl = legacyWebAppUrls.includes(rawWebAppUrl.toLowerCase()) ? '' : rawWebAppUrl;
-
-    // Purge legacy baked Google Drive folder URL
-    const legacyDriveFolderUrls = [
-      'https://drive.google.com/drive/folders/19buymteqx7nmkwubvcm8n6nisza8hzn',
-    ];
-    const rawDriveFolderUrl = raw.googleDriveFolderUrl !== undefined ? String(raw.googleDriveFolderUrl).trim() : '';
-    const cleanDriveFolderUrl = legacyDriveFolderUrls.includes(rawDriveFolderUrl.toLowerCase()) ? '' : rawDriveFolderUrl;
-
-    // Purge legacy baked Google Drive folder name
-    const legacyDriveFolders = ['hotel damview archives'];
-    const rawDriveFolder = raw.googleDriveFolder !== undefined ? String(raw.googleDriveFolder).trim() : '';
-    const cleanDriveFolder = legacyDriveFolders.includes(rawDriveFolder.toLowerCase()) ? '' : rawDriveFolder;
-
-    // Purge legacy baked hotel names
-    const legacyHotelNames = ['hotel damview', 'hotel damview resort', 'hotel damview ltd'];
-    const rawName = raw.name !== undefined ? String(raw.name).trim() : '';
-    const cleanName = legacyHotelNames.includes(rawName.toLowerCase()) ? '' : rawName;
-
-    // Bank and settlement credentials: default to blank unless officially entered
-    // Purge all original/legacy demo credentials completely
-    const rawBankName = raw.bankName !== undefined ? String(raw.bankName).trim() : '';
-    const rawBankBranch = raw.bankBranch !== undefined ? String(raw.bankBranch).trim() : '';
-    const rawAccountHolder = raw.accountHolder !== undefined ? String(raw.accountHolder).trim() : '';
-    const rawAccountNo = raw.accountNumber !== undefined ? String(raw.accountNumber).trim() : '';
-    const rawMpesa = raw.mpesaTillNumber !== undefined ? String(raw.mpesaTillNumber).trim() : '';
-
-    const legacyDemoBankNames = [
-      'kcb bank kenya',
-      'kenya commercial bank',
-      'kenya commercial bank (kcb)',
-      'kcb',
-      'equity bank',
-      'equity bank kenya',
-      'equity bank machakos',
-      'equity bank limited',
-    ];
-    const legacyDemoAccountNos = [
-      '1102983746',
-      '0123456789012',
-    ];
-    const legacyDemoBranches = [
-      'mariakani branch',
-      'machakos branch',
-      'machakos main branch',
-      'machakos',
-    ];
-    const legacyDemoHolders = [
-      'hotel damview enterprises ltd',
-      'hotel damview ltd',
-      'hotel damview',
-    ];
-
-    const isLegacyDemoBank =
-      legacyDemoBankNames.includes(rawBankName.toLowerCase()) ||
-      legacyDemoAccountNos.includes(rawAccountNo.replace(/\s+/g, '')) ||
-      (rawBankName.length > 0 && legacyDemoBranches.includes(rawBankBranch.toLowerCase())) ||
-      (rawBankName.length > 0 && legacyDemoHolders.includes(rawAccountHolder.toLowerCase()));
-
-    const cleanBankName = isLegacyDemoBank ? '' : rawBankName;
-    const cleanBankBranch = isLegacyDemoBank ? '' : rawBankBranch;
-    const cleanAccountHolder = isLegacyDemoBank ? '' : rawAccountHolder;
-    const cleanAccountNo = isLegacyDemoBank ? '' : rawAccountNo;
-    const cleanMpesa = (rawMpesa === '5432100' && (isLegacyDemoBank || rawBankName === 'KCB Bank Kenya' || !rawBankName)) ? '' : rawMpesa;
-
-    // Purge baked company logo if matched
-    let cleanLogo = raw.logoBase64 !== undefined ? String(raw.logoBase64).trim() : '';
+    let effectiveLogo = raw.logoBase64 !== undefined ? String(raw.logoBase64).trim() : '';
     if (typeof window !== 'undefined' && window.localStorage) {
       const storedLogo = localStorage.getItem('damview_company_logo');
-      if (storedLogo && storedLogo.length > 50 && storedLogo.includes('iVBORw0KGgoAAAANSUhEUgAAAKAAAACgCAYAAAB')) {
-        try {
-          localStorage.removeItem('damview_company_logo');
-        } catch {}
-      } else if (storedLogo && !cleanLogo) {
-        cleanLogo = storedLogo;
+      if (storedLogo && !effectiveLogo) {
+        effectiveLogo = storedLogo;
       }
-    }
-    if (cleanLogo.includes('iVBORw0KGgoAAAANSUhEUgAAAKAAAACgCAYAAAB')) {
-      cleanLogo = '';
     }
 
     return {
-      name: cleanName,
-      tagline: cleanTagline,
-      kraPin: cleanKraPin,
-      email: cleanEmail,
-      phone: cleanPhone,
-      physicalLocation: cleanLocation,
-      postalAddress: cleanAddress,
-      logoBase64: cleanLogo,
-      bankName: cleanBankName,
-      bankBranch: cleanBankBranch,
-      accountHolder: cleanAccountHolder,
-      accountNumber: cleanAccountNo,
-      mpesaTillNumber: cleanMpesa,
+      name: raw.name !== undefined ? String(raw.name).trim() : '',
+      tagline: raw.tagline !== undefined ? String(raw.tagline).trim() : '',
+      kraPin: raw.kraPin !== undefined ? String(raw.kraPin).trim() : '',
+      email: raw.email !== undefined ? String(raw.email).trim() : '',
+      phone: raw.phone !== undefined ? String(raw.phone).trim() : '',
+      physicalLocation: raw.physicalLocation !== undefined ? String(raw.physicalLocation).trim() : '',
+      postalAddress: raw.postalAddress !== undefined ? String(raw.postalAddress).trim() : '',
+      logoBase64: effectiveLogo,
+      bankName: raw.bankName !== undefined ? String(raw.bankName).trim() : '',
+      bankBranch: raw.bankBranch !== undefined ? String(raw.bankBranch).trim() : '',
+      accountHolder: raw.accountHolder !== undefined ? String(raw.accountHolder).trim() : '',
+      accountNumber: raw.accountNumber !== undefined ? String(raw.accountNumber).trim() : '',
+      mpesaTillNumber: raw.mpesaTillNumber !== undefined ? String(raw.mpesaTillNumber).trim() : '',
       vatRate: typeof raw.vatRate === 'number' && !isNaN(raw.vatRate) && raw.vatRate >= 0 ? raw.vatRate : 16,
-      googleWebAppUrl: cleanWebAppUrl,
-      googleDriveFolder: cleanDriveFolder,
+      googleWebAppUrl: raw.googleWebAppUrl !== undefined ? String(raw.googleWebAppUrl).trim() : '',
+      googleDriveFolder: raw.googleDriveFolder !== undefined ? String(raw.googleDriveFolder).trim() : '',
       googleSheetUrl: raw.googleSheetUrl !== undefined ? String(raw.googleSheetUrl).trim() : '',
-      googleDriveFolderUrl: cleanDriveFolderUrl,
+      googleDriveFolderUrl: raw.googleDriveFolderUrl !== undefined ? String(raw.googleDriveFolderUrl).trim() : '',
       googleSheetEmbedUrl: raw.googleSheetEmbedUrl !== undefined ? String(raw.googleSheetEmbedUrl).trim() : '',
-      autoSyncEnabled: cleanWebAppUrl.length > 0 && raw.autoSyncEnabled !== undefined ? Boolean(raw.autoSyncEnabled) : false,
+      autoSyncEnabled: raw.autoSyncEnabled !== undefined ? Boolean(raw.autoSyncEnabled) : false,
       lastSyncTimestamp: raw.lastSyncTimestamp,
     };
   }

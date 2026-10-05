@@ -14,6 +14,10 @@ import {
   Sparkles,
   Cloud,
   CheckCircle2,
+  Copy,
+  Check,
+  MessageSquare,
+  Send,
 } from 'lucide-react';
 import { BillingDocument, PaymentRecord, StatementRecord, HotelProfile } from '../types';
 import { formatKsh, formatDate, getPdfFileName } from '../utils/formatters';
@@ -303,6 +307,38 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
     };
   }, [isOpen, docDescriptor.number, handleCleanDismiss, blobUrl]);
 
+  const [isArchivingToDrive, setIsArchivingToDrive] = useState(false);
+  const [currentDriveUrl, setCurrentDriveUrl] = useState<string | undefined>(
+    doc?.driveFileUrl || payment?.driveFileUrl || statement?.statementRecord?.driveFileUrl
+  );
+  const [driveSyncFeedback, setDriveSyncFeedback] = useState<string | null>(null);
+  const [isMessageCopied, setIsMessageCopied] = useState(false);
+  const [showMessagePreview, setShowMessagePreview] = useState(false);
+
+  // Compute attached companion operational summary message
+  const companionMessage = useMemo(() => {
+    if (doc) {
+      return getDocumentOperationalSummary(doc, profile);
+    } else if (payment) {
+      return getReceiptOperationalSummary(payment, profile);
+    } else if (statement) {
+      return getStatementOperationalSummary(
+        {
+          statementNumber: docDescriptor.number,
+          clientName: docDescriptor.clientName,
+          startDate: statement.startDate || '',
+          endDate: statement.endDate || '',
+          totalDebit: statement.summary?.totalInvoiced || 0,
+          totalCredit: statement.summary?.totalPaid || 0,
+          closingBalance: docDescriptor.total,
+          driveFileUrl: currentDriveUrl || statement.statementRecord?.driveFileUrl,
+        },
+        profile
+      );
+    }
+    return '';
+  }, [doc, payment, statement, docDescriptor, profile, currentDriveUrl]);
+
   // Direct Action Handlers
   const handleOpenNewTab = () => {
     if (pdfBlob) {
@@ -312,12 +348,29 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
     }
   };
 
+  const handleCopyAttachedMessage = () => {
+    if (companionMessage && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(companionMessage).then(() => {
+        setIsMessageCopied(true);
+        setDriveSyncFeedback('Companion short message copied to clipboard!');
+        setTimeout(() => setIsMessageCopied(false), 3500);
+        setTimeout(() => setDriveSyncFeedback(null), 4000);
+      }).catch(() => {});
+    }
+  };
+
   const handleDownload = () => {
-    if (pdfBlob && pdfFileName) {
-      downloadPdfBlob(pdfBlob, pdfFileName);
-    } else if (doc) {
-      const fileName = getPdfFileName(doc.documentNumber, doc.clientName, doc.issueDate);
-      if (pdfBlob) downloadPdfBlob(pdfBlob, fileName);
+    const targetFileName = pdfFileName || (doc ? getPdfFileName(doc.documentNumber, doc.clientName, doc.issueDate) : `${docDescriptor.number}.pdf`);
+    if (pdfBlob) {
+      downloadPdfBlob(pdfBlob, targetFileName);
+      if (companionMessage && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(companionMessage).then(() => {
+          setIsMessageCopied(true);
+          setTimeout(() => setIsMessageCopied(false), 4000);
+        }).catch(() => {});
+      }
+      setDriveSyncFeedback('PDF downloaded! Attached companion message copied to clipboard.');
+      setTimeout(() => setDriveSyncFeedback(null), 4500);
     }
   };
 
@@ -328,12 +381,6 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
       window.print();
     }
   };
-
-  const [isArchivingToDrive, setIsArchivingToDrive] = useState(false);
-  const [currentDriveUrl, setCurrentDriveUrl] = useState<string | undefined>(
-    doc?.driveFileUrl || payment?.driveFileUrl || statement?.statementRecord?.driveFileUrl
-  );
-  const [driveSyncFeedback, setDriveSyncFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     setCurrentDriveUrl(doc?.driveFileUrl || payment?.driveFileUrl || statement?.statementRecord?.driveFileUrl);
@@ -536,6 +583,26 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
             </button>
           )}
 
+          {/* Attached Short Companion Message Button */}
+          {companionMessage && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowMessagePreview((prev) => !prev);
+              }}
+              className={`px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded flex items-center gap-1 sm:gap-1.5 border shadow-2xs cursor-pointer transition-colors ${
+                showMessagePreview || isMessageCopied
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 ring-1 ring-amber-400'
+                  : 'bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-300'
+              }`}
+              title="View or copy the short accompanying message attached to this PDF"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden sm:inline">Attached Message</span>
+              <span className="sm:hidden">Message</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleOpenNewTab}
@@ -590,6 +657,52 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
           </button>
         </div>
       </div>
+
+      {/* Attached Companion Message Banner (Collapsible Preview / Copy) */}
+      {showMessagePreview && companionMessage && (
+        <div
+          className="bg-amber-50/95 border-x border-b border-amber-300 p-3 sm:p-4 text-xs text-stone-900 shadow-sm shrink-0 cursor-default animate-fade-in"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-amber-200">
+            <div className="flex items-center gap-2 font-bold text-amber-950">
+              <MessageSquare className="w-4 h-4 text-amber-700" />
+              <span>Attached Companion Message (Auto-attached on Share &amp; Export)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCopyAttachedMessage}
+                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-[11px] flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
+                title="Copy attached message to clipboard"
+              >
+                {isMessageCopied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Message</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowMessagePreview(false)}
+                className="text-stone-500 hover:text-stone-800 p-1"
+                title="Dismiss message panel"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+          <pre className="whitespace-pre-wrap font-sans text-[11.5px] leading-relaxed text-stone-800 bg-white/80 p-2.5 rounded border border-amber-200 max-h-40 overflow-y-auto select-text">
+            {companionMessage}
+          </pre>
+        </div>
+      )}
 
       {/* Drive Archival Feedback Banner */}
       {driveSyncFeedback && (
@@ -721,13 +834,7 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
           ) : (
             /* TIER 2: High-Fidelity 1:1 Vector View */
             <div className="w-full flex flex-col items-center">
-              <div
-                className="bg-white shadow-2xl origin-top rounded overflow-hidden"
-                style={{
-                  transform: 'scale(0.88)',
-                  transformOrigin: 'top center',
-                }}
-              >
+              <AutoScalingA4Container hideHeaderBar={true} minScale={0.3} maxScale={1.0}>
                 {doc && <A4DocumentPreview doc={doc} profile={profile} />}
                 {payment && <A4ReceiptPreview payment={payment} profile={profile} />}
                 {statement && statement.client && (
@@ -744,7 +851,7 @@ export const UniversalPdfPreviewModal: React.FC<UniversalPdfPreviewModalProps> =
                     closingBalance={docDescriptor.total}
                   />
                 )}
-              </div>
+              </AutoScalingA4Container>
             </div>
           )}
         </div>
